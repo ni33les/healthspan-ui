@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { CtaSection } from "@/components/cta-section";
 import { FeatureRow } from "@/components/feature-row";
 import { HeroSplit } from "@/components/hero-split";
 import { SiteFooter } from "@/components/site-footer";
@@ -39,6 +40,7 @@ export default async function Home({ params }: HomeProps) {
           subheadlineAccent={dictionary.hero.followOnAccent}
         />
         <FeatureRow />
+        <CtaSection />
         <SiteFooter />
       </div>
     </main>
