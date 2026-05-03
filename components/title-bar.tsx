@@ -13,10 +13,10 @@ export function TitleBar({ currentLocale, title }: TitleBarProps) {
       <div className="mx-auto flex h-18 w-full max-w-6xl items-center justify-between gap-4 px-6 sm:px-8">
         <a
           href={`/${currentLocale}`}
-          className="flex min-w-0 items-center gap-3 text-base font-semibold uppercase tracking-[0.14em] text-foreground"
+          aria-label={`${title} home`}
+          className="flex min-w-0 items-center text-foreground"
         >
-          <HealthspanLogo className="h-10 w-10 shrink-0" />
-          <span className="truncate">{title}</span>
+          <HealthspanLogo className="shrink-0" />
         </a>
         <LanguageSwitcher currentLocale={currentLocale} />
       </div>
