@@ -12,10 +12,25 @@ type CtaSectionProps = Readonly<{
   ctaHref: string;
 }>;
 
+const ctaBackgroundImage =
+  "https://images.pexels.com/photos/4853331/pexels-photo-4853331.jpeg?auto=compress&cs=tinysrgb&w=1800";
+
 export function CtaSection({ content, ctaHref }: CtaSectionProps) {
   return (
-    <section className="bg-[#F3F8FF]">
-      <div className="mx-auto flex min-h-[28rem] max-w-7xl flex-col items-center justify-center px-6 py-24 text-center sm:py-32 lg:px-8">
+    <section className="relative overflow-hidden bg-[#F3F8FF]">
+      <div
+        aria-hidden={true}
+        className="absolute inset-0 bg-cover bg-center opacity-34"
+        style={{
+          backgroundImage: `url("${ctaBackgroundImage}")`,
+          backgroundPosition: "center 45%"
+        }}
+      />
+      <div
+        aria-hidden={true}
+        className="absolute inset-0 bg-gradient-to-b from-[#F3F8FF]/76 via-[#F3F8FF]/58 to-[#F3F8FF]/84"
+      />
+      <div className="relative mx-auto flex min-h-[28rem] max-w-7xl flex-col items-center justify-center px-6 py-24 text-center sm:py-32 lg:px-8">
         <h2 className="max-w-2xl text-4xl font-semibold tracking-normal text-balance text-gray-900 sm:text-5xl">
           {content.titleLine1}
           {content.titleLine2 ? (

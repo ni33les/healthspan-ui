@@ -7,8 +7,6 @@ import {
   ArrowPathIcon,
   ArrowTopRightOnSquareIcon,
   BeakerIcon,
-  CheckIcon,
-  ClipboardDocumentIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
   SparklesIcon
@@ -68,12 +66,10 @@ const chatChannels = [
 const copy = {
   en: {
     connectChatBody:
-      "Choose your preferred chat app for support tailored to your diet, routine, travel, training, and daily life. Send your plan ID and the advisor can continue from this recommendation.",
+      "Choose your preferred chat app for support tailored to your diet, routine, travel, training, and daily life. Send your plan and the advisor can continue from this recommendation.",
     connectChatButton: "Open chat",
-    connectChatCopied: "Copied",
-    connectChatCopy: "Copy plan ID",
     connectChatEyebrow: "Continue in chat",
-    connectChatPlanId: "Plan ID",
+    connectChatPlanId: "Plan",
     connectChatQrAlt: "QR code to connect with the Healthspan AI advisor",
     connectChatTitle:
       "Connect with our specialist AI supplement advisor for ongoing support and refinement.",
@@ -81,7 +77,7 @@ const copy = {
     context: "Assessment summary",
     coveragePrefix: "Covers",
     coverageSuffix: "of the recommended supplements",
-    emptyJob: "Demo formulation",
+    emptyJob: "Demo plan",
     error:
       "The formulation could not be loaded. Please refresh the page and try again.",
     formula: "Supplement breakdown",
@@ -89,7 +85,6 @@ const copy = {
       "Supplements follow the product order. Product numbers show which recommendations cover each supplement.",
     generated: "Generated",
     goals: "Goals",
-    job: "Job",
     loading: "Loading your formulation",
     dailyDose: "Dose",
     plan: "Plan",
@@ -104,12 +99,10 @@ const copy = {
   },
   th: {
     connectChatBody:
-      "เลือกแอปแชตที่คุณสะดวก เพื่อรับการดูแลต่อเนื่องที่ปรับตามอาหาร กิจวัตร การเดินทาง การฝึก และชีวิตประจำวัน ส่ง Plan ID แล้ว advisor จะคุยต่อจากคำแนะนำนี้ได้",
+      "เลือกแอปแชตที่คุณสะดวก เพื่อรับการดูแลต่อเนื่องที่ปรับตามอาหาร กิจวัตร การเดินทาง การฝึก และชีวิตประจำวัน ส่งแผนของคุณแล้ว advisor จะคุยต่อจากคำแนะนำนี้ได้",
     connectChatButton: "เปิดแชต",
-    connectChatCopied: "คัดลอกแล้ว",
-    connectChatCopy: "คัดลอก Plan ID",
     connectChatEyebrow: "คุยต่อในแชต",
-    connectChatPlanId: "Plan ID",
+    connectChatPlanId: "แผน",
     connectChatQrAlt: "QR code สำหรับเชื่อมต่อ Healthspan AI advisor",
     connectChatTitle:
       "เชื่อมต่อกับ AI advisor เฉพาะทางด้านอาหารเสริมเพื่อการดูแลและปรับแผนต่อเนื่อง",
@@ -117,14 +110,13 @@ const copy = {
     context: "สรุปแบบประเมิน",
     coveragePrefix: "ครอบคลุม",
     coverageSuffix: "ของรายการอาหารเสริมที่แนะนำ",
-    emptyJob: "สูตรตัวอย่าง",
+    emptyJob: "แผนตัวอย่าง",
     error: "ไม่สามารถโหลดสูตรได้ กรุณารีเฟรชหน้าและลองอีกครั้ง",
     formula: "รายการอาหารเสริม",
     formulaHint:
       "รายการอาหารเสริมเรียงตามลำดับผลิตภัณฑ์ หมายเลขผลิตภัณฑ์แสดงว่าคำแนะนำใดครอบคลุมอาหารเสริมแต่ละตัว",
     generated: "สร้างเมื่อ",
     goals: "เป้าหมาย",
-    job: "งาน",
     loading: "กำลังโหลดสูตรของคุณ",
     dailyDose: "ขนาด",
     plan: "แผน",
@@ -142,8 +134,6 @@ const copy = {
   Record<
     | "connectChatBody"
     | "connectChatButton"
-    | "connectChatCopied"
-    | "connectChatCopy"
     | "connectChatEyebrow"
     | "connectChatPlanId"
     | "connectChatQrAlt"
@@ -158,7 +148,6 @@ const copy = {
     | "formulaHint"
     | "generated"
     | "goals"
-    | "job"
     | "loading"
     | "dailyDose"
     | "plan"
@@ -381,7 +370,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
           <div>
             <div className="inline-flex items-center gap-2 rounded-md bg-[#3A7BD5]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#245f9f]">
               <SparklesIcon aria-hidden={true} className="size-4" />
-              {labels.job}: {result.jobId || labels.emptyJob}
+              {labels.plan}: {result.jobId || labels.emptyJob}
             </div>
             <h1 className="mt-6 max-w-3xl text-4xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-5xl">
               {result.title}
@@ -506,18 +495,6 @@ function ChatConnectPanel({
   labels,
   planId
 }: Readonly<{ labels: PanelLabels; planId: string }>) {
-  const [copied, setCopied] = useState(false);
-
-  async function copyPlanId() {
-    try {
-      await navigator.clipboard.writeText(planId);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
     <section className="mt-8 overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
       <div className="p-6 sm:p-8">
@@ -545,19 +522,6 @@ function ChatConnectPanel({
             <code className="max-w-full truncate rounded-md bg-background px-2.5 py-1.5 font-mono text-[11px] font-medium text-muted-foreground ring-1 ring-foreground/10">
               {planId}
             </code>
-            <button
-              type="button"
-              aria-label={copied ? labels.connectChatCopied : labels.connectChatCopy}
-              className="inline-flex size-8 items-center justify-center rounded-md border border-[#06C755]/25 bg-white text-[#058B3F] transition hover:bg-[#06C755]/5 focus:outline-none focus:ring-2 focus:ring-[#06C755]/25"
-              title={copied ? labels.connectChatCopied : labels.connectChatCopy}
-              onClick={copyPlanId}
-            >
-              {copied ? (
-                <CheckIcon aria-hidden={true} className="size-4" />
-              ) : (
-                <ClipboardDocumentIcon aria-hidden={true} className="size-4" />
-              )}
-            </button>
           </div>
         </div>
 
