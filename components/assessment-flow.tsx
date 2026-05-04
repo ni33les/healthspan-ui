@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+  ArrowPathIcon,
   BeakerIcon,
+  CheckIcon,
   CheckCircleIcon,
+  ClockIcon,
   ShieldCheckIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
@@ -821,6 +825,20 @@ type AssessmentSection = Readonly<{
   title: string;
 }>;
 
+type ProcessingStepState = "active" | "complete" | "pending";
+
+type ProcessingStatus = Readonly<{
+  jobId: string;
+  queuePosition: number;
+  status: "preparing" | "queued" | "ready";
+  steps: Array<
+    Readonly<{
+      id: "sent" | "preparing" | "ready";
+      state: ProcessingStepState;
+    }>
+  >;
+}>;
+
 function useCompactAssessment() {
   const [isCompact, setIsCompact] = useState(false);
 
@@ -839,10 +857,13 @@ function useCompactAssessment() {
 
 export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   const copy = copies[locale];
+  const router = useRouter();
   const [answers, setAnswers] = useState<Answers>(initialAnswers);
   const [sectionIndex, setSectionIndex] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [submitted, setSubmitted] = useState(false);
+  const [processingStatus, setProcessingStatus] =
+    useState<ProcessingStatus | null>(null);
+  const [processingError, setProcessingError] = useState("");
   const isCompact = useCompactAssessment();
 
   const completed = countRequired(answers);
@@ -863,6 +884,25 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           notesHint: "เพิ่มได้ถ้ามีรายละเอียดสำคัญ เช่น ความไวต่อส่วนผสม ข้อจำกัด หรือสิ่งที่อยากหลีกเลี่ยง",
           notesLabel: "มีอะไรเพิ่มเติมที่เราควรรู้ไหม?",
           optionalSection: "ขั้นตอนเสริม",
+          processingError: "ไม่สามารถเริ่มการประมวลผลได้ โปรดลองอีกครั้ง",
+          processingQueue: (count: number) =>
+            count > 0
+              ? `มี ${count} คนอยู่ในคิวก่อนคุณ`
+              : "กำลังจัดเตรียมสูตรของคุณ",
+          processingSteps: {
+            sent: "ส่งความต้องการเพื่อประมวลผลแล้ว",
+            preparing: "กำลังเตรียมสูตรของคุณ",
+            ready: "สูตรพร้อมแล้ว"
+          },
+          processingSubtitle:
+            "เราได้รับคำตอบของคุณแล้ว และกำลังจัดคิวเพื่อสร้างสูตรอาหารเสริม",
+          processingTitle: "กำลังประมวลผลแบบประเมินของคุณ",
+          retry: "ลองอีกครั้ง",
+          statusLabels: {
+            active: "ตอนนี้",
+            complete: "เสร็จแล้ว",
+            pending: "รอดำเนินการ"
+          },
           reviewDescription:
             "ตรวจสอบสรุปเบื้องต้น แล้วสร้างบรีฟสูตรอาหารเสริมของคุณ",
           reviewQuestion: "ตรวจสอบบรีฟของคุณ",
@@ -887,6 +927,25 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
             "Add anything useful, such as sensitivities, constraints, products you already use, or ingredients you want to avoid.",
           notesLabel: "Anything else we should know?",
           optionalSection: "Optional precision",
+          processingError: "We could not start processing. Please try again.",
+          processingQueue: (count: number) =>
+            count > 0
+              ? `${count} ${count === 1 ? "person is" : "people are"} queued ahead of you`
+              : "Your formulation is being prepared",
+          processingSteps: {
+            sent: "Preferences sent for processing",
+            preparing: "Preparing your formulation",
+            ready: "Formulation ready"
+          },
+          processingSubtitle:
+            "We have received your preferences and queued them for formulation.",
+          processingTitle: "Processing your assessment",
+          retry: "Try again",
+          statusLabels: {
+            active: "Now",
+            complete: "Complete",
+            pending: "Pending"
+          },
           reviewDescription:
             "Review your draft profile, then generate the formulation brief.",
           reviewQuestion: "Review your brief",
@@ -1444,7 +1503,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     }
 
     if (isReview) {
-      setSubmitted(true);
+      void startProcessing();
       return;
     }
 
@@ -1462,40 +1521,106 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     setQuestionIndex(0);
   }
 
+  async function startProcessing() {
+    setProcessingError("");
+    setProcessingStatus({
+      jobId: "",
+      queuePosition: 0,
+      status: "queued",
+      steps: [
+        { id: "sent", state: "active" },
+        { id: "preparing", state: "pending" },
+        { id: "ready", state: "pending" }
+      ]
+    });
+
+    try {
+      const response = await fetch("/api/assessment", {
+        body: JSON.stringify({ answers, locale }),
+        headers: {
+          "content-type": "application/json"
+        },
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create assessment job");
+      }
+
+      const status = (await response.json()) as ProcessingStatus;
+      setProcessingStatus(status);
+    } catch {
+      setProcessingError(ui.processingError);
+      setProcessingStatus(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!processingStatus?.jobId) {
+      return;
+    }
+
+    const jobId = processingStatus.jobId;
+
+    if (processingStatus.status === "ready") {
+      const timeout = window.setTimeout(() => {
+        router.push(`/${locale}/assessment/results?job=${jobId}`);
+      }, 1200);
+
+      return () => window.clearTimeout(timeout);
+    }
+
+    let cancelled = false;
+
+    async function pollStatus() {
+      try {
+        const response = await fetch(`/api/assessment/${jobId}`);
+
+        if (!response.ok) {
+          throw new Error("Unable to fetch assessment job");
+        }
+
+        const status = (await response.json()) as ProcessingStatus;
+
+        if (!cancelled) {
+          setProcessingStatus(status);
+        }
+      } catch {
+        if (!cancelled) {
+          setProcessingError(ui.processingError);
+        }
+      }
+    }
+
+    const interval = window.setInterval(pollStatus, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    locale,
+    processingStatus?.jobId,
+    processingStatus?.status,
+    router,
+    ui.processingError
+  ]);
+
   return (
     <>
       <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10 sm:px-8 lg:pt-14">
-        {submitted ? (
-          <section className="rounded-lg bg-white px-6 py-12 text-center ring-1 ring-foreground/10 sm:px-10">
-            <CheckCircleIcon
-              aria-hidden={true}
-              className="mx-auto size-14 text-[#1FA77A]"
-            />
-            <h1 className="mt-6 text-4xl font-semibold tracking-normal text-[#20343A] text-balance">
-              {copy.thankYou.title}
-            </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">
-              {copy.thankYou.body}
-            </p>
-            <div className="mx-auto mt-10 grid max-w-3xl gap-4 text-left md:grid-cols-3">
-              {copy.thankYou.steps.map((step, index) => (
-                <div
-                  key={step.title}
-                  className="rounded-lg border border-foreground/10 bg-background p-5"
-                >
-                  <div className="flex size-8 items-center justify-center rounded-full bg-[#3A7BD5] text-sm font-semibold text-white">
-                    {index + 1}
-                  </div>
-                  <h2 className="mt-4 text-base font-semibold text-[#20343A]">
-                    {step.title}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {step.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
+        {processingStatus ? (
+          <ProcessingPanel
+            error={processingError}
+            onRetry={startProcessing}
+            queueLabel={ui.processingQueue(processingStatus.queuePosition)}
+            retryLabel={ui.retry}
+            status={processingStatus}
+            statusLabels={ui.statusLabels}
+            stepLabels={ui.processingSteps}
+            subtitle={ui.processingSubtitle}
+            title={ui.processingTitle}
+          />
         ) : (
           <div className="mx-auto max-w-4xl space-y-6">
             {sectionIndex === 0 ? (
@@ -1567,6 +1692,11 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                   {ui.validation}
                 </p>
               ) : null}
+              {processingError ? (
+                <p className="mt-3 text-sm font-medium text-red-600">
+                  {processingError}
+                </p>
+              ) : null}
 
               <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <button
@@ -1620,6 +1750,125 @@ type SectionCardProps = Readonly<{
   stepLabel: string;
   title: string;
 }>;
+
+type ProcessingPanelProps = Readonly<{
+  error: string;
+  onRetry: () => void;
+  queueLabel: string;
+  retryLabel: string;
+  status: ProcessingStatus;
+  statusLabels: Record<ProcessingStepState, string>;
+  stepLabels: Record<ProcessingStatus["steps"][number]["id"], string>;
+  subtitle: string;
+  title: string;
+}>;
+
+function ProcessingPanel({
+  error,
+  onRetry,
+  queueLabel,
+  retryLabel,
+  status,
+  statusLabels,
+  stepLabels,
+  subtitle,
+  title
+}: ProcessingPanelProps) {
+  return (
+    <section className="mx-auto max-w-3xl rounded-lg bg-white p-6 ring-1 ring-foreground/10 sm:p-8">
+      <div className="mx-auto flex size-12 items-center justify-center rounded-md bg-[#3A7BD5]/10">
+        <ArrowPathIcon
+          aria-hidden={true}
+          className="size-6 animate-spin text-[#3A7BD5]"
+        />
+      </div>
+      <h1 className="mt-6 text-center text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
+        {title}
+      </h1>
+      <p className="mx-auto mt-4 max-w-xl text-center text-base leading-7 text-muted-foreground">
+        {subtitle}
+      </p>
+      <p className="mt-6 rounded-md bg-background px-4 py-3 text-center text-sm font-semibold uppercase tracking-[0.08em] text-[#20343A]">
+        {queueLabel}
+      </p>
+
+      <div className="mt-8 flow-root">
+        <ul role="list" className="-mb-8">
+          {status.steps.map((step, index) => {
+            const complete = step.state === "complete";
+            const active = step.state === "active";
+            const StepIcon = complete ? CheckIcon : active ? ArrowPathIcon : ClockIcon;
+
+            return (
+              <li key={step.id}>
+                <div className="relative pb-8">
+                  {index !== status.steps.length - 1 ? (
+                    <span
+                      aria-hidden={true}
+                      className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-foreground/10"
+                    />
+                  ) : null}
+                  <div className="relative flex gap-3">
+                    <span
+                      className={cx(
+                        "flex size-8 items-center justify-center rounded-full ring-8 ring-white",
+                        complete
+                          ? "bg-[#1FA77A]"
+                          : active
+                            ? "bg-[#3A7BD5]"
+                            : "bg-foreground/20"
+                      )}
+                    >
+                      <StepIcon
+                        aria-hidden={true}
+                        className={cx(
+                          "size-5 text-white",
+                          active && "animate-spin"
+                        )}
+                      />
+                    </span>
+                    <div className="flex min-w-0 flex-1 justify-between gap-4 pt-1">
+                      <p
+                        className={cx(
+                          "text-sm font-medium",
+                          complete || active
+                            ? "text-[#20343A]"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {stepLabels[step.id]}
+                      </p>
+                      <p className="whitespace-nowrap text-right text-sm text-muted-foreground">
+                        {complete
+                          ? statusLabels.complete
+                          : active
+                            ? statusLabels.active
+                            : statusLabels.pending}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {error ? (
+        <div className="mt-6 text-center">
+          <p className="text-sm font-medium text-red-600">{error}</p>
+          <button
+            type="button"
+            className="mt-3 rounded-md bg-[#1FA77A] px-5 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-[#188a65]"
+            onClick={onRetry}
+          >
+            {retryLabel}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 function SectionCard({
   children,
