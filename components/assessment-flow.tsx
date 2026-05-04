@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -1093,6 +1094,9 @@ const th: Copy = {
 
 const copies: Record<Locale, Copy> = { en, th };
 const heroBadgeIcons = [BeakerIcon, ShieldCheckIcon, SparklesIcon];
+const assessmentHeroImageUrl = "/final.png";
+const assessmentHeroFade =
+  "radial-gradient(ellipse at bottom left, rgba(243, 248, 255, 0.98) 0%, rgba(243, 248, 255, 0.76) 18%, rgba(243, 248, 255, 0.28) 34%, rgba(243, 248, 255, 0) 52%)";
 const fitzpatrickSkinToneColors: Record<string, string> = {
   I: "#f8dfc8",
   II: "#eec29a",
@@ -2634,40 +2638,56 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
         ) : (
           <div className="mx-auto max-w-4xl space-y-6">
             {sectionIndex === 0 ? (
-              <section className="rounded-lg bg-[#3A7BD5]/5 p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
-              <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-                <div>
+              <section className="relative overflow-hidden rounded-lg bg-[#3A7BD5]/5 p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
+                <Image
+                  src={assessmentHeroImageUrl}
+                  alt=""
+                  fill
+                  priority
+                  sizes="(min-width: 1024px) 896px, 100vw"
+                  className="object-cover object-center opacity-18"
+                />
+                <div
+                  aria-hidden={true}
+                  className="pointer-events-none absolute inset-0"
+                  style={{ background: assessmentHeroFade }}
+                />
+                <div
+                  aria-hidden={true}
+                  className="pointer-events-none absolute inset-0 bg-[#F3F8FF]/65"
+                />
+                <div className="relative">
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#3A7BD5]">
                     {copy.hero.time}
                   </p>
-                  <h1 className="mt-5 text-4xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-5xl">
+                  <h1 className="mt-5 max-w-3xl text-4xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-5xl">
                     {copy.hero.title}
                   </h1>
-                  <p className="mt-5 text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+                  <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
                     {copy.hero.description}
                   </p>
-                </div>
 
-                <div className="grid gap-2 sm:grid-cols-3 lg:min-w-80 lg:grid-cols-1">
-                  {copy.badges.map((badge, index) => {
-                    const BadgeIcon = heroBadgeIcons[index] ?? CheckCircleIcon;
+                  <div className="mt-6 grid gap-2 sm:grid-cols-3">
+                    {copy.badges.map((badge, index) => {
+                      const BadgeIcon =
+                        heroBadgeIcons[index] ?? CheckCircleIcon;
 
-                    return (
-                      <div
-                        key={badge}
-                        className="flex items-center gap-3 rounded-md border border-foreground/10 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#20343A] sm:text-sm"
-                      >
-                        <BadgeIcon
-                          aria-hidden={true}
-                          className="size-4 flex-none text-[#3A7BD5]"
-                        />
-                        <span>{badge}</span>
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div
+                          key={badge}
+                          className="flex items-center gap-3 rounded-md border border-foreground/10 bg-background/90 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#20343A] shadow-sm backdrop-blur-sm sm:text-sm"
+                        >
+                          <BadgeIcon
+                            aria-hidden={true}
+                            className="size-4 flex-none text-[#3A7BD5]"
+                          />
+                          <span>{badge}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            </section>
+              </section>
             ) : null}
 
             <div>
