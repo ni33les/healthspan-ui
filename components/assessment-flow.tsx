@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import {
   BeakerIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ShieldCheckIcon,
+  SparklesIcon
 } from "@heroicons/react/20/solid";
 import type { Locale } from "@/lib/i18n";
 
@@ -433,7 +435,7 @@ const en: Copy = {
     ]
   },
   progress: {
-    start: "Start below. Answer essentials to unlock your brief.",
+    start: "Answer essentials to unlock your brief.",
     complete: "All essentials complete",
     status: (done, total) => `${done} of ${total} essentials answered`
   },
@@ -698,7 +700,7 @@ const th: Copy = {
     ]
   },
   progress: {
-    start: "เริ่มด้านล่าง ตอบคำถามสำคัญเพื่อปลดล็อกบรีฟ",
+    start: "ตอบคำถามสำคัญเพื่อปลดล็อกบรีฟ",
     complete: "ตอบคำถามสำคัญครบแล้ว",
     status: (done, total) => `ตอบแล้ว ${done} จาก ${total} ข้อสำคัญ`
   },
@@ -744,6 +746,7 @@ const th: Copy = {
 };
 
 const copies: Record<Locale, Copy> = { en, th };
+const heroBadgeIcons = [BeakerIcon, ShieldCheckIcon, SparklesIcon];
 
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -847,6 +850,9 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   const progress = Math.round((completed / requiredTotal) * 100);
   const canGenerate = completed === requiredTotal;
   const previewTags = buildPreviewTags(copy, answers);
+  const progressLabel = canGenerate
+    ? copy.progress.complete
+    : copy.progress.status(completed, requiredTotal);
   const ui =
     locale === "th"
       ? {
@@ -1458,31 +1464,6 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
 
   return (
     <>
-      {!submitted ? (
-        <div className="sticky top-18 z-40 border-b border-foreground/10 bg-background/95 backdrop-blur">
-          <div className="mx-auto max-w-4xl px-6 py-2 sm:px-8">
-            <div className="flex items-center justify-between gap-3">
-              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {canGenerate
-                  ? copy.progress.complete
-                  : completed === 0
-                    ? copy.progress.start
-                    : copy.progress.status(completed, requiredTotal)}
-              </p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#20343A]">
-                {progress}%
-              </p>
-            </div>
-            <div className="mt-1.5 h-1 rounded-full bg-white">
-              <div
-                className="h-full rounded-full bg-[#1FA77A] transition-all"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10 sm:px-8 lg:pt-14">
         {submitted ? (
           <section className="rounded-lg bg-white px-6 py-12 text-center ring-1 ring-foreground/10 sm:px-10">
@@ -1533,41 +1514,39 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-3 lg:min-w-80 lg:grid-cols-1">
-                  {copy.badges.map((badge) => (
-                    <div
-                      key={badge}
-                      className="rounded-md border border-foreground/10 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#20343A] sm:text-sm"
-                    >
-                      {badge}
-                    </div>
-                  ))}
+                  {copy.badges.map((badge, index) => {
+                    const BadgeIcon = heroBadgeIcons[index] ?? CheckCircleIcon;
+
+                    return (
+                      <div
+                        key={badge}
+                        className="flex items-center gap-3 rounded-md border border-foreground/10 bg-background px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#20343A] sm:text-sm"
+                      >
+                        <BadgeIcon
+                          aria-hidden={true}
+                          className="size-4 flex-none text-[#3A7BD5]"
+                        />
+                        <span>{badge}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </section>
             ) : null}
 
             <div>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#3A7BD5]">
-                    {isCompact
-                      ? ui.step(flowStepCurrent, flowStepTotal)
-                      : ui.section(sectionIndex + 1, sections.length)}
-                  </p>
-                  {currentSection.optional ? (
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      {ui.optionalSection}
-                    </p>
-                  ) : null}
-                </div>
-                <p className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-[#20343A] ring-1 ring-foreground/10">
-                  {progress}%
-                </p>
-              </div>
-
               <SectionCard
                 done={sectionIsComplete(currentSection)}
                 number={sectionIndex + 1}
+                optionalLabel={currentSection.optional ? ui.optionalSection : undefined}
+                progress={progress}
+                progressLabel={progressLabel}
+                stepLabel={
+                  isCompact
+                    ? ui.step(flowStepCurrent, flowStepTotal)
+                    : ui.section(sectionIndex + 1, sections.length)
+                }
                 title={currentSection.title}
               >
                 {renderedQuestions.map((question) => (
@@ -1635,22 +1614,66 @@ type SectionCardProps = Readonly<{
   children: React.ReactNode;
   done: boolean;
   number: number;
+  optionalLabel?: string;
+  progress: number;
+  progressLabel: string;
+  stepLabel: string;
   title: string;
 }>;
 
-function SectionCard({ children, done, number, title }: SectionCardProps) {
+function SectionCard({
+  children,
+  done,
+  number,
+  optionalLabel,
+  progress,
+  progressLabel,
+  stepLabel,
+  title
+}: SectionCardProps) {
   return (
     <section className="rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <div
-          className={cx(
-            "flex size-8 items-center justify-center rounded-full text-sm font-semibold text-white",
-            done ? "bg-[#1FA77A]" : "bg-[#3A7BD5]"
-          )}
-        >
-          {done ? "✓" : number}
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div
+              className={cx(
+                "flex size-8 items-center justify-center rounded-md text-sm font-semibold text-white",
+                done ? "bg-[#1FA77A]" : "bg-[#3A7BD5]"
+              )}
+            >
+              {done ? "✓" : number}
+            </div>
+            <h2 className="text-lg font-semibold text-[#20343A]">{title}</h2>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#3A7BD5]">
+              {stepLabel}
+            </p>
+            {optionalLabel ? (
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {optionalLabel}
+              </p>
+            ) : null}
+          </div>
         </div>
-        <h2 className="text-lg font-semibold text-[#20343A]">{title}</h2>
+
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {progressLabel}
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+              {progress}%
+            </p>
+          </div>
+          <div className="mt-1.5 h-1 rounded-md bg-background">
+            <div
+              className="h-full rounded-md bg-[#1FA77A] transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
       </div>
       <div className="space-y-6">{children}</div>
     </section>
