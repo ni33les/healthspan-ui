@@ -198,12 +198,18 @@ export async function ensureAssessmentSchema() {
         answers jsonb not null default '{}'::jsonb,
         answer_summary jsonb not null default '{}'::jsonb,
         queue_position integer null,
+        error_message text null,
         captured_at timestamptz not null default now(),
         plan_selected_at timestamptz null,
         processing_started_at timestamptz null,
         completed_at timestamptz null,
         updated_at timestamptz not null default now()
       )
+    `;
+
+    await sql`
+      alter table assessments
+        add column if not exists error_message text null
     `;
 
     await sql`
@@ -236,6 +242,10 @@ function fromStoredPlan(plan: unknown): AssessmentPlan {
 }
 
 function toSnapshotStatus(status: unknown): AssessmentSnapshot["status"] {
+  if (status === "failed") {
+    return "failed";
+  }
+
   if (status === "ready") {
     return "ready";
   }
@@ -302,6 +312,11 @@ export async function persistAssessmentSubmission({
       answers = excluded.answers,
       answer_summary = excluded.answer_summary,
       queue_position = excluded.queue_position,
+      error_message = case
+        when excluded.status in ('captured', 'queued', 'preparing', 'ready')
+        then null
+        else assessments.error_message
+      end,
       plan_selected_at = coalesce(
         assessments.plan_selected_at,
         excluded.plan_selected_at

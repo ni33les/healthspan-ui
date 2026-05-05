@@ -1,5 +1,5 @@
-type AssessmentStatus = "queued" | "preparing" | "ready";
-type StepState = "active" | "complete" | "pending";
+type AssessmentStatus = "failed" | "queued" | "preparing" | "ready";
+type StepState = "active" | "complete" | "failed" | "pending";
 
 export type AssessmentPlan = "free" | "precision" | "pro";
 
@@ -42,7 +42,12 @@ export function buildAssessmentSteps(status: AssessmentStatus) {
     { id: "sent", state: "complete" },
     {
       id: "preparing",
-      state: status === "ready" ? "complete" : "active"
+      state:
+        status === "ready"
+          ? "complete"
+          : status === "failed"
+            ? "failed"
+            : "active"
     },
     {
       id: "ready",

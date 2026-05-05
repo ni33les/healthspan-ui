@@ -1,8 +1,11 @@
 import type postgres from "postgres";
 import { getSql } from "@/lib/db";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { type AssessmentPlan } from "@/lib/assessment-jobs";
-import { getMockFormulationBlueprint } from "@/lib/mock-formulation";
+import {
+  normalizeAssessmentPlan,
+  type AssessmentPlan
+} from "@/lib/assessment-jobs";
+import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
 import {
   ensureAssessmentSchema,
   isUuid,
@@ -10,6 +13,7 @@ import {
 } from "@/lib/assessment-store";
 
 type JobType = "formulation";
+type AuditLevel = "critical" | "high" | "low" | "medium";
 
 type ClaimedJob = {
   attempts: number;
@@ -19,7 +23,7 @@ type ClaimedJob = {
 };
 
 const globalJobsWorker = globalThis as typeof globalThis & {
-  mattanutraJobsSchemaReadyV2?: Promise<void>;
+  mattanutraJobsSchemaReadyV4?: Promise<void>;
   mattanutraJobsWorker?: Promise<void>;
 };
 
@@ -35,18 +39,8 @@ function priorityForPlan(plan: AssessmentPlan) {
   return 10;
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
 async function ensureJobsSchema(sql: postgres.Sql) {
-  globalJobsWorker.mattanutraJobsSchemaReadyV2 ??= (async () => {
+  globalJobsWorker.mattanutraJobsSchemaReadyV4 ??= (async () => {
     await ensureAssessmentSchema();
 
     await sql`
@@ -103,6 +97,20 @@ async function ensureJobsSchema(sql: postgres.Sql) {
     `;
 
     await sql`
+      create table if not exists job_audit_events (
+        id uuid primary key,
+        job_id uuid null references jobs(id) on delete set null,
+        plan_id uuid null references assessments(plan_id) on delete cascade,
+        event_type text not null,
+        level text not null default 'low' check (
+          level in ('low', 'medium', 'high', 'critical')
+        ),
+        event_payload jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now()
+      )
+    `;
+
+    await sql`
       alter table formulations
         add column if not exists version integer not null default 1
     `;
@@ -110,6 +118,40 @@ async function ensureJobsSchema(sql: postgres.Sql) {
     await sql`
       alter table recommendations
         add column if not exists version integer not null default 1
+    `;
+
+    await sql`
+      alter table job_audit_events
+        add column if not exists level text not null default 'low'
+    `;
+
+    await sql`
+      update job_audit_events
+      set level = 'low'
+      where level is null
+        or level not in ('low', 'medium', 'high', 'critical')
+    `;
+
+    await sql`
+      alter table job_audit_events
+        alter column level set default 'low',
+        alter column level set not null
+    `;
+
+    await sql`
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conrelid = 'public.job_audit_events'::regclass
+            and conname = 'job_audit_events_level_check'
+        ) then
+          alter table job_audit_events
+            add constraint job_audit_events_level_check
+            check (level in ('low', 'medium', 'high', 'critical'));
+        end if;
+      end $$;
     `;
 
     await sql`
@@ -177,9 +219,59 @@ async function ensureJobsSchema(sql: postgres.Sql) {
       create index if not exists recommendations_latest_idx
         on recommendations (plan_id, version desc, generated_at desc)
     `;
+    await sql`
+      create index if not exists job_audit_events_plan_idx
+        on job_audit_events (plan_id, created_at desc)
+    `;
+    await sql`
+      create index if not exists job_audit_events_job_idx
+        on job_audit_events (job_id, created_at desc)
+    `;
   })();
 
-  await globalJobsWorker.mattanutraJobsSchemaReadyV2;
+  await globalJobsWorker.mattanutraJobsSchemaReadyV4;
+}
+
+async function auditJobEvent(
+  sql: postgres.Sql,
+  {
+    eventPayload = {},
+    eventType,
+    jobId,
+    level = "low",
+    planId
+  }: Readonly<{
+    eventPayload?: Record<string, unknown>;
+    eventType: string;
+    jobId?: string | null;
+    level?: AuditLevel;
+    planId?: string | null;
+  }>
+) {
+  try {
+    await sql`
+      insert into job_audit_events (
+        id,
+        job_id,
+        plan_id,
+        event_type,
+        level,
+        event_payload,
+        created_at
+      )
+      values (
+        ${crypto.randomUUID()}::uuid,
+        ${jobId ?? null}::uuid,
+        ${planId ?? null}::uuid,
+        ${eventType},
+        ${level},
+        ${sql.json(toJsonValue(eventPayload))},
+        now()
+      )
+    `;
+  } catch (error) {
+    console.warn("Unable to write job audit event", error);
+  }
 }
 
 export async function enqueueFormulationJob({
@@ -240,11 +332,20 @@ export async function enqueueFormulationJob({
     )
   `;
 
+  await auditJobEvent(sql, {
+    eventPayload: { plan, priority: priorityForPlan(plan) },
+    eventType: "job_enqueued",
+    jobId,
+    level: "low",
+    planId
+  });
+
   await sql`
     update assessments set
       selected_plan = ${plan},
       status = 'queued',
       queue_position = coalesce(queue_position, 1),
+      error_message = null,
       plan_selected_at = coalesce(plan_selected_at, now()),
       updated_at = now()
     where plan_id = ${planId}::uuid
@@ -276,12 +377,13 @@ async function claimNextJob(sql: postgres.Sql) {
 
     if (job?.plan_id) {
       await transaction`
-        update assessments set
-          status = 'preparing',
-          queue_position = 0,
-          processing_started_at = coalesce(processing_started_at, now()),
-          updated_at = now()
-        where plan_id = ${job.plan_id}::uuid
+      update assessments set
+        status = 'preparing',
+        queue_position = 0,
+        error_message = null,
+        processing_started_at = coalesce(processing_started_at, now()),
+        updated_at = now()
+      where plan_id = ${job.plan_id}::uuid
       `;
     }
 
@@ -316,6 +418,14 @@ async function failJob(
       `;
     }
   });
+
+  await auditJobEvent(sql, {
+    eventPayload: { error: message },
+    eventType: "job_failed",
+    jobId: job.id,
+    level: "critical",
+    planId: job.plan_id
+  });
 }
 
 async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
@@ -325,7 +435,9 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
 
   const submissions = await sql`
     select
-      locale
+      answers,
+      locale,
+      selected_plan::text
     from assessments
     where plan_id = ${job.plan_id}::uuid
     limit 1
@@ -339,9 +451,29 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
   const locale: Locale = isLocale(submission.locale)
     ? submission.locale
     : "en";
-  const formulation = getMockFormulationBlueprint(locale);
+  const plan = normalizeAssessmentPlan(submission.selected_plan);
 
-  await delay(randomInt(1200, 2400));
+  await auditJobEvent(sql, {
+    eventType: "formulation_analysis_started",
+    jobId: job.id,
+    level: "medium",
+    planId: job.plan_id
+  });
+
+  const analysis = await analyzeFormulationWithGrok({
+    answers: submission.answers,
+    audit: async ({ eventType, level, payload }) =>
+      auditJobEvent(sql, {
+        eventPayload: payload,
+        eventType,
+        jobId: job.id,
+        level,
+        planId: job.plan_id
+      }),
+    locale,
+    plan,
+    planId: job.plan_id
+  });
 
   await sql.begin(async (transaction) => {
     const versionRows = await transaction<{ version: number }[]>`
@@ -372,8 +504,8 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
       values (
         ${job.plan_id}::uuid,
         ${version},
-        ${transaction.json(toJsonValue(formulation))},
-        'mock-v1',
+        ${transaction.json(toJsonValue(analysis.formulation))},
+        ${`xai:${analysis.model}:${analysis.promptVersion}`},
         now(),
         now()
       )
@@ -400,6 +532,7 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
       update assessments set
         status = 'ready',
         queue_position = 0,
+        error_message = null,
         completed_at = coalesce(completed_at, now()),
         updated_at = now()
       where plan_id = ${job.plan_id}::uuid
@@ -412,6 +545,48 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
         updated_at = now()
       where id = ${job.id}::uuid
     `;
+
+    await transaction`
+      insert into job_audit_events (
+        id,
+        job_id,
+        plan_id,
+        event_type,
+        level,
+        event_payload,
+        created_at
+      )
+      values (
+        ${crypto.randomUUID()}::uuid,
+        ${job.id}::uuid,
+        ${job.plan_id}::uuid,
+        'formulation_version_written',
+        'medium',
+        ${transaction.json(
+          toJsonValue({
+            attempts: analysis.attempts,
+            formulationVersion: version,
+            model: analysis.model,
+            promptVersion: analysis.promptVersion,
+            recommendationVersion: version,
+            responseId: analysis.responseId
+          })
+        )},
+        now()
+      )
+    `;
+  });
+
+  await auditJobEvent(sql, {
+    eventPayload: {
+      attempts: analysis.attempts,
+      model: analysis.model,
+      promptVersion: analysis.promptVersion
+    },
+    eventType: "job_completed",
+    jobId: job.id,
+    level: "medium",
+    planId: job.plan_id
   });
 }
 
@@ -432,13 +607,29 @@ async function runJobsWorker() {
   }
 
   await ensureJobsSchema(sql);
+  await auditJobEvent(sql, {
+    eventType: "worker_started",
+    level: "low"
+  });
 
   while (true) {
     const job = await claimNextJob(sql);
 
     if (!job) {
+      await auditJobEvent(sql, {
+        eventType: "worker_idle",
+        level: "low"
+      });
       return;
     }
+
+    await auditJobEvent(sql, {
+      eventPayload: { attempts: job.attempts, jobType: job.job_type },
+      eventType: "job_picked_up",
+      jobId: job.id,
+      level: "low",
+      planId: job.plan_id
+    });
 
     try {
       await processJob(sql, job);

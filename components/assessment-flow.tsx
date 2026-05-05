@@ -9,6 +9,7 @@ import {
   CheckIcon,
   CheckCircleIcon,
   ClockIcon,
+  ExclamationTriangleIcon,
   ShieldCheckIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
@@ -1261,12 +1262,12 @@ type AssessmentSection = Readonly<{
   title: string;
 }>;
 
-type ProcessingStepState = "active" | "complete" | "pending";
+type ProcessingStepState = "active" | "complete" | "failed" | "pending";
 
 type ProcessingStatus = Readonly<{
   planId: string;
   queuePosition: number;
-  status: "preparing" | "queued" | "ready";
+  status: "failed" | "preparing" | "queued" | "ready";
   steps: Array<
     Readonly<{
       id: "sent" | "preparing" | "ready";
@@ -1593,6 +1594,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           statusLabels: {
             active: "ตอนนี้",
             complete: "เสร็จแล้ว",
+            failed: "ไม่สำเร็จ",
             pending: "รอดำเนินการ"
           },
           reviewDescription:
@@ -1640,6 +1642,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           statusLabels: {
             active: "Now",
             complete: "Complete",
+            failed: "Failed",
             pending: "Pending"
           },
           reviewDescription:
@@ -2616,6 +2619,10 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
       return () => window.clearTimeout(timeout);
     }
 
+    if (processingStatus.status === "failed") {
+      return;
+    }
+
     let cancelled = false;
 
     async function pollStatus() {
@@ -2635,7 +2642,9 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
 
         if (!cancelled) {
           pollFailureCount.current = 0;
-          setProcessingError("");
+          setProcessingError(
+            status.status === "failed" ? ui.processingError : ""
+          );
           setProcessingStatus(status);
         }
       } catch {
@@ -2668,7 +2677,11 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
       <div className="mx-auto w-full max-w-6xl px-6 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-10 sm:px-8 sm:pb-16 lg:pt-14">
         {processingStatus ? (
           <ProcessingPanel
-            error={processingError}
+            error={
+              processingStatus.status === "failed"
+                ? ui.processingError
+                : processingError
+            }
             onRetry={() => void startProcessing()}
             queueLabel={ui.processingQueue(processingStatus.queuePosition)}
             retryLabel={ui.retry}
@@ -3053,7 +3066,14 @@ function ProcessingPanel({
           {status.steps.map((step, index) => {
             const complete = step.state === "complete";
             const active = step.state === "active";
-            const StepIcon = complete ? CheckIcon : active ? ArrowPathIcon : ClockIcon;
+            const failed = step.state === "failed";
+            const StepIcon = complete
+              ? CheckIcon
+              : active
+                ? ArrowPathIcon
+                : failed
+                  ? ExclamationTriangleIcon
+                  : ClockIcon;
 
             return (
               <li key={step.id}>
@@ -3072,7 +3092,9 @@ function ProcessingPanel({
                           ? "bg-[#1FA77A]"
                           : active
                             ? "bg-[#3A7BD5]"
-                            : "bg-foreground/20"
+                            : failed
+                              ? "bg-red-500"
+                              : "bg-foreground/20"
                       )}
                     >
                       <StepIcon
@@ -3099,7 +3121,9 @@ function ProcessingPanel({
                           ? statusLabels.complete
                           : active
                             ? statusLabels.active
-                            : statusLabels.pending}
+                            : failed
+                              ? statusLabels.failed
+                              : statusLabels.pending}
                       </p>
                     </div>
                   </div>
