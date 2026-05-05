@@ -1499,7 +1499,7 @@ function getPlanContent(locale: Locale): PlanContent {
     badge: "Recommended",
     eyebrow: "Choose your brief",
     subtitle:
-      "For now, every plan continues to the same mocked formulation queue while we test the purchase step.",
+      "Choose the level of guidance you want before we prepare your formulation.",
     title: "Select the level of guidance",
     tiers: [
       {

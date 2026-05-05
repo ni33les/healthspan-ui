@@ -16,7 +16,7 @@ import type {
   FormulationResult,
   LocalizedText,
   RecommendedProduct
-} from "@/lib/mock-formulation";
+} from "@/lib/formulation-types";
 import type { Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 

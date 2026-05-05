@@ -4,13 +4,12 @@ import {
   type AssessmentPlan,
   type AssessmentSnapshot
 } from "@/lib/assessment-jobs";
+import { buildAssessmentSummary } from "@/lib/formulation-summary";
 import {
-  buildAssessmentSummary,
-  getMockFormulationBlueprint,
   type FormulationIngredient,
   type FormulationResult,
   type RecommendedProduct
-} from "@/lib/mock-formulation";
+} from "@/lib/formulation-types";
 import { getSql } from "@/lib/db";
 
 export type StoredAssessmentStatus =
@@ -445,10 +444,14 @@ export async function getStoredFormulationResult(planId: string) {
   const locale = normalizeLocale(row.locale);
   const plan = fromStoredPlan(row.selected_plan);
   const storedFormulation = asRecord(row.formulation);
-  const defaultBlueprint = getMockFormulationBlueprint(locale);
   const supplementBreakdown = asArray<FormulationIngredient>(
     storedFormulation.supplementBreakdown ?? storedFormulation.formula
   );
+
+  if (supplementBreakdown.length < 1) {
+    return null;
+  }
+
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
   const generatedAt =
     row.generated_at instanceof Date
@@ -465,9 +468,6 @@ export async function getStoredFormulationResult(planId: string) {
     planId,
     recommendations,
     schemaVersion: 1,
-    supplementBreakdown:
-      supplementBreakdown.length > 0
-        ? supplementBreakdown
-        : defaultBlueprint.supplementBreakdown
+    supplementBreakdown
   } satisfies FormulationResult;
 }

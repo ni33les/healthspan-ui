@@ -5,7 +5,7 @@ import type {
   FormulationIngredient,
   LocalizedText,
   FormulationStatus
-} from "@/lib/mock-formulation";
+} from "@/lib/formulation-types";
 
 type AnalysisAuditEvent = {
   eventType: string;
