@@ -14,6 +14,7 @@ import {
 import type {
   FormulationIngredient,
   FormulationResult,
+  LocalizedText,
   RecommendedProduct
 } from "@/lib/mock-formulation";
 import type { Locale } from "@/lib/i18n";
@@ -251,6 +252,14 @@ function getShopButtonClasses(product: RecommendedProduct) {
   return product.marketplace === "Shopee Thailand"
     ? cn(base, "bg-[#EE4D2D] hover:bg-[#D93F21] focus:ring-[#EE4D2D]/40")
     : cn(base, "bg-[#0F146D] hover:bg-[#1B238E] focus:ring-[#F57224]/40");
+}
+
+function getLocalizedText(value: LocalizedText, locale: Locale) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value[locale] || value.en || value.th;
 }
 
 export function FormulationResults({ locale, planId }: FormulationResultsProps) {
@@ -491,6 +500,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
         <FormulaPanel
           ingredients={orderedIngredients}
           labels={labels}
+          locale={locale}
           productReferencesByIngredientId={productReferencesByIngredientId}
         />
 
@@ -660,10 +670,12 @@ function ChatConnectPanel({
 function FormulaPanel({
   ingredients,
   labels,
+  locale,
   productReferencesByIngredientId
 }: Readonly<{
   ingredients: FormulationIngredient[];
   labels: PanelLabels;
+  locale: Locale;
   productReferencesByIngredientId: Map<string, ProductReference[]>;
 }>) {
   return (
@@ -687,6 +699,9 @@ function FormulaPanel({
         {ingredients.map((ingredient) => {
           const productReferences =
             productReferencesByIngredientId.get(ingredient.id) ?? [];
+          const supplement = getLocalizedText(ingredient.supplement, locale);
+          const rationale = getLocalizedText(ingredient.rationale, locale);
+          const dailyDose = getLocalizedText(ingredient.dailyDose, locale);
 
           return (
             <article
@@ -696,10 +711,10 @@ function FormulaPanel({
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <h4 className="text-base font-semibold text-[#20343A]">
-                    {ingredient.supplement}
+                    {supplement}
                   </h4>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    {ingredient.rationale}
+                    {rationale}
                   </p>
                   {productReferences.length > 0 ? (
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -725,7 +740,7 @@ function FormulaPanel({
                     {labels.dailyDose}
                   </p>
                   <p className="mt-1 text-sm font-medium text-[#20343A]">
-                    {ingredient.dailyDose}
+                    {dailyDose}
                   </p>
                 </div>
               </div>

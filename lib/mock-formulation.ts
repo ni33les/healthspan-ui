@@ -3,13 +3,20 @@ import type { AssessmentPlan } from "@/lib/assessment-jobs";
 
 export type FormulationStatus = "covered" | "add" | "review";
 
+export type LocalizedText =
+  | string
+  | {
+      en: string;
+      th: string;
+    };
+
 export type FormulationIngredient = {
   category: string;
-  dailyDose: string;
+  dailyDose: LocalizedText;
   id: string;
-  rationale: string;
+  rationale: LocalizedText;
   status: FormulationStatus;
-  supplement: string;
+  supplement: LocalizedText;
 };
 
 export type RecommendedProduct = {
@@ -557,6 +564,50 @@ function fallbackProfile(locale: Locale) {
     : "Sex not shown / height not shown / weight not shown";
 }
 
+function localizedTextValue(value: LocalizedText | undefined, locale: Locale) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value[locale] || value.en || value.th;
+}
+
+function getBilingualMockFormula() {
+  const thaiIngredientById = new Map(
+    formulaTh.map((ingredient) => [ingredient.id, ingredient])
+  );
+
+  return formulaEn.map((englishIngredient) => {
+    const thaiIngredient = thaiIngredientById.get(englishIngredient.id);
+
+    return {
+      ...englishIngredient,
+      dailyDose: {
+        en: localizedTextValue(englishIngredient.dailyDose, "en"),
+        th:
+          localizedTextValue(thaiIngredient?.dailyDose, "th") ||
+          localizedTextValue(englishIngredient.dailyDose, "en")
+      },
+      rationale: {
+        en: localizedTextValue(englishIngredient.rationale, "en"),
+        th:
+          localizedTextValue(thaiIngredient?.rationale, "th") ||
+          localizedTextValue(englishIngredient.rationale, "en")
+      },
+      supplement: {
+        en: localizedTextValue(englishIngredient.supplement, "en"),
+        th:
+          localizedTextValue(thaiIngredient?.supplement, "th") ||
+          localizedTextValue(englishIngredient.supplement, "en")
+      }
+    } satisfies FormulationIngredient;
+  });
+}
+
 export function buildAssessmentSummary({
   answers,
   locale,
@@ -610,16 +661,12 @@ export function buildAssessmentSummary({
 }
 
 export function getMockFormulationBlueprint(
-  locale: Locale = "en"
+  _locale: Locale = "en"
 ): FormulationBlueprint {
-  if (locale === "th") {
-    return {
-      supplementBreakdown: formulaTh
-    };
-  }
+  void _locale;
 
   return {
-    supplementBreakdown: formulaEn
+    supplementBreakdown: getBilingualMockFormula()
   };
 }
 

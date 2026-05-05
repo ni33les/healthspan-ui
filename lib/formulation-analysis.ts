@@ -3,6 +3,7 @@ import type { Locale } from "@/lib/i18n";
 import type {
   FormulationBlueprint,
   FormulationIngredient,
+  LocalizedText,
   FormulationStatus
 } from "@/lib/mock-formulation";
 
@@ -95,12 +96,20 @@ function userPrompt({
           {
             category:
               "Foundation | Foundation add-on | Add separately | Targeted | Review",
-            dailyDose: "short daily dose string",
+            dailyDose: {
+              en: "short English daily dose string",
+              th: "short Thai daily dose string"
+            },
             id: "stable kebab-case identifier",
-            rationale:
-              "one sentence explaining the wellness benefit in plain language",
+            rationale: {
+              en: "one English sentence explaining the wellness benefit in plain language",
+              th: "one Thai sentence explaining the wellness benefit in plain language"
+            },
             status: "covered | add | review",
-            supplement: "supplement name"
+            supplement: {
+              en: "English supplement name",
+              th: "Thai supplement name"
+            }
           }
         ]
       },
@@ -108,9 +117,12 @@ function userPrompt({
         "Return a JSON object with exactly one top-level key: supplementBreakdown.",
         "supplementBreakdown must contain 6 to 18 items.",
         "Every item must include id, category, supplement, dailyDose, status, and rationale.",
+        "supplement, dailyDose, and rationale must each be localized objects with exactly en and th string values.",
+        "Write the English fields for a consumer wellness audience, and the Thai fields as natural Thai, not transliterated English unless the ingredient name is normally used that way.",
+        "Keep category and status as canonical English values for internal processing.",
         "Use status=review for anything that should be checked before use because of medication, pregnancy, breastfeeding, condition, or uncertainty.",
         "Keep rationales benefit-focused, for example: Supports skin, joint, and active lifestyle goals.",
-        "Use the requested locale for user-visible strings."
+        "Return both English and Thai display copy regardless of the requested locale."
       ],
       locale,
       plan,
@@ -204,6 +216,45 @@ function readText(record: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readLocalizedText(
+  record: Record<string, unknown>,
+  key: string,
+  index: number,
+  errors: string[]
+): LocalizedText {
+  const value = record[key];
+
+  if (!isRecord(value)) {
+    errors.push(
+      `supplementBreakdown[${index}].${key} must be an object with en and th strings`
+    );
+    return { en: "", th: "" };
+  }
+
+  const unexpectedKeys = Object.keys(value).filter(
+    (localizedKey) => localizedKey !== "en" && localizedKey !== "th"
+  );
+
+  if (unexpectedKeys.length > 0) {
+    errors.push(
+      `supplementBreakdown[${index}].${key} must only include en and th, found: ${unexpectedKeys.join(", ")}`
+    );
+  }
+
+  const en = readText(value, "en");
+  const th = readText(value, "th");
+
+  if (!en) {
+    errors.push(`supplementBreakdown[${index}].${key}.en is required`);
+  }
+
+  if (!th) {
+    errors.push(`supplementBreakdown[${index}].${key}.th is required`);
+  }
+
+  return { en, th };
+}
+
 function validateFormulation(value: unknown) {
   const errors: string[] = [];
   const supplementBreakdown: FormulationIngredient[] = [];
@@ -246,10 +297,10 @@ function validateFormulation(value: unknown) {
 
     const id = readText(item, "id");
     const category = readText(item, "category");
-    const supplement = readText(item, "supplement");
-    const dailyDose = readText(item, "dailyDose");
+    const supplement = readLocalizedText(item, "supplement", index, errors);
+    const dailyDose = readLocalizedText(item, "dailyDose", index, errors);
     const status = readText(item, "status");
-    const rationale = readText(item, "rationale");
+    const rationale = readLocalizedText(item, "rationale", index, errors);
 
     if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(id)) {
       errors.push(
@@ -265,22 +316,10 @@ function validateFormulation(value: unknown) {
       errors.push(`supplementBreakdown[${index}].category is required`);
     }
 
-    if (!supplement) {
-      errors.push(`supplementBreakdown[${index}].supplement is required`);
-    }
-
-    if (!dailyDose) {
-      errors.push(`supplementBreakdown[${index}].dailyDose is required`);
-    }
-
     if (!VALID_STATUSES.has(status as FormulationStatus)) {
       errors.push(
         `supplementBreakdown[${index}].status must be covered, add, or review`
       );
-    }
-
-    if (!rationale) {
-      errors.push(`supplementBreakdown[${index}].rationale is required`);
     }
 
     supplementBreakdown.push({
