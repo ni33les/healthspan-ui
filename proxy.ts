@@ -22,8 +22,26 @@ function getPreferredLocale(request: NextRequest): Locale {
   return isLocale(locale) ? locale : defaultLocale;
 }
 
+function getRequestOrigin(request: NextRequest) {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost ?? request.headers.get("host") ?? request.nextUrl.host;
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const protocol =
+    forwardedProto?.split(",")[0]?.trim() ||
+    request.nextUrl.protocol.replace(":", "") ||
+    "https";
+
+  return `${protocol}://${host.split(",")[0]?.trim()}`;
+}
+
+function redirectToPath(request: NextRequest, pathname: string, search = "") {
+  return NextResponse.redirect(
+    new URL(`${pathname}${search}`, getRequestOrigin(request))
+  );
+}
+
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
 
   if (
     pathname.startsWith("/_next") ||
@@ -39,17 +57,17 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const url = request.nextUrl.clone();
-
   if (removedLocales.has(pathnameLocale)) {
-    url.pathname = `/${defaultLocale}`;
-    return NextResponse.redirect(url);
+    return redirectToPath(request, `/${defaultLocale}`, search);
   }
 
   const locale = getPreferredLocale(request);
-  url.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;
 
-  return NextResponse.redirect(url);
+  return redirectToPath(
+    request,
+    `/${locale}${pathname === "/" ? "" : pathname}`,
+    search
+  );
 }
 
 export const config = {

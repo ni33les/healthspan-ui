@@ -3,6 +3,15 @@ import { defaultLocale, isLocale } from "@/lib/i18n";
 
 const oneYear = 60 * 60 * 24 * 365;
 
+function redirectToRelativePath(path: string) {
+  return new NextResponse(null, {
+    headers: {
+      Location: path
+    },
+    status: 307
+  });
+}
+
 export function GET(request: NextRequest) {
   const url = request.nextUrl;
   const requestedLocale = url.searchParams.get("locale") || defaultLocale;
@@ -15,7 +24,7 @@ export function GET(request: NextRequest) {
   const nextPath = safeNextPath.startsWith(`/${locale}`)
     ? safeNextPath
     : `/${locale}`;
-  const response = NextResponse.redirect(new URL(nextPath, request.url));
+  const response = redirectToRelativePath(nextPath);
 
   response.cookies.set("NEXT_LOCALE", locale, {
     maxAge: oneYear,
