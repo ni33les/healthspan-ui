@@ -12,8 +12,7 @@ type CtaSectionProps = Readonly<{
   ctaHref: string;
 }>;
 
-const ctaBackgroundImage =
-  "https://images.pexels.com/photos/4853331/pexels-photo-4853331.jpeg?auto=compress&cs=tinysrgb&w=1800";
+const ctaBackgroundImage = "/cta-athletes.jpg";
 
 export function CtaSection({ content, ctaHref }: CtaSectionProps) {
   return (

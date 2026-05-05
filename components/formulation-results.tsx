@@ -59,7 +59,7 @@ function getLineUrl() {
 const chatChannels = [
   {
     buttonClasses: "bg-[#06C755] text-white hover:bg-[#05B34D]",
-    iconUrl: "https://cdn.simpleicons.org/line/06C755",
+    iconUrl: "/logos/line.svg",
     id: "line",
     name: "LINE",
     qrPanelClasses: "bg-[#06C755]/5 ring-[#06C755]/15",
@@ -67,7 +67,7 @@ const chatChannels = [
   },
   {
     buttonClasses: "bg-[#229ED9] text-white hover:bg-[#1D8EC4]",
-    iconUrl: "https://cdn.simpleicons.org/telegram/229ED9",
+    iconUrl: "/logos/telegram.svg",
     id: "telegram",
     name: "Telegram",
     qrPanelClasses: "bg-[#229ED9]/5 ring-[#229ED9]/15",
@@ -75,7 +75,7 @@ const chatChannels = [
   },
   {
     buttonClasses: "bg-[#25D366] text-white hover:bg-[#1FB85A]",
-    iconUrl: "https://cdn.simpleicons.org/whatsapp/25D366",
+    iconUrl: "/logos/whatsapp.svg",
     id: "whatsapp",
     name: "WhatsApp",
     qrPanelClasses: "bg-[#25D366]/5 ring-[#25D366]/15",
@@ -83,8 +83,7 @@ const chatChannels = [
   }
 ] as const;
 
-const formulationHeroBackgroundImage =
-  "https://images.pexels.com/photos/4853891/pexels-photo-4853891.jpeg?auto=compress&cs=tinysrgb&w=1800";
+const formulationHeroBackgroundImage = "/formulation-couple.jpg";
 
 const copy = {
   en: {
@@ -566,7 +565,7 @@ function ChatConnectPanel({
 
         <div className="mt-7 grid gap-4 lg:grid-cols-3">
           {chatChannels.map((channel) => {
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=176x176&margin=10&data=${encodeURIComponent(channel.url)}`;
+            const qrUrl = `/api/qr?data=${encodeURIComponent(channel.url)}`;
 
             return (
               <article
