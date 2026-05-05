@@ -1548,8 +1548,11 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   const [processingStatus, setProcessingStatus] =
     useState<ProcessingStatus | null>(null);
   const [processingError, setProcessingError] = useState("");
+  const [capturedStatus, setCapturedStatus] =
+    useState<ProcessingStatus | null>(null);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [showPlans, setShowPlans] = useState(false);
+  const captureInFlight = useRef<Promise<ProcessingStatus | null> | null>(null);
   const pollFailureCount = useRef(0);
   const isCompact = useCompactAssessment();
 
@@ -2479,6 +2482,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     if (isReview) {
       setShowPlans(true);
       window.scrollTo({ behavior: "smooth", top: 0 });
+      void captureAssessment(true);
       return;
     }
 
@@ -2502,6 +2506,47 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     void startProcessing(planId);
   }
 
+  async function captureAssessment(force = false) {
+    if (!force && capturedStatus?.planId) {
+      return capturedStatus;
+    }
+
+    if (captureInFlight.current) {
+      return captureInFlight.current;
+    }
+
+    captureInFlight.current = (async () => {
+      try {
+        const response = await fetch("/api/assessment", {
+          body: JSON.stringify({
+            answers,
+            locale,
+            plan: selectedPlan || "optimal-precision"
+          }),
+          cache: "no-store",
+          headers: {
+            "content-type": "application/json"
+          },
+          method: "POST"
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to capture assessment plan");
+        }
+
+        const status = (await response.json()) as ProcessingStatus;
+        setCapturedStatus(status);
+        return status;
+      } catch {
+        return null;
+      } finally {
+        captureInFlight.current = null;
+      }
+    })();
+
+    return captureInFlight.current;
+  }
+
   async function startProcessing(planId = selectedPlan || "optimal-precision") {
     setProcessingError("");
     pollFailureCount.current = 0;
@@ -2517,20 +2562,33 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     });
 
     try {
-      const response = await fetch("/api/assessment", {
-        body: JSON.stringify({ answers, locale, plan: planId }),
-        cache: "no-store",
-        headers: {
-          "content-type": "application/json"
-        },
-        method: "POST"
-      });
+      const captured = captureInFlight.current
+        ? await captureInFlight.current
+        : capturedStatus ?? (await captureAssessment());
+      const response = captured?.planId
+        ? await fetch(`/api/assessment/${encodeURIComponent(captured.planId)}`, {
+            body: JSON.stringify({ answers, locale, plan: planId }),
+            cache: "no-store",
+            headers: {
+              "content-type": "application/json"
+            },
+            method: "PATCH"
+          })
+        : await fetch("/api/assessment", {
+            body: JSON.stringify({ answers, locale, plan: planId }),
+            cache: "no-store",
+            headers: {
+              "content-type": "application/json"
+            },
+            method: "POST"
+          });
 
       if (!response.ok) {
         throw new Error("Unable to create assessment plan");
       }
 
       const status = (await response.json()) as ProcessingStatus;
+      setCapturedStatus(status);
       setProcessingStatus(status);
     } catch {
       setProcessingError(ui.processingError);
@@ -2557,9 +2615,12 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
 
     async function pollStatus() {
       try {
-        const response = await fetch(`/api/assessment/${planId}`, {
-          cache: "no-store"
-        });
+        const response = await fetch(
+          `/api/assessment/${encodeURIComponent(planId)}`,
+          {
+            cache: "no-store"
+          }
+        );
 
         if (!response.ok) {
           throw new Error("Unable to fetch assessment plan");

@@ -2,16 +2,21 @@ import { NextResponse } from "next/server";
 import { createAssessmentJob } from "@/lib/assessment-jobs";
 
 export async function POST(request: Request) {
-  let plan: unknown = "free";
+  let body: { answers?: unknown; locale?: unknown; plan?: unknown } = {
+    plan: "free"
+  };
 
   try {
-    const body = (await request.json()) as { plan?: unknown };
-    plan = body.plan;
+    body = (await request.json()) as {
+      answers?: unknown;
+      locale?: unknown;
+      plan?: unknown;
+    };
   } catch {
-    plan = "free";
+    body = { plan: "free" };
   }
 
-  const snapshot = createAssessmentJob(plan);
+  const snapshot = createAssessmentJob(body);
 
   return NextResponse.json(snapshot, {
     headers: {

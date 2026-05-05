@@ -4,12 +4,15 @@ type StepState = "active" | "complete" | "pending";
 export type AssessmentPlan = "free" | "optimised" | "pro";
 
 type AssessmentJob = {
+  answers?: unknown;
   createdAt: number;
   formulationMs: number;
   id: string;
   initialQueue: number;
+  locale?: string;
   plan: AssessmentPlan;
   queueMs: number;
+  updatedAt: number;
 };
 
 export type AssessmentJobSnapshot = {
@@ -126,7 +129,8 @@ function decodePortableUuidPlanId(id: string): AssessmentJob | null {
     id: normalizedId,
     initialQueue,
     plan,
-    queueMs
+    queueMs,
+    updatedAt: createdAt
   };
 }
 
@@ -181,7 +185,8 @@ function decodeLegacyPortablePlanId(id: string): AssessmentJob | null {
     id,
     initialQueue,
     plan,
-    queueMs
+    queueMs,
+    updatedAt: createdAt
   };
 }
 
@@ -215,15 +220,32 @@ function pruneJobs() {
   }
 }
 
-export function createAssessmentJob(plan: unknown = "free") {
+type AssessmentJobInput = Readonly<{
+  answers?: unknown;
+  locale?: unknown;
+  plan?: unknown;
+}>;
+
+function normalizeLocale(locale: unknown) {
+  return locale === "th" ? "th" : "en";
+}
+
+export function createAssessmentJob(input: AssessmentJobInput | unknown = {}) {
   pruneJobs();
 
+  const payload =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as AssessmentJobInput)
+      : { plan: input };
   const portableJob: Omit<AssessmentJob, "id"> = {
+    answers: payload.answers,
     createdAt: Date.now(),
     formulationMs: randomInt(4500, 7500),
     initialQueue: randomInt(3, 8),
-    plan: normalizeAssessmentPlan(plan),
-    queueMs: randomInt(3500, 6500)
+    locale: normalizeLocale(payload.locale),
+    plan: normalizeAssessmentPlan(payload.plan),
+    queueMs: randomInt(3500, 6500),
+    updatedAt: Date.now()
   };
   const job: AssessmentJob = {
     ...portableJob,
@@ -233,6 +255,44 @@ export function createAssessmentJob(plan: unknown = "free") {
   jobs.set(job.id, job);
 
   return getAssessmentJobSnapshot(job.id);
+}
+
+export function updateAssessmentJob(id: string, input: AssessmentJobInput) {
+  pruneJobs();
+
+  const existing =
+    jobs.get(id) ?? decodePortableUuidPlanId(id) ?? decodeLegacyPortablePlanId(id);
+
+  if (!existing) {
+    return null;
+  }
+
+  const nextPlan =
+    input.plan === undefined
+      ? existing.plan
+      : normalizeAssessmentPlan(input.plan);
+  const updatedJob: AssessmentJob = {
+    ...existing,
+    answers: input.answers ?? existing.answers,
+    locale:
+      input.locale === undefined ? existing.locale : normalizeLocale(input.locale),
+    plan: nextPlan,
+    updatedAt: Date.now()
+  };
+  const nextId =
+    nextPlan === existing.plan ? existing.id : createPortablePlanId(updatedJob);
+  const storedJob: AssessmentJob = {
+    ...updatedJob,
+    id: nextId
+  };
+
+  if (nextId !== existing.id) {
+    jobs.delete(existing.id);
+  }
+
+  jobs.set(storedJob.id, storedJob);
+
+  return getAssessmentJobSnapshot(storedJob.id);
 }
 
 export function getAssessmentJobSnapshot(id: string): AssessmentJobSnapshot | null {
