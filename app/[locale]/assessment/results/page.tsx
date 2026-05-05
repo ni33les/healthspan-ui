@@ -9,6 +9,7 @@ type AssessmentResultsPageProps = Readonly<{
     locale: string;
   }>;
   searchParams: Promise<{
+    plan?: string;
     job?: string;
   }>;
 }>;
@@ -29,17 +30,17 @@ export default async function AssessmentResultsPage({
 
   const locale: Locale = rawLocale;
   const dictionary = getDictionary(locale);
-  const { job } = await searchParams;
-  const jobId = job ?? "demo";
+  const { job, plan } = await searchParams;
+  const planId = plan ?? job ?? "demo";
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <TitleBar
         currentLocale={locale}
-        currentPath={`/${locale}/assessment/results?job=${jobId}`}
+        currentPath={`/${locale}/assessment/results?plan=${planId}`}
         title={dictionary.hero.eyebrow}
       />
-      <FormulationResults jobId={jobId} locale={locale} />
+      <FormulationResults locale={locale} planId={planId} />
       <SiteFooter content={dictionary.footer} locale={locale} />
     </main>
   );

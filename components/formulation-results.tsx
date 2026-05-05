@@ -20,8 +20,8 @@ import type { Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type FormulationResultsProps = Readonly<{
-  jobId: string;
   locale: Locale;
+  planId: string;
 }>;
 
 type LoadState = "loading" | "ready" | "error";
@@ -99,7 +99,7 @@ const copy = {
     context: "Assessment summary",
     coveragePrefix: "Covers",
     coverageSuffix: "of the recommended supplements",
-    emptyJob: "Demo plan",
+    emptyPlan: "Demo plan",
     error:
       "The formulation could not be loaded. Please refresh the page and try again.",
     formula: "Supplement breakdown",
@@ -132,7 +132,7 @@ const copy = {
     context: "สรุปแบบประเมิน",
     coveragePrefix: "ครอบคลุม",
     coverageSuffix: "ของรายการอาหารเสริมที่แนะนำ",
-    emptyJob: "แผนตัวอย่าง",
+    emptyPlan: "แผนตัวอย่าง",
     error: "ไม่สามารถโหลดสูตรได้ กรุณารีเฟรชหน้าและลองอีกครั้ง",
     formula: "รายการอาหารเสริม",
     formulaHint:
@@ -164,7 +164,7 @@ const copy = {
     | "context"
     | "coveragePrefix"
     | "coverageSuffix"
-    | "emptyJob"
+    | "emptyPlan"
     | "error"
     | "formula"
     | "formulaHint"
@@ -226,9 +226,9 @@ function getShopButtonClasses(product: RecommendedProduct) {
     : cn(base, "bg-[#0F146D] hover:bg-[#1B238E] focus:ring-[#F57224]/40");
 }
 
-export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
+export function FormulationResults({ locale, planId }: FormulationResultsProps) {
   const labels = copy[locale];
-  const effectiveJobId = jobId || "demo";
+  const effectivePlanId = planId || "demo";
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [result, setResult] = useState<FormulationResult | null>(null);
 
@@ -239,7 +239,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
     async function fetchFormulation() {
       try {
         const response = await fetch(
-          `/api/assessment/${encodeURIComponent(effectiveJobId)}/formulation?locale=${locale}`,
+          `/api/assessment/${encodeURIComponent(effectivePlanId)}/formulation?locale=${locale}`,
           { cache: "no-store" }
         );
 
@@ -274,7 +274,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
         window.clearTimeout(retryTimer);
       }
     };
-  }, [effectiveJobId, locale]);
+  }, [effectivePlanId, locale]);
 
   if (loadState === "loading") {
     return (
@@ -383,7 +383,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
       timeStyle: "short"
     }
   ).format(new Date(result.generatedAt));
-  const planId = result.jobId || effectiveJobId;
+  const effectiveResultPlanId = result.planId || effectivePlanId;
 
   return (
     <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
@@ -406,10 +406,10 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
         />
         <div className="relative grid gap-8 lg:grid-cols-[1fr_20rem] lg:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-md bg-[#3A7BD5]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#245f9f]">
-              <SparklesIcon aria-hidden={true} className="size-4" />
-              {labels.plan}: {result.jobId || labels.emptyJob}
-            </div>
+            <SparklesIcon
+              aria-hidden={true}
+              className="size-12 text-[#3A7BD5]"
+            />
             <h1 className="mt-6 max-w-3xl text-4xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-5xl">
               {result.title}
             </h1>
@@ -447,10 +447,13 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
           </div>
         </div>
 
-        <div className="relative mt-8 flex flex-wrap items-center gap-3 border-t border-foreground/10 pt-5 text-xs font-medium text-muted-foreground">
-          <span>
+        <div className="relative mt-8 border-t border-foreground/10 pt-5 text-xs font-normal leading-5 text-muted-foreground">
+          <p>
             {labels.generated}: {formattedDate}
-          </span>
+          </p>
+          <p className="mt-1">
+            {labels.plan}: {effectiveResultPlanId || labels.emptyPlan}
+          </p>
         </div>
       </div>
 
@@ -469,7 +472,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
         />
       </div>
 
-      <ChatConnectPanel labels={labels} planId={planId} />
+      <ChatConnectPanel labels={labels} planId={effectiveResultPlanId} />
 
       <div className="mt-8 rounded-lg bg-[#20343A] p-6 text-sm leading-6 text-white/75">
         <div className="flex gap-3">

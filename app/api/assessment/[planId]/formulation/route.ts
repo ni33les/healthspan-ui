@@ -5,13 +5,13 @@ import { getMockFormulationResult } from "@/lib/mock-formulation";
 
 type FormulationRouteProps = Readonly<{
   params: Promise<{
-    jobId: string;
+    planId: string;
   }>;
 }>;
 
 export async function GET(request: Request, { params }: FormulationRouteProps) {
-  const { jobId } = await params;
-  const snapshot = getAssessmentJobSnapshot(jobId);
+  const { planId } = await params;
+  const snapshot = getAssessmentJobSnapshot(planId);
 
   if (snapshot && snapshot.status !== "ready") {
     return NextResponse.json(
@@ -31,6 +31,6 @@ export async function GET(request: Request, { params }: FormulationRouteProps) {
     : "en";
 
   return NextResponse.json(
-    getMockFormulationResult(jobId, locale, snapshot?.plan ?? "free")
+    getMockFormulationResult(planId, locale, snapshot?.plan ?? "free")
   );
 }

@@ -148,7 +148,7 @@ const enPrivacy: LegalContent = {
         "We do not ask for or intentionally collect your name, home address, phone number, or other direct contact details through the assessment. The formulation brief is linked to a plan ID rather than your identity.",
         "Assessment answers, such as age range, biological sex, height, weight, skin tone, country, goals, symptoms, sleep, activity, diet, sun exposure, alcohol, caffeine, medication categories, supplement use, budget, preferences, and optional notes.",
         "Optional precision information, such as family history, stress, gut health, wearable data, VO2 max estimates, HRV, and lab values you choose to enter.",
-        "Plan and transaction information, such as selected plan, plan ID, job ID, status, and payment status. Payment card or banking details are handled by payment providers and are not intended to be stored by us.",
+        "Plan and transaction information, such as selected plan, plan ID, status, and payment status. Payment card or banking details are handled by payment providers and are not intended to be stored by us.",
         "Support and chat information, such as messages, chat app identifiers, and your plan ID if you connect with our AI support through LINE, WhatsApp, Telegram, or similar services.",
         "Technical information, such as IP address, browser, device type, pages viewed, approximate location derived from network data, logs, cookies, and similar diagnostics."
       ]
@@ -362,7 +362,7 @@ const thPrivacy: LegalContent = {
         "เราไม่ขอและไม่ได้ตั้งใจเก็บชื่อ ที่อยู่บ้าน หมายเลขโทรศัพท์ หรือข้อมูลติดต่อโดยตรงอื่นๆ ผ่านแบบประเมิน บรีฟสูตรจะเชื่อมกับ plan ID แทนตัวตนของคุณ",
         "คำตอบในแบบประเมิน เช่น ช่วงอายุ เพศทางชีววิทยา ส่วนสูง น้ำหนัก สีผิว ประเทศ เป้าหมาย อาการ การนอน กิจกรรม อาหาร แสงแดด แอลกอฮอล์ คาเฟอีน ประเภทยา การใช้อาหารเสริม งบประมาณ ความต้องการ และบันทึกเพิ่มเติมที่คุณเลือกกรอก",
         "ข้อมูลเพิ่มความแม่นยำที่ไม่บังคับ เช่น ประวัติครอบครัว ความเครียด สุขภาพลำไส้ ข้อมูล wearable ค่า VO2 max ค่า HRV และค่าแล็บที่คุณเลือกกรอก",
-        "ข้อมูลแผนและธุรกรรม เช่น แผนที่เลือก plan ID, job ID, สถานะ และสถานะการชำระเงิน ข้อมูลบัตรหรือบัญชีธนาคารจะจัดการโดยผู้ให้บริการชำระเงิน และเราไม่ได้ตั้งใจจัดเก็บข้อมูลเหล่านั้น",
+        "ข้อมูลแผนและธุรกรรม เช่น แผนที่เลือก plan ID สถานะ และสถานะการชำระเงิน ข้อมูลบัตรหรือบัญชีธนาคารจะจัดการโดยผู้ให้บริการชำระเงิน และเราไม่ได้ตั้งใจจัดเก็บข้อมูลเหล่านั้น",
         "ข้อมูลสนับสนุนและแชท เช่น ข้อความ ตัวระบุบัญชีแอปแชท และ plan ID หากคุณเชื่อมต่อกับ AI support ผ่าน LINE, WhatsApp, Telegram หรือบริการคล้ายกัน",
         "ข้อมูลทางเทคนิค เช่น IP address, browser, ประเภทอุปกรณ์ หน้าเว็บที่ดู ตำแหน่งโดยประมาณจากข้อมูลเครือข่าย log, cookies และข้อมูลวินิจฉัยที่คล้ายกัน"
       ]

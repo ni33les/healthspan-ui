@@ -3,17 +3,20 @@ import { getAssessmentJobSnapshot } from "@/lib/assessment-jobs";
 
 type AssessmentStatusRouteProps = Readonly<{
   params: Promise<{
-    jobId: string;
+    planId: string;
   }>;
 }>;
 
-export async function GET(_request: Request, { params }: AssessmentStatusRouteProps) {
-  const { jobId } = await params;
-  const snapshot = getAssessmentJobSnapshot(jobId);
+export async function GET(
+  _request: Request,
+  { params }: AssessmentStatusRouteProps
+) {
+  const { planId } = await params;
+  const snapshot = getAssessmentJobSnapshot(planId);
 
   if (!snapshot) {
     return NextResponse.json(
-      { message: "Assessment job not found" },
+      { message: "Assessment plan not found" },
       {
         headers: {
           "Cache-Control": "no-store"

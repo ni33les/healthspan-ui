@@ -34,7 +34,7 @@ export type FormulationResult = {
   };
   formula: FormulationIngredient[];
   generatedAt: string;
-  jobId: string;
+  planId: string;
   products: RecommendedProduct[];
   safetyNotes: string[];
   subtitle: string;
@@ -466,7 +466,7 @@ const productsTh: RecommendedProduct[] = [
 ];
 
 export function getMockFormulationResult(
-  jobId: string,
+  planId: string,
   locale: Locale = "en",
   plan: AssessmentPlan = "free"
 ): FormulationResult {
@@ -491,7 +491,7 @@ export function getMockFormulationResult(
       },
       formula: formulaTh,
       generatedAt: new Date().toISOString(),
-      jobId,
+      planId,
       products: productsTh,
       safetyNotes: [
         "คำแนะนำเหล่านี้เป็นตัวเลือกผลิตภัณฑ์เพื่อสุขภาพ ไม่ใช่คำแนะนำทางการแพทย์",
@@ -500,7 +500,7 @@ export function getMockFormulationResult(
       ],
       subtitle:
         "บรีฟสูตรเพื่อสุขภาพและคู่มือค้นหาผลิตภัณฑ์จากคำตอบในแบบประเมินของคุณ",
-      title: "สูตรอาหารเสริมเฉพาะบุคคลของคุณ"
+      title: "สูตรโภชนาการเฉพาะบุคคลของคุณ"
     };
   }
 
@@ -524,7 +524,7 @@ export function getMockFormulationResult(
     },
     formula: formulaEn,
     generatedAt: new Date().toISOString(),
-    jobId,
+    planId,
     products: productsEn,
     safetyNotes: [
       "These are optional wellness product suggestions, not medical advice.",
@@ -533,6 +533,6 @@ export function getMockFormulationResult(
     ],
     subtitle:
       "A concise wellness formulation and marketplace search guide based on the completed assessment.",
-    title: "Your personalised supplement formulation"
+    title: "Your personalised nutritional formulation"
   };
 }

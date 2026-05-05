@@ -1264,7 +1264,7 @@ type AssessmentSection = Readonly<{
 type ProcessingStepState = "active" | "complete" | "pending";
 
 type ProcessingStatus = Readonly<{
-  jobId: string;
+  planId: string;
   queuePosition: number;
   status: "preparing" | "queued" | "ready";
   steps: Array<
@@ -1605,7 +1605,9 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           summaryTitle: "สรุปบรีฟของคุณ",
           step: (current: number, total: number) =>
             `คำถามที่ ${current} จาก ${total}`,
-          validation: "ตอบคำถามจำเป็นเพื่อไปต่อ"
+          validation: "ตอบคำถามจำเป็นเพื่อไปต่อ",
+          wellnessDisclaimer:
+            "แบบประเมินนี้เป็นข้อมูลเพื่อ wellness เท่านั้น ไม่ใช่การวินิจฉัย การรักษา หรือคำแนะนำให้หยุดยา"
         }
       : {
           back: "Back",
@@ -1650,7 +1652,9 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           summaryTitle: "Your brief overview",
           step: (current: number, total: number) =>
             `Question ${current} of ${total}`,
-          validation: "Answer the required questions to continue"
+          validation: "Answer the required questions to continue",
+          wellnessDisclaimer:
+            "This assessment provides wellness information only. It is not diagnosis, treatment, or advice to stop medication."
         };
 
   function setSingle(key: keyof Answers, value: string) {
@@ -2502,7 +2506,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     setProcessingError("");
     pollFailureCount.current = 0;
     setProcessingStatus({
-      jobId: "",
+      planId: "",
       queuePosition: 0,
       status: "queued",
       steps: [
@@ -2523,7 +2527,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
       });
 
       if (!response.ok) {
-        throw new Error("Unable to create assessment job");
+        throw new Error("Unable to create assessment plan");
       }
 
       const status = (await response.json()) as ProcessingStatus;
@@ -2535,15 +2539,15 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   }
 
   useEffect(() => {
-    if (!processingStatus?.jobId) {
+    if (!processingStatus?.planId) {
       return;
     }
 
-    const jobId = processingStatus.jobId;
+    const planId = processingStatus.planId;
 
     if (processingStatus.status === "ready") {
       const timeout = window.setTimeout(() => {
-        router.push(`/${locale}/assessment/results?job=${jobId}`);
+        router.push(`/${locale}/assessment/results?plan=${planId}`);
       }, 1200);
 
       return () => window.clearTimeout(timeout);
@@ -2553,12 +2557,12 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
 
     async function pollStatus() {
       try {
-        const response = await fetch(`/api/assessment/${jobId}`, {
+        const response = await fetch(`/api/assessment/${planId}`, {
           cache: "no-store"
         });
 
         if (!response.ok) {
-          throw new Error("Unable to fetch assessment job");
+          throw new Error("Unable to fetch assessment plan");
         }
 
         const status = (await response.json()) as ProcessingStatus;
@@ -2587,7 +2591,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     };
   }, [
     locale,
-    processingStatus?.jobId,
+    processingStatus?.planId,
     processingStatus?.status,
     router,
     ui.processingError
@@ -2665,6 +2669,9 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                       );
                     })}
                   </div>
+                  <p className="mt-5 max-w-2xl text-xs font-medium leading-5 text-muted-foreground">
+                    {ui.wellnessDisclaimer}
+                  </p>
                 </div>
               </section>
             ) : null}
