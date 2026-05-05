@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   getAssessmentJobSnapshot,
+  normalizeAssessmentPlan,
   updateAssessmentJob
 } from "@/lib/assessment-jobs";
+import { persistAssessmentPlanSelection } from "@/lib/assessment-store";
+
+export const runtime = "nodejs";
 
 type AssessmentStatusRouteProps = Readonly<{
   params: Promise<{
@@ -65,6 +69,19 @@ export async function PATCH(
         status: 404
       }
     );
+  }
+
+  try {
+    await persistAssessmentPlanSelection({
+      answers: body.answers,
+      locale: body.locale,
+      previousPlanId: planId,
+      selectedPlan: normalizeAssessmentPlan(body.plan),
+      snapshot,
+      status: snapshot.status
+    });
+  } catch (error) {
+    console.error("Unable to persist assessment plan selection", error);
   }
 
   return NextResponse.json(snapshot, {

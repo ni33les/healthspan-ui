@@ -1467,7 +1467,7 @@ function getPlanContent(locale: Locale): PlanContent {
             "ตัวเลือกผลิตภัณฑ์และทางเลือกทดแทน",
             "พร้อมเช็คอินซ้ำใน 60 วัน"
           ],
-          id: "optimal-precision",
+          id: "precision",
           name: "แผนความแม่นยำ",
           price: "฿399",
           priceSuffix: "ครั้งเดียว"
@@ -1513,7 +1513,7 @@ function getPlanContent(locale: Locale): PlanContent {
           "Recommended products and alternatives",
           "60-day reassessment prompt"
         ],
-        id: "optimal-precision",
+        id: "precision",
         name: "Precision Plan",
         price: "฿399",
         priceSuffix: "one time"
@@ -2520,8 +2520,8 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
         const response = await fetch("/api/assessment", {
           body: JSON.stringify({
             answers,
-            locale,
-            plan: selectedPlan || "optimal-precision"
+            intent: "capture",
+            locale
           }),
           cache: "no-store",
           headers: {
@@ -2547,7 +2547,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     return captureInFlight.current;
   }
 
-  async function startProcessing(planId = selectedPlan || "optimal-precision") {
+  async function startProcessing(planId = selectedPlan || "precision") {
     setProcessingError("");
     pollFailureCount.current = 0;
     setProcessingStatus({
@@ -2575,7 +2575,12 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
             method: "PATCH"
           })
         : await fetch("/api/assessment", {
-            body: JSON.stringify({ answers, locale, plan: planId }),
+            body: JSON.stringify({
+              answers,
+              intent: "process",
+              locale,
+              plan: planId
+            }),
             cache: "no-store",
             headers: {
               "content-type": "application/json"

@@ -1,7 +1,7 @@
 type JobStatus = "queued" | "preparing" | "ready";
 type StepState = "active" | "complete" | "pending";
 
-export type AssessmentPlan = "free" | "optimised" | "pro";
+export type AssessmentPlan = "free" | "precision" | "pro";
 
 type AssessmentJob = {
   answers?: unknown;
@@ -36,7 +36,7 @@ globalJobs.healthspanAssessmentJobs = jobs;
 const uuidPlanStartMs = Date.UTC(2026, 0, 1);
 const uuidPlanCodes: Record<AssessmentPlan, number> = {
   free: 0,
-  optimised: 1,
+  precision: 1,
   pro: 2
 };
 
@@ -45,8 +45,8 @@ function decodePlanCode(code: number): AssessmentPlan | null {
     return "pro";
   }
 
-  if (code === uuidPlanCodes.optimised) {
-    return "optimised";
+  if (code === uuidPlanCodes.precision) {
+    return "precision";
   }
 
   if (code === uuidPlanCodes.free) {
@@ -140,7 +140,7 @@ function decodeLegacyPlanCode(code: string): AssessmentPlan | null {
   }
 
   if (code === "o") {
-    return "optimised";
+    return "precision";
   }
 
   if (code === "f") {
@@ -199,12 +199,8 @@ export function normalizeAssessmentPlan(plan: unknown): AssessmentPlan {
     return "pro";
   }
 
-  if (
-    plan === "optimised" ||
-    plan === "optimized" ||
-    plan === "optimal-precision"
-  ) {
-    return "optimised";
+  if (plan === "precision") {
+    return "precision";
   }
 
   return "free";
@@ -254,7 +250,13 @@ export function createAssessmentJob(input: AssessmentJobInput | unknown = {}) {
 
   jobs.set(job.id, job);
 
-  return getAssessmentJobSnapshot(job.id);
+  const snapshot = getAssessmentJobSnapshot(job.id);
+
+  if (!snapshot) {
+    throw new Error("Unable to create assessment plan");
+  }
+
+  return snapshot;
 }
 
 export function updateAssessmentJob(id: string, input: AssessmentJobInput) {
