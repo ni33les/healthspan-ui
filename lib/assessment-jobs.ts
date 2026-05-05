@@ -281,16 +281,10 @@ export function updateAssessmentJob(id: string, input: AssessmentJobInput) {
     plan: nextPlan,
     updatedAt: Date.now()
   };
-  const nextId =
-    nextPlan === existing.plan ? existing.id : createPortablePlanId(updatedJob);
   const storedJob: AssessmentJob = {
     ...updatedJob,
-    id: nextId
+    id: existing.id
   };
-
-  if (nextId !== existing.id) {
-    jobs.delete(existing.id);
-  }
 
   jobs.set(storedJob.id, storedJob);
 

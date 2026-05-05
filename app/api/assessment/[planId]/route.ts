@@ -4,7 +4,11 @@ import {
   normalizeAssessmentPlan,
   updateAssessmentJob
 } from "@/lib/assessment-jobs";
-import { persistAssessmentPlanSelection } from "@/lib/assessment-store";
+import {
+  getStoredAssessmentSnapshot,
+  persistAssessmentPlanSelection
+} from "@/lib/assessment-store";
+import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
 
 export const runtime = "nodejs";
 
@@ -19,7 +23,8 @@ export async function GET(
   { params }: AssessmentStatusRouteProps
 ) {
   const { planId } = await params;
-  const snapshot = getAssessmentJobSnapshot(planId);
+  const snapshot =
+    (await getStoredAssessmentSnapshot(planId)) ?? getAssessmentJobSnapshot(planId);
 
   if (!snapshot) {
     return NextResponse.json(
@@ -31,6 +36,10 @@ export async function GET(
         status: 404
       }
     );
+  }
+
+  if (snapshot.status !== "ready") {
+    void kickJobsWorker();
   }
 
   return NextResponse.json(snapshot, {
@@ -72,19 +81,30 @@ export async function PATCH(
   }
 
   try {
+    const selectedPlan = normalizeAssessmentPlan(body.plan);
+
     await persistAssessmentPlanSelection({
       answers: body.answers,
       locale: body.locale,
       previousPlanId: planId,
-      selectedPlan: normalizeAssessmentPlan(body.plan),
+      selectedPlan,
       snapshot,
-      status: snapshot.status
+      status: "queued"
     });
+    await enqueueFormulationJob({
+      answers: body.answers,
+      locale: body.locale,
+      plan: selectedPlan,
+      planId: snapshot.planId
+    });
+    void kickJobsWorker();
   } catch (error) {
     console.error("Unable to persist assessment plan selection", error);
   }
 
-  return NextResponse.json(snapshot, {
+  const storedSnapshot = await getStoredAssessmentSnapshot(snapshot.planId);
+
+  return NextResponse.json(storedSnapshot ?? snapshot, {
     headers: {
       "Cache-Control": "no-store"
     }

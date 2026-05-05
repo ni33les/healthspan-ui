@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { getAssessmentJobSnapshot } from "@/lib/assessment-jobs";
 import { isLocale, type Locale } from "@/lib/i18n";
 import { getMockFormulationResult } from "@/lib/mock-formulation";
+import {
+  getStoredAssessmentSnapshot,
+  getStoredFormulationResult
+} from "@/lib/assessment-store";
+import { kickJobsWorker } from "@/lib/job-queue";
 
 type FormulationRouteProps = Readonly<{
   params: Promise<{
@@ -11,9 +16,12 @@ type FormulationRouteProps = Readonly<{
 
 export async function GET(request: Request, { params }: FormulationRouteProps) {
   const { planId } = await params;
-  const snapshot = getAssessmentJobSnapshot(planId);
+  const snapshot =
+    (await getStoredAssessmentSnapshot(planId)) ?? getAssessmentJobSnapshot(planId);
 
   if (snapshot && snapshot.status !== "ready") {
+    void kickJobsWorker();
+
     return NextResponse.json(
       {
         message: "Formulation is still being prepared",
@@ -29,8 +37,24 @@ export async function GET(request: Request, { params }: FormulationRouteProps) {
   const locale: Locale = isLocale(localeCandidate)
     ? localeCandidate
     : "en";
+  const storedResult = await getStoredFormulationResult(planId);
 
-  return NextResponse.json(
-    getMockFormulationResult(planId, locale, snapshot?.plan ?? "free")
-  );
+  if (storedResult) {
+    return NextResponse.json(storedResult);
+  }
+
+  if (snapshot) {
+    void kickJobsWorker();
+
+    return NextResponse.json(
+      {
+        message: "Formulation is still being prepared",
+        status: snapshot.status,
+        steps: snapshot.steps
+      },
+      { status: 202 }
+    );
+  }
+
+  return NextResponse.json(getMockFormulationResult(planId, locale, "free"));
 }

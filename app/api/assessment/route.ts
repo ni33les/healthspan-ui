@@ -4,6 +4,7 @@ import {
   normalizeAssessmentPlan
 } from "@/lib/assessment-jobs";
 import { persistAssessmentSubmission } from "@/lib/assessment-store";
+import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,16 @@ export async function POST(request: Request) {
       snapshot,
       status: body.intent === "capture" ? "captured" : snapshot.status
     });
+
+    if (body.intent === "process" && selectedPlan) {
+      await enqueueFormulationJob({
+        answers: body.answers,
+        locale: body.locale,
+        plan: selectedPlan,
+        planId: snapshot.planId
+      });
+      void kickJobsWorker();
+    }
   } catch (error) {
     console.error("Unable to persist assessment submission", error);
   }
