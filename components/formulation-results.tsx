@@ -36,6 +36,26 @@ type ProductReference = {
   tone: ProductTone;
 };
 
+function getConfiguredUrl(value: string | undefined) {
+  return value?.trim() || "";
+}
+
+function getLineUrl() {
+  const directUrl = getConfiguredUrl(process.env.NEXT_PUBLIC_LINE_CHAT_URL);
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const officialId =
+    getConfiguredUrl(process.env.NEXT_PUBLIC_LINE_OFFICIAL_ID) || "@healthspan";
+  const normalizedId = officialId.startsWith("@")
+    ? officialId
+    : `@${officialId}`;
+
+  return `https://line.me/R/ti/p/${encodeURIComponent(normalizedId)}`;
+}
+
 const chatChannels = [
   {
     buttonClasses: "bg-[#06C755] text-white hover:bg-[#05B34D]",
@@ -43,15 +63,7 @@ const chatChannels = [
     id: "line",
     name: "LINE",
     qrPanelClasses: "bg-[#06C755]/5 ring-[#06C755]/15",
-    url: "https://line.me/R/ti/p/@healthspan"
-  },
-  {
-    buttonClasses: "bg-[#25D366] text-white hover:bg-[#1FB85A]",
-    iconUrl: "https://cdn.simpleicons.org/whatsapp/25D366",
-    id: "whatsapp",
-    name: "WhatsApp",
-    qrPanelClasses: "bg-[#25D366]/5 ring-[#25D366]/15",
-    url: "https://wa.me/660000000000"
+    url: getLineUrl()
   },
   {
     buttonClasses: "bg-[#229ED9] text-white hover:bg-[#1D8EC4]",
@@ -60,8 +72,19 @@ const chatChannels = [
     name: "Telegram",
     qrPanelClasses: "bg-[#229ED9]/5 ring-[#229ED9]/15",
     url: "https://t.me/healthspan"
+  },
+  {
+    buttonClasses: "bg-[#25D366] text-white hover:bg-[#1FB85A]",
+    iconUrl: "https://cdn.simpleicons.org/whatsapp/25D366",
+    id: "whatsapp",
+    name: "WhatsApp",
+    qrPanelClasses: "bg-[#25D366]/5 ring-[#25D366]/15",
+    url: "https://wa.me/660000000000"
   }
 ] as const;
+
+const formulationHeroBackgroundImage =
+  "https://images.pexels.com/photos/4853891/pexels-photo-4853891.jpeg?auto=compress&cs=tinysrgb&w=1800";
 
 const copy = {
   en: {
@@ -88,7 +111,7 @@ const copy = {
     loading: "Loading your formulation",
     dailyDose: "Dose",
     plan: "Plan",
-    products: "Recommended product searches",
+    products: "Recommended products for you",
     productsHint:
       "Product numbers map directly to the supplement rows on the left.",
     profile: "Profile",
@@ -120,7 +143,7 @@ const copy = {
     loading: "กำลังโหลดสูตรของคุณ",
     dailyDose: "ขนาด",
     plan: "แผน",
-    products: "การค้นหาผลิตภัณฑ์ที่แนะนำ",
+    products: "ผลิตภัณฑ์ที่แนะนำสำหรับคุณ",
     productsHint:
       "หมายเลขผลิตภัณฑ์เชื่อมกับรายการอาหารเสริมทางซ้ายโดยตรง",
     profile: "โปรไฟล์",
@@ -365,8 +388,24 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
 
   return (
     <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
-      <div className="rounded-lg bg-[#F3F8FF] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
-        <div className="grid gap-8 lg:grid-cols-[1fr_20rem] lg:items-center">
+      <div className="relative overflow-hidden rounded-lg bg-[#F3F8FF] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
+        <div
+          aria-hidden={true}
+          className="absolute inset-0 bg-cover opacity-36"
+          style={{
+            backgroundImage: `url("${formulationHeroBackgroundImage}")`,
+            backgroundPosition: "left 52%"
+          }}
+        />
+        <div
+          aria-hidden={true}
+          className="absolute inset-0 bg-gradient-to-r from-[#F3F8FF]/92 via-[#F3F8FF]/76 to-[#F3F8FF]/50"
+        />
+        <div
+          aria-hidden={true}
+          className="absolute inset-0 bg-gradient-to-b from-[#F3F8FF]/20 via-transparent to-[#F3F8FF]/72"
+        />
+        <div className="relative grid gap-8 lg:grid-cols-[1fr_20rem] lg:items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-md bg-[#3A7BD5]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#245f9f]">
               <SparklesIcon aria-hidden={true} className="size-4" />
@@ -380,7 +419,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
             </p>
           </div>
 
-          <div className="rounded-lg bg-background p-5 ring-1 ring-foreground/10">
+          <div className="rounded-lg bg-background/90 p-5 shadow-sm ring-1 ring-foreground/10 backdrop-blur-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#20343A]">
               {labels.context}
             </p>
@@ -409,7 +448,7 @@ export function FormulationResults({ jobId, locale }: FormulationResultsProps) {
           </div>
         </div>
 
-        <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-foreground/10 pt-5 text-xs font-medium text-muted-foreground">
+        <div className="relative mt-8 flex flex-wrap items-center gap-3 border-t border-foreground/10 pt-5 text-xs font-medium text-muted-foreground">
           <span>
             {labels.generated}: {formattedDate}
           </span>
