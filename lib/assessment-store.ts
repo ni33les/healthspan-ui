@@ -404,8 +404,20 @@ export async function getStoredFormulationResult(planId: string) {
       formulations.generated_at,
       recommendations.recommendations
     from assessments
-    join formulations on formulations.plan_id = assessments.plan_id
-    left join recommendations on recommendations.plan_id = assessments.plan_id
+    join lateral (
+      select formulation, generated_at
+      from formulations
+      where formulations.plan_id = assessments.plan_id
+      order by version desc, generated_at desc
+      limit 1
+    ) formulations on true
+    left join lateral (
+      select recommendations
+      from recommendations
+      where recommendations.plan_id = assessments.plan_id
+      order by version desc, generated_at desc
+      limit 1
+    ) recommendations on true
     where assessments.plan_id = ${planId}::uuid
     limit 1
   `;

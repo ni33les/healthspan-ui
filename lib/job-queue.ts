@@ -22,7 +22,7 @@ type ClaimedJob = {
 };
 
 const globalJobsWorker = globalThis as typeof globalThis & {
-  mattanutraJobsSchemaReady?: Promise<void>;
+  mattanutraJobsSchemaReadyV2?: Promise<void>;
   mattanutraJobsWorker?: Promise<void>;
 };
 
@@ -49,7 +49,7 @@ function randomInt(min: number, max: number) {
 }
 
 async function ensureJobsSchema(sql: postgres.Sql) {
-  globalJobsWorker.mattanutraJobsSchemaReady ??= (async () => {
+  globalJobsWorker.mattanutraJobsSchemaReadyV2 ??= (async () => {
     await ensureAssessmentSchema();
 
     await sql`
@@ -84,21 +84,84 @@ async function ensureJobsSchema(sql: postgres.Sql) {
 
     await sql`
       create table if not exists formulations (
-        plan_id uuid primary key references assessments(plan_id) on delete cascade,
+        plan_id uuid not null references assessments(plan_id) on delete cascade,
+        version integer not null default 1,
         formulation jsonb not null,
         model_version text null,
         generated_at timestamptz not null default now(),
-        updated_at timestamptz not null default now()
+        updated_at timestamptz not null default now(),
+        primary key (plan_id, version)
       )
     `;
 
     await sql`
       create table if not exists recommendations (
-        plan_id uuid primary key references assessments(plan_id) on delete cascade,
+        plan_id uuid not null references assessments(plan_id) on delete cascade,
+        version integer not null default 1,
         recommendations jsonb not null,
         generated_at timestamptz not null default now(),
-        updated_at timestamptz not null default now()
+        updated_at timestamptz not null default now(),
+        primary key (plan_id, version)
       )
+    `;
+
+    await sql`
+      alter table formulations
+        add column if not exists version integer not null default 1
+    `;
+
+    await sql`
+      alter table recommendations
+        add column if not exists version integer not null default 1
+    `;
+
+    await sql`
+      do $$
+      declare
+        current_pkey text;
+      begin
+        select conname into current_pkey
+        from pg_constraint
+        where conrelid = 'public.formulations'::regclass
+          and contype = 'p'
+        limit 1;
+
+        if not exists (
+          select 1
+          from pg_constraint
+          where conrelid = 'public.formulations'::regclass
+            and contype = 'p'
+            and pg_get_constraintdef(oid) = 'PRIMARY KEY (plan_id, version)'
+        ) then
+          if current_pkey is not null then
+            execute format('alter table public.formulations drop constraint %I', current_pkey);
+          end if;
+
+          alter table public.formulations
+            add constraint formulations_pkey primary key (plan_id, version);
+        end if;
+
+        select conname into current_pkey
+        from pg_constraint
+        where conrelid = 'public.recommendations'::regclass
+          and contype = 'p'
+        limit 1;
+
+        if not exists (
+          select 1
+          from pg_constraint
+          where conrelid = 'public.recommendations'::regclass
+            and contype = 'p'
+            and pg_get_constraintdef(oid) = 'PRIMARY KEY (plan_id, version)'
+        ) then
+          if current_pkey is not null then
+            execute format('alter table public.recommendations drop constraint %I', current_pkey);
+          end if;
+
+          alter table public.recommendations
+            add constraint recommendations_pkey primary key (plan_id, version);
+        end if;
+      end $$;
     `;
 
     await sql`
@@ -109,9 +172,17 @@ async function ensureJobsSchema(sql: postgres.Sql) {
       create index if not exists jobs_plan_type_idx
         on jobs (plan_id, job_type, status)
     `;
+    await sql`
+      create index if not exists formulations_latest_idx
+        on formulations (plan_id, version desc, generated_at desc)
+    `;
+    await sql`
+      create index if not exists recommendations_latest_idx
+        on recommendations (plan_id, version desc, generated_at desc)
+    `;
   })();
 
-  await globalJobsWorker.mattanutraJobsSchemaReady;
+  await globalJobsWorker.mattanutraJobsSchemaReadyV2;
 }
 
 export async function enqueueFormulationJob({
@@ -138,7 +209,7 @@ export async function enqueueFormulationJob({
     from jobs
     where plan_id = ${planId}::uuid
       and job_type = 'formulation'
-      and status in ('queued', 'running', 'complete')
+      and status in ('queued', 'running')
     order by queued_at desc
     limit 1
   `;
@@ -277,9 +348,26 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
   await delay(randomInt(1200, 2400));
 
   await sql.begin(async (transaction) => {
+    const versionRows = await transaction<{ version: number }[]>`
+      select greatest(
+        (
+          select coalesce(max(version), 0)
+          from formulations
+          where plan_id = ${job.plan_id}::uuid
+        ),
+        (
+          select coalesce(max(version), 0)
+          from recommendations
+          where plan_id = ${job.plan_id}::uuid
+        )
+      ) + 1 as version
+    `;
+    const version = Number(versionRows[0]?.version ?? 1);
+
     await transaction`
       insert into formulations (
         plan_id,
+        version,
         formulation,
         model_version,
         generated_at,
@@ -287,33 +375,29 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
       )
       values (
         ${job.plan_id}::uuid,
+        ${version},
         ${transaction.json(toJsonValue(formulation))},
         'mock-v1',
         now(),
         now()
       )
-      on conflict (plan_id) do update set
-        formulation = excluded.formulation,
-        model_version = excluded.model_version,
-        updated_at = now()
     `;
 
     await transaction`
       insert into recommendations (
         plan_id,
+        version,
         recommendations,
         generated_at,
         updated_at
       )
       values (
         ${job.plan_id}::uuid,
+        ${version},
         ${transaction.json(toJsonValue(recommendations))},
         now(),
         now()
       )
-      on conflict (plan_id) do update set
-        recommendations = excluded.recommendations,
-        updated_at = now()
     `;
 
     await transaction`
