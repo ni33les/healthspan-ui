@@ -19,7 +19,12 @@ export async function generateMetadata({
 
   return {
     title: dictionary.meta.title,
-    description: dictionary.meta.description
+    description: dictionary.meta.description,
+    icons: {
+      apple: "/favicon.svg",
+      icon: "/favicon.svg",
+      shortcut: "/favicon.svg"
+    }
   };
 }
 

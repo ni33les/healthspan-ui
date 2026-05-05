@@ -1458,33 +1458,17 @@ function getPlanContent(locale: Locale): PlanContent {
         {
           cta: "ไปต่อ",
           description:
-            "บรีฟสูตรแบบกระชับจากคำถามพื้นฐาน เหมาะสำหรับเริ่มเห็นภาพรวมทันที",
-          features: [
-            "ลำดับความสำคัญหลักจากคำตอบของคุณ",
-            "หมวดอาหารเสริมพื้นฐาน",
-            "หมายเหตุความปลอดภัยทั่วไป",
-            "ตัวอย่างผลลัพธ์เบื้องต้น"
-          ],
-          id: "free-basic",
-          name: "แผนพื้นฐาน",
-          price: "฿0",
-          priceSuffix: "",
-          tierBadge: "ฟรี"
-        },
-        {
-          cta: "ไปต่อ",
-          description:
             "บรีฟสูตรเต็ม พร้อมปรับขนาดและตัวเลือกผลิตภัณฑ์ให้เหมาะกับข้อมูลของคุณมากขึ้น",
           featured: true,
           features: [
-            "ทุกอย่างในแผนพื้นฐานฟรี",
+            "บรีฟสูตรอาหารเสริมแบบครบถ้วน",
             "ช่วงปริมาณที่ปรับตามร่างกาย",
             "รวมข้อมูลยา แล็บ และข้อควรระวัง",
             "ตัวเลือกผลิตภัณฑ์และทางเลือกทดแทน",
             "พร้อมเช็คอินซ้ำใน 60 วัน"
           ],
           id: "optimal-precision",
-          name: "ความแม่นยำสูง",
+          name: "แผนความแม่นยำ",
           price: "฿399",
           priceSuffix: "ครั้งเดียว"
         },
@@ -1493,7 +1477,7 @@ function getPlanContent(locale: Locale): PlanContent {
           description:
             "การดูแลต่อเนื่องพร้อม AI เอเจนต์ที่ช่วยปรับคำแนะนำให้เข้ากับความต้องการรายวัน",
           features: [
-            "ทุกอย่างในแผนความแม่นยำสูง",
+            "ทุกอย่างในแผนความแม่นยำ",
             "AI เอเจนต์สำหรับความต้องการรายวัน",
             "ปรับเวลาทานและกิจวัตร",
             "รองรับการเดินทาง การฝึก และการนอน",
@@ -1520,33 +1504,17 @@ function getPlanContent(locale: Locale): PlanContent {
       {
         cta: "Go",
         description:
-          "A concise formulation brief from the basic questions, useful for a quick starting point.",
-        features: [
-          "Core priorities from your answers",
-          "Basic supplement categories",
-          "General safety notes",
-          "Preview of your results"
-        ],
-        id: "free-basic",
-        name: "Basic Plan",
-        price: "฿0",
-        priceSuffix: "",
-        tierBadge: "Free"
-      },
-      {
-        cta: "Go",
-        description:
           "The full formulation brief with more precise dosing logic and practical product matching.",
         featured: true,
         features: [
-          "Everything in Free Basic",
+          "Complete supplement formulation brief",
           "Body-size adjusted dose ranges",
           "Medication and lab flags included",
           "Recommended products and alternatives",
           "60-day reassessment prompt"
         ],
         id: "optimal-precision",
-        name: "Optimal Precision",
+        name: "Precision Plan",
         price: "฿399",
         priceSuffix: "one time"
       },
@@ -1555,7 +1523,7 @@ function getPlanContent(locale: Locale): PlanContent {
         description:
           "Ongoing support with an AI agent that adapts the plan to day-to-day requirements.",
         features: [
-          "Everything in Optimal Precision",
+          "Everything in Precision Plan",
           "AI agent for daily needs",
           "Routine and timing adjustments",
           "Travel, training, and sleep adaptation",
@@ -2530,7 +2498,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     void startProcessing(planId);
   }
 
-  async function startProcessing(planId = selectedPlan || "free-basic") {
+  async function startProcessing(planId = selectedPlan || "optimal-precision") {
     setProcessingError("");
     pollFailureCount.current = 0;
     setProcessingStatus({
@@ -2827,91 +2795,139 @@ function PlanSelectionPanel({
   onSelect
 }: PlanSelectionPanelProps) {
   return (
-    <section className="mx-auto max-w-6xl rounded-lg bg-white px-5 py-8 ring-1 ring-foreground/10 sm:px-8 lg:px-10">
-      <div className="mx-auto max-w-3xl text-center">
-        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#3A7BD5]">
-          {content.eyebrow}
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
-          {content.title}
-        </h1>
-        <p className="mt-4 text-base leading-7 text-muted-foreground">
-          {content.subtitle}
-        </p>
+    <section className="relative isolate overflow-hidden rounded-lg bg-white px-6 py-16 ring-1 ring-foreground/10 sm:py-20 lg:px-8">
+      <div
+        aria-hidden={true}
+        className="absolute inset-x-0 -top-3 -z-10 transform-gpu overflow-hidden px-12 blur-3xl sm:px-36"
+      >
+        <div
+          className="mx-auto aspect-[1155/678] w-[72rem] bg-linear-to-tr from-[#EAF5FF] to-[#DDF7EC] opacity-70"
+          style={{
+            clipPath:
+              "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)"
+          }}
+        />
       </div>
 
-      <div className="mt-8 grid gap-5 lg:grid-cols-3">
-        {content.tiers.map((tier) => (
+      <div className="mx-auto max-w-4xl text-center">
+        <p className="text-base/7 font-semibold text-[#3A7BD5]">
+          {content.eyebrow}
+        </p>
+        <h1 className="mt-2 text-4xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl">
+          {content.title}
+        </h1>
+      </div>
+      <p className="mx-auto mt-6 max-w-2xl text-center text-lg font-medium text-pretty text-gray-600 sm:text-xl/8">
+        {content.subtitle}
+      </p>
+
+      <div className="mx-auto mt-14 grid max-w-lg grid-cols-1 items-center gap-y-6 sm:mt-16 sm:gap-y-0 lg:max-w-4xl lg:grid-cols-2">
+        {content.tiers.map((tier, tierIndex) => (
           <div
             key={tier.id}
             className={cx(
-              "flex rounded-lg p-6 ring-1 transition",
+              "rounded-3xl p-8 ring-1 ring-gray-900/10 sm:p-10",
               tier.featured
-                ? "bg-[#3A7BD5]/5 ring-2 ring-[#3A7BD5]"
-                : "bg-white ring-foreground/10"
+                ? "relative z-10 bg-[#20343A] shadow-2xl"
+                : "bg-white/70 sm:mx-8 lg:mx-0",
+              !tier.featured && tierIndex === 0
+                ? "rounded-t-3xl sm:rounded-b-none lg:rounded-bl-3xl lg:rounded-tr-none"
+                : undefined,
+              !tier.featured && tierIndex !== 0
+                ? "sm:rounded-t-none lg:rounded-bl-none lg:rounded-tr-3xl"
+                : undefined
             )}
           >
             <div className="flex w-full flex-col">
-              <div>
-                <h2
-                  id={tier.id}
+              <h2
+                id={tier.id}
+                className={cx(
+                  tier.featured ? "text-[#8BC6FF]" : "text-[#3A7BD5]",
+                  "text-base/7 font-semibold"
+                )}
+              >
+                {tier.name}
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {tier.featured ? (
+                  <p className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
+                    {content.badge}
+                  </p>
+                ) : null}
+                {tier.tierBadge ? (
+                  <p
+                    className={cx(
+                      "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                      tier.featured
+                        ? "bg-[#1FA77A]/20 text-[#DDF7EC]"
+                        : "bg-[#1FA77A]/10 text-[#126b4f]"
+                    )}
+                  >
+                    {tier.tierBadge}
+                  </p>
+                ) : null}
+              </div>
+              <p className="mt-4 flex items-baseline gap-x-2">
+                <span
                   className={cx(
-                    "text-lg font-semibold text-[#20343A]",
-                    tier.featured && "text-[#3A7BD5]"
+                    tier.featured ? "text-white" : "text-gray-900",
+                    "text-5xl font-semibold tracking-tight"
                   )}
                 >
-                  {tier.name}
-                </h2>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {tier.featured ? (
-                    <p className="inline-flex rounded-full bg-[#3A7BD5]/10 px-2.5 py-1 text-xs font-semibold text-[#3A7BD5]">
-                      {content.badge}
-                    </p>
-                  ) : null}
-                  {tier.tierBadge ? (
-                    <p className="inline-flex rounded-full bg-[#1FA77A]/10 px-2.5 py-1 text-xs font-semibold text-[#126b4f]">
-                      {tier.tierBadge}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-              <p className="mt-4 min-h-20 text-sm leading-6 text-muted-foreground">
-                {tier.description}
-              </p>
-              <p className="mt-6 flex items-baseline gap-2">
-                <span className="text-4xl font-semibold tracking-normal text-[#20343A]">
                   {tier.price}
                 </span>
                 {tier.priceSuffix ? (
-                  <span className="text-sm font-semibold text-muted-foreground">
+                  <span
+                    className={cx(
+                      tier.featured ? "text-gray-400" : "text-gray-500",
+                      "text-base"
+                    )}
+                  >
                     {tier.priceSuffix}
                   </span>
                 ) : null}
               </p>
-              <button
-                type="button"
-                aria-describedby={tier.id}
+              <p
                 className={cx(
-                  "mt-6 rounded-md px-3 py-3 text-center text-sm font-semibold uppercase tracking-[0.08em] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]",
-                  tier.featured
-                    ? "bg-[#1FA77A] text-white shadow-sm hover:bg-[#188a65]"
-                    : "border border-[#1FA77A]/25 bg-white text-[#126b4f] hover:border-[#1FA77A]/50 hover:bg-[#1FA77A]/5"
+                  tier.featured ? "text-gray-300" : "text-gray-600",
+                  "mt-6 min-h-24 text-base/7"
                 )}
-                onClick={() => onSelect(tier.id)}
               >
-                {tier.cta}
-              </button>
-              <ul className="mt-8 space-y-3 text-sm leading-6 text-muted-foreground">
+                {tier.description}
+              </p>
+              <ul
+                role="list"
+                className={cx(
+                  tier.featured ? "text-gray-300" : "text-gray-600",
+                  "mt-8 space-y-3 text-sm/6 sm:mt-10"
+                )}
+              >
                 {tier.features.map((feature) => (
-                  <li key={feature} className="flex gap-3">
+                  <li key={feature} className="flex gap-x-3">
                     <CheckIcon
                       aria-hidden={true}
-                      className="mt-0.5 size-5 flex-none text-[#1FA77A]"
+                      className={cx(
+                        tier.featured ? "text-[#8BC6FF]" : "text-[#3A7BD5]",
+                        "h-6 w-5 flex-none"
+                      )}
                     />
                     <span>{feature}</span>
                   </li>
                 ))}
               </ul>
+              <button
+                type="button"
+                aria-describedby={tier.id}
+                className={cx(
+                  tier.featured
+                    ? "bg-[#1FA77A] text-white shadow-sm hover:bg-[#188a65]"
+                    : "text-[#126b4f] inset-ring inset-ring-[#1FA77A]/25 hover:inset-ring-[#1FA77A]/40",
+                  "mt-8 block rounded-md px-3.5 py-2.5 text-center text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A] sm:mt-10"
+                )}
+                onClick={() => onSelect(tier.id)}
+              >
+                {tier.cta}
+              </button>
             </div>
           </div>
         ))}
@@ -2920,7 +2936,7 @@ function PlanSelectionPanel({
       <div className="mt-8 flex justify-center">
         <button
           type="button"
-          className="rounded-md border border-foreground/10 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-[#20343A] transition hover:bg-background"
+          className="rounded-md bg-white/70 px-5 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-[#20343A] ring-1 ring-foreground/10 transition hover:bg-white"
           onClick={onBack}
         >
           {content.back}

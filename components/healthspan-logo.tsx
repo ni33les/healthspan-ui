@@ -10,43 +10,28 @@ export function HealthspanLogo({
   return (
     <div
       role="img"
-      aria-label="PROACTIVEAI Healthspan logo"
+      aria-label="MATTANUTRA logo. Knowing the right amount."
       className={cn("inline-flex w-max items-center gap-[13.5px]", className)}
       {...props}
     >
       <svg
-        viewBox="0 0 48 48"
-        className="h-[40px] w-[40px] shrink-0 sm:h-[45px] sm:w-[45px]"
+        viewBox="0 0 16 16"
+        className="h-[34px] w-[34px] shrink-0 sm:h-[38px] sm:w-[38px]"
         aria-hidden="true"
       >
-        <rect width="48" height="48" rx="12" fill="#3A7BD5" />
         <path
-          d="M8 25h9.2L22.1 12l9.8 24 4.9-11H40"
-          fill="none"
-          stroke="#ffffff"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="4.2"
-        />
-        <path
-          d="M22.1 12 31.9 36"
-          fill="none"
-          stroke="#d9e9ff"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2.3"
+          d="M1.4 1.7c.216.289.65.84 1.725 1.274 1.093.44 2.884.774 5.834.528l.37-.023c1.823-.06 3.117.598 3.956 1.579C14.16 6.082 14.5 7.41 14.5 8.5c0 .58-.032 1.285-.229 1.997q.198.248.382.54c.756 1.2 1.19 2.563 1.348 3.966a1 1 0 0 1-1.98.198c-.13-.97-.397-1.913-.868-2.77C12.173 13.386 10.565 14 8 14c-1.854 0-3.32-.544-4.45-1.435-1.125-.887-1.89-2.095-2.391-3.383C.16 6.62.16 3.646.509 1.902L.73.806zm-.05 1.39c-.146 1.609-.008 3.809.74 5.728.457 1.17 1.13 2.213 2.079 2.961.942.744 2.185 1.22 3.83 1.221 2.588 0 3.91-.66 4.609-1.445-1.789-2.46-4.121-1.213-6.342-2.68-.74-.488-1.735-1.323-1.844-2.308-.023-.214.237-.274.38-.112 1.4 1.6 3.573 1.757 5.59 2.045 1.227.215 2.21.526 3.033 1.158.058-.39.075-.782.075-1.158 0-.91-.288-1.988-.975-2.792-.626-.732-1.622-1.281-3.167-1.229l-.316.02c-3.05.253-5.01-.08-6.291-.598a5.3 5.3 0 0 1-1.4-.811"
+          fill="#1FA77A"
         />
       </svg>
 
       <span className="inline-grid leading-none">
-        <span className="flex items-baseline gap-[7px] text-[20px] font-semibold uppercase tracking-[0.04em] sm:text-[22.5px]">
-          <span className="text-[#20343A]">PROACTIVE</span>
-          <span className="text-[#3A7BD5]">AI</span>
+        <span className="flex items-baseline text-[20px] font-semibold uppercase tracking-[0.04em] sm:text-[22.5px]">
+          <span className="font-extrabold text-[#20343A]">MATTA</span>
+          <span className="text-[#66747A]">NUTRA</span>
         </span>
-        <span className="mt-[4.5px] flex w-full justify-between text-[12.25px] font-normal uppercase text-muted-foreground sm:text-[13.5px]">
-          {"HEALTHSPAN".split("").map((letter, index) => (
-            <span key={`${letter}-${index}`}>{letter}</span>
-          ))}
+        <span className="mt-[4.5px] text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground sm:text-[11.5px]">
+          Knowing the right amount
         </span>
       </span>
     </div>

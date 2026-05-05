@@ -10,12 +10,12 @@ export const localeLabels: Record<Locale, string> = {
 
 const en = {
   meta: {
-    title: "Healthspan",
+    title: "MATTANUTRA",
     description:
       "Personalized supplement recommendations tailored to your body, lifestyle, and goals."
   },
   hero: {
-    eyebrow: "Healthspan",
+    eyebrow: "MATTANUTRA",
     title: "Hello",
     subtitle: "Know exactly what your body needs",
     subtitleAccent: "your body needs",
@@ -32,7 +32,7 @@ const en = {
     eyebrow: "Smart Assessment",
     title: "Let’s understand your goals",
     description:
-      "This is the starting point for the Healthspan assessment. We’ll use this flow to capture your goals, lifestyle, preferences, and constraints before creating your supplement formulation.",
+      "This is the starting point for the MATTANUTRA assessment. We’ll use this flow to capture your goals, lifestyle, preferences, and constraints before creating your supplement formulation.",
     stepLabel: "Step 1 of 3",
     prompt: "What would you like to improve first?",
     options: ["Energy", "Sleep", "Focus", "Calm", "Recovery", "Healthy aging"],
@@ -42,7 +42,7 @@ const en = {
     eyebrow: "Personalized wellness",
     title: "From goals to supplement options",
     description:
-      "Healthspan turns a short conversation about your lifestyle, your body and preferences into a supplement formulation tailored specifically for you — then finds the closest matching products that meet your body’s needs.",
+      "MATTANUTRA turns a short conversation about your lifestyle, your body and preferences into a supplement formulation tailored specifically for you — then finds the closest matching products that meet your body’s needs.",
     features: [
       {
         name: "Smart Assessment",
@@ -103,12 +103,12 @@ const dictionaries: Record<Locale, Dictionary> = {
   en,
   th: {
     meta: {
-      title: "Healthspan",
+      title: "MATTANUTRA",
       description:
         "คำแนะนำอาหารเสริมเฉพาะบุคคลที่ปรับให้เข้ากับร่างกาย ไลฟ์สไตล์ และเป้าหมายของคุณ"
     },
     hero: {
-      eyebrow: "Healthspan",
+      eyebrow: "MATTANUTRA",
       title: "สวัสดี",
       subtitle: "รู้ชัดว่าร่างกายของคุณต้องการอะไร",
       subtitleAccent: "ร่างกายของคุณต้องการอะไร",
@@ -125,7 +125,7 @@ const dictionaries: Record<Locale, Dictionary> = {
       eyebrow: "การประเมินอัจฉริยะ",
       title: "มาเริ่มทำความเข้าใจเป้าหมายของคุณ",
       description:
-        "นี่คือจุดเริ่มต้นของแบบประเมิน Healthspan เราจะใช้ขั้นตอนนี้เพื่อเก็บเป้าหมาย ไลฟ์สไตล์ ความต้องการ และข้อจำกัดของคุณ ก่อนสร้างสูตรอาหารเสริมเฉพาะบุคคล",
+        "นี่คือจุดเริ่มต้นของแบบประเมิน MATTANUTRA เราจะใช้ขั้นตอนนี้เพื่อเก็บเป้าหมาย ไลฟ์สไตล์ ความต้องการ และข้อจำกัดของคุณ ก่อนสร้างสูตรอาหารเสริมเฉพาะบุคคล",
       stepLabel: "ขั้นตอนที่ 1 จาก 3",
       prompt: "คุณอยากปรับปรุงเรื่องใดก่อน?",
       options: [
@@ -142,7 +142,7 @@ const dictionaries: Record<Locale, Dictionary> = {
       eyebrow: "สุขภาพเฉพาะบุคคล",
       title: "จากเป้าหมายสู่ตัวเลือกอาหารเสริม",
       description:
-        "Healthspan เปลี่ยนบทสนทนาสั้นๆ เกี่ยวกับไลฟ์สไตล์ ร่างกาย และความต้องการของคุณให้เป็นสูตรอาหารเสริมที่ปรับมาเพื่อคุณโดยเฉพาะ แล้วค้นหาผลิตภัณฑ์ที่ใกล้เคียงที่สุดกับสิ่งที่ร่างกายคุณต้องการ",
+        "MATTANUTRA เปลี่ยนบทสนทนาสั้นๆ เกี่ยวกับไลฟ์สไตล์ ร่างกาย และความต้องการของคุณให้เป็นสูตรอาหารเสริมที่ปรับมาเพื่อคุณโดยเฉพาะ แล้วค้นหาผลิตภัณฑ์ที่ใกล้เคียงที่สุดกับสิ่งที่ร่างกายคุณต้องการ",
       features: [
         {
           name: "การประเมินอัจฉริยะ",

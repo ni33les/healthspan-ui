@@ -92,7 +92,7 @@ const copy = {
     connectChatButton: "Open chat",
     connectChatEyebrow: "Continue in chat",
     connectChatPlanId: "Plan",
-    connectChatQrAlt: "QR code to connect with the Healthspan AI advisor",
+    connectChatQrAlt: "QR code to connect with the MATTANUTRA AI advisor",
     connectChatTitle:
       "Connect with our specialist AI supplement advisor for ongoing support and refinement.",
     constraints: "Constraints",
@@ -125,7 +125,7 @@ const copy = {
     connectChatButton: "เปิดแชต",
     connectChatEyebrow: "คุยต่อในแชต",
     connectChatPlanId: "แผน",
-    connectChatQrAlt: "QR code สำหรับเชื่อมต่อ Healthspan AI advisor",
+    connectChatQrAlt: "QR code สำหรับเชื่อมต่อ MATTANUTRA AI advisor",
     connectChatTitle:
       "เชื่อมต่อกับ AI advisor เฉพาะทางด้านอาหารเสริมเพื่อการดูแลและปรับแผนต่อเนื่อง",
     constraints: "ข้อจำกัด",
