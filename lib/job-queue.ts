@@ -1,9 +1,16 @@
 import type postgres from "postgres";
 import { getSql } from "@/lib/db";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { type AssessmentPlan } from "@/lib/assessment-jobs";
+import {
+  normalizeAssessmentPlan,
+  type AssessmentPlan
+} from "@/lib/assessment-jobs";
 import { getMockFormulationResult } from "@/lib/mock-formulation";
-import { isUuid, toJsonValue } from "@/lib/assessment-store";
+import {
+  ensureAssessmentSchema,
+  isUuid,
+  toJsonValue
+} from "@/lib/assessment-store";
 
 type JobType = "formulation";
 
@@ -31,18 +38,6 @@ function priorityForPlan(plan: AssessmentPlan) {
   return 10;
 }
 
-function toAssessmentPlan(plan: unknown): AssessmentPlan {
-  if (plan === "pro") {
-    return "pro";
-  }
-
-  if (plan === "precision") {
-    return "precision";
-  }
-
-  return "free";
-}
-
 function delay(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -55,15 +50,7 @@ function randomInt(min: number, max: number) {
 
 async function ensureJobsSchema(sql: postgres.Sql) {
   globalJobsWorker.mattanutraJobsSchemaReady ??= (async () => {
-    await sql`
-      do $$
-      begin
-        if to_regclass('public.assessment_submissions') is not null
-          and to_regclass('public.assessments') is null then
-          alter table public.assessment_submissions rename to assessments;
-        end if;
-      end $$;
-    `;
+    await ensureAssessmentSchema();
 
     await sql`
       create table if not exists jobs (
@@ -286,7 +273,7 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
   const locale: Locale = isLocale(submission.locale)
     ? submission.locale
     : "en";
-  const plan = toAssessmentPlan(submission.selected_plan);
+  const plan = normalizeAssessmentPlan(submission.selected_plan);
   const result = getMockFormulationResult(job.plan_id, locale, plan);
 
   await delay(randomInt(1200, 2400));

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAssessmentJobSnapshot } from "@/lib/assessment-jobs";
 import { isLocale, type Locale } from "@/lib/i18n";
 import { getMockFormulationResult } from "@/lib/mock-formulation";
 import {
@@ -16,8 +15,7 @@ type FormulationRouteProps = Readonly<{
 
 export async function GET(request: Request, { params }: FormulationRouteProps) {
   const { planId } = await params;
-  const snapshot =
-    (await getStoredAssessmentSnapshot(planId)) ?? getAssessmentJobSnapshot(planId);
+  const snapshot = await getStoredAssessmentSnapshot(planId);
 
   if (snapshot && snapshot.status !== "ready") {
     void kickJobsWorker();

@@ -10,7 +10,6 @@ type AssessmentResultsPageProps = Readonly<{
   }>;
   searchParams: Promise<{
     plan?: string;
-    job?: string;
   }>;
 }>;
 
@@ -30,8 +29,8 @@ export default async function AssessmentResultsPage({
 
   const locale: Locale = rawLocale;
   const dictionary = getDictionary(locale);
-  const { job, plan } = await searchParams;
-  const planId = plan ?? job ?? "demo";
+  const { plan } = await searchParams;
+  const planId = plan ?? "demo";
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  createAssessmentJob,
+  createAssessmentSnapshot,
   normalizeAssessmentPlan
 } from "@/lib/assessment-jobs";
 import { persistAssessmentSubmission } from "@/lib/assessment-store";
@@ -29,9 +29,11 @@ export async function POST(request: Request) {
     body = { plan: "free" };
   }
 
-  const snapshot = createAssessmentJob(body);
   const selectedPlan =
     body.intent === "capture" ? null : normalizeAssessmentPlan(body.plan);
+  const snapshot = createAssessmentSnapshot({
+    plan: selectedPlan ?? body.plan
+  });
 
   try {
     await persistAssessmentSubmission({
@@ -43,16 +45,31 @@ export async function POST(request: Request) {
     });
 
     if (body.intent === "process" && selectedPlan) {
-      await enqueueFormulationJob({
+      const jobId = await enqueueFormulationJob({
         answers: body.answers,
         locale: body.locale,
         plan: selectedPlan,
         planId: snapshot.planId
       });
+
+      if (!jobId) {
+        throw new Error("Unable to queue assessment processing");
+      }
+
       void kickJobsWorker();
     }
   } catch (error) {
     console.error("Unable to persist assessment submission", error);
+
+    return NextResponse.json(
+      { message: "Unable to save assessment" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 500
+      }
+    );
   }
 
   return NextResponse.json(snapshot, {

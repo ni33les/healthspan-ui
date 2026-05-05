@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import {
-  getAssessmentJobSnapshot,
-  normalizeAssessmentPlan,
-  updateAssessmentJob
+  createAssessmentSnapshot,
+  normalizeAssessmentPlan
 } from "@/lib/assessment-jobs";
 import {
   getStoredAssessmentSnapshot,
-  persistAssessmentPlanSelection
+  isUuid,
+  persistAssessmentSubmission
 } from "@/lib/assessment-store";
 import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
 
@@ -23,8 +23,7 @@ export async function GET(
   { params }: AssessmentStatusRouteProps
 ) {
   const { planId } = await params;
-  const snapshot =
-    (await getStoredAssessmentSnapshot(planId)) ?? getAssessmentJobSnapshot(planId);
+  const snapshot = await getStoredAssessmentSnapshot(planId);
 
   if (!snapshot) {
     return NextResponse.json(
@@ -66,9 +65,7 @@ export async function PATCH(
     body = {};
   }
 
-  const snapshot = updateAssessmentJob(planId, body);
-
-  if (!snapshot) {
+  if (!isUuid(planId)) {
     return NextResponse.json(
       { message: "Assessment plan not found" },
       {
@@ -82,31 +79,52 @@ export async function PATCH(
 
   try {
     const selectedPlan = normalizeAssessmentPlan(body.plan);
+    const existingSnapshot = await getStoredAssessmentSnapshot(planId);
+    const snapshot = createAssessmentSnapshot({
+      plan: selectedPlan,
+      planId,
+      queuePosition: existingSnapshot?.queuePosition,
+      status: "queued"
+    });
 
-    await persistAssessmentPlanSelection({
+    await persistAssessmentSubmission({
       answers: body.answers,
       locale: body.locale,
-      previousPlanId: planId,
       selectedPlan,
       snapshot,
       status: "queued"
     });
-    await enqueueFormulationJob({
+    const jobId = await enqueueFormulationJob({
       answers: body.answers,
       locale: body.locale,
       plan: selectedPlan,
       planId: snapshot.planId
     });
+
+    if (!jobId) {
+      throw new Error("Unable to queue assessment processing");
+    }
+
     void kickJobsWorker();
+
+    const storedSnapshot = await getStoredAssessmentSnapshot(snapshot.planId);
+
+    return NextResponse.json(storedSnapshot ?? snapshot, {
+      headers: {
+        "Cache-Control": "no-store"
+      }
+    });
   } catch (error) {
     console.error("Unable to persist assessment plan selection", error);
+
+    return NextResponse.json(
+      { message: "Unable to start assessment processing" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 500
+      }
+    );
   }
-
-  const storedSnapshot = await getStoredAssessmentSnapshot(snapshot.planId);
-
-  return NextResponse.json(storedSnapshot ?? snapshot, {
-    headers: {
-      "Cache-Control": "no-store"
-    }
-  });
 }
