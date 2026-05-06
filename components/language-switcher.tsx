@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   localeLabels,
   locales,
@@ -12,10 +11,14 @@ type LanguageSwitcherProps = Readonly<{
 }>;
 
 function getLocalizedPath(currentPath: string, locale: Locale) {
-  const segments = currentPath.split("/");
-  segments[1] = locale;
+  const url = new URL(currentPath, "https://mattanutra.local");
+  const segments = url.pathname.split("/");
 
-  return segments.join("/") || `/${locale}`;
+  segments[1] = locale;
+  url.pathname = segments.join("/") || `/${locale}`;
+  url.searchParams.delete("_rsc");
+
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function LanguageSwitcher({
@@ -33,7 +36,7 @@ export function LanguageSwitcher({
         const label = localeLabels[locale];
 
         return (
-          <Link
+          <a
             key={locale}
             href={`/api/locale?locale=${locale}&next=${encodeURIComponent(next)}`}
             aria-current={isActive ? "page" : undefined}
@@ -45,7 +48,7 @@ export function LanguageSwitcher({
             )}
           >
             {label}
-          </Link>
+          </a>
         );
       })}
     </nav>
