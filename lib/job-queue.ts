@@ -584,7 +584,11 @@ export async function enqueueFormulationJob({
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: { plan, priority: priorityForPlan(plan) },
+    eventPayload: {
+      businessEvent: true,
+      plan,
+      priority: priorityForPlan(plan)
+    },
     eventType: "job_enqueued",
     jobId,
     level: "low",
@@ -663,7 +667,10 @@ async function enqueueExampleFormulationJob(
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: { requestId },
+    eventPayload: {
+      businessEvent: true,
+      requestId
+    },
     eventType: "example_formulation_job_enqueued",
     jobId,
     level: "low",
@@ -731,7 +738,10 @@ async function enqueueExampleEmailJob(
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: { requestId },
+    eventPayload: {
+      businessEvent: true,
+      requestId
+    },
     eventType: "example_email_job_enqueued",
     jobId,
     level: "low",
@@ -797,6 +807,17 @@ export async function requestExampleBrief({
   const existingRequest = existingRequests[0];
 
   if (existingRequest) {
+    await auditJobEvent(sql, {
+      eventPayload: {
+        businessEvent: true,
+        email: emailValidation.email,
+        requestId: existingRequest.id
+      },
+      eventType: "example_request_reused",
+      level: "low",
+      planId
+    });
+
     return {
       jobId: existingRequest.job_id ?? "",
       requestId: existingRequest.id
@@ -828,6 +849,17 @@ export async function requestExampleBrief({
       now()
     )
   `;
+
+  await auditJobEvent(sql, {
+    eventPayload: {
+      businessEvent: true,
+      email: emailValidation.email,
+      requestId
+    },
+    eventType: "example_request_created",
+    level: "low",
+    planId
+  });
 
   const jobId = await enqueueExampleFormulationJob(sql, {
     planId,
@@ -923,6 +955,7 @@ export async function scheduleReassessmentAction({
     await auditJobEvent(sql, {
       eventPayload: {
         actionType: "reassessment",
+        businessEvent: true,
         cronId: existingPrimary.id,
         duplicateCount: Math.max(0, existing.length - 1),
         email: emailValidation.email,
@@ -969,7 +1002,13 @@ export async function scheduleReassessmentAction({
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: { actionType: "reassessment", cronId, recurrenceDays: 60 },
+    eventPayload: {
+      actionType: "reassessment",
+      businessEvent: true,
+      cronId,
+      email: emailValidation.email,
+      recurrenceDays: 60
+    },
     eventType: "cron_action_scheduled",
     level: "low",
     planId
@@ -1135,7 +1174,11 @@ async function enqueueReassessmentEmailJob(
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: { cronId },
+    eventPayload: {
+      businessEvent: true,
+      cronId,
+      email
+    },
     eventType: "reassessment_job_enqueued",
     jobId,
     level: "low",
@@ -1499,6 +1542,7 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
         ${transaction.json(
           toJsonValue({
             attempts: analysis.attempts,
+            businessEvent: true,
             formulationVersion: version,
             model: analysis.model,
             promptVersion: analysis.promptVersion,
@@ -1646,6 +1690,7 @@ async function completeExampleFormulationJob(
         ${transaction.json(
           toJsonValue({
             attempts: analysis.attempts,
+            businessEvent: true,
             formulationVersion: version,
             model: analysis.model,
             promptVersion: analysis.promptVersion,

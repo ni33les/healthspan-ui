@@ -21,9 +21,9 @@ The new commercial flow is now:
 2. Optionally capture an email for a free 60-day reassessment reminder.
 3. Calculate and show the HealthScore.
 4. Let the user either request a free email example or choose a paid plan.
-5. For the free path, prepare the full formulation but render only a limited email example.
+5. For the free path, prepare the full formulation but send only a limited email example.
 6. For the paid path, continue processing and show the full formulation page.
-7. For reassessment reminders, schedule a recurring 60-day action that can invite the user back with the previous plan prefilled.
+7. For reassessment reminders, schedule a recurring 60-day action that emails the user, supports unsubscribe, and invites the user back with the previous plan prefilled.
 
 | Business Area | Current State | Status |
 | --- | --- | --- |
@@ -33,9 +33,9 @@ The new commercial flow is now:
 | Questionnaire sanity check | Required fields exist, but formal impossible-value and high-risk handling is not complete. | In Progress |
 | HealthScore | HealthScore is calculated from assessment answers before the paywall. | Done |
 | HealthScore gate | User sees score context before choosing email example or paid plan. | Done |
-| Free example capture | Email can be captured for a free example lead path. | In Progress |
-| Example formulation | The full formulation can be queued for the example path. | In Progress |
-| Example email | A limited HTML email preview can be rendered, but actual sending is not connected. | In Progress |
+| Free example capture | Email can be captured for a free example lead path. | Done |
+| Example formulation | The full formulation is queued and prepared for the example path. | Done |
+| Example email | A limited HTML email preview is rendered, sent when email delivery is configured, and audited with delivery status and delivery reference. | Done |
 | Plan selection | Customer can choose Precision or Pro before full formulation processing. | Done |
 | Returning reassessment | A returning plan link can prefill previous answers and create a new formulation version for the same plan. | Done |
 | Payment | Plan gate exists, but payment collection is not active. | Pending |
@@ -47,7 +47,7 @@ The new commercial flow is now:
 | Chat support | Chat CTA exists, but live advisor workflow is not fully connected. | In Progress |
 | Affiliate purchase journey | Affiliate-led purchase flow is not live. | Pending |
 | Safety governance | Disclaimers and legal pages exist; hard dosing, exclusion, and review rules are still needed. | In Progress |
-| Follow-up and retention | Recurring reassessment scheduling and branded email rendering exist; actual sending and wider lifecycle messaging are not active. | In Progress |
+| Follow-up and retention | Recurring reassessment scheduling, email sending, audit logging, unsubscribe handling, and return-link prefill exist. Wider lifecycle messaging is not active. | In Progress |
 | Admin and reporting | Operational dashboard and funnel reporting are not active. | Pending |
 
 ## Target Customer Journey
@@ -65,7 +65,7 @@ flowchart LR
   E --> H["HealthScore gate"]
   H -->|Free example| I["Capture email"]
   I --> J["Queue full formulation"]
-  J --> K["Render limited example email"]
+  J --> K["Render and send limited example email"]
   K --> L["Show exit screen"]
   H -->|Paid plan| M["Select Precision or Pro"]
   M --> N["Payment"]
@@ -84,15 +84,16 @@ flowchart LR
   X --> Y["Ongoing support and refinement"]
   W --> Z["Reassessment and reorder prompts"]
   Z --> ZA["Recurring 60-day reminder"]
-  ZA --> ZAA["Return with previous answers prefilled"]
+  ZA --> Z0["Send reminder email with unsubscribe"]
+  Z0 --> ZAA["Return with previous answers prefilled"]
   ZAA --> ZB["Create new formulation version"]
 
   classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class A,B,C,E,H,L,M,O,R,T,ZAA,ZB done;
-  class C1,D,F,I,J,K,Q,S,U,V,X,Z,ZA progress;
+  class A,B,C,C1,E,H,I,J,K,L,M,O,R,T,Z0,ZA,ZAA,ZB done;
+  class D,F,Q,S,U,V,X,Z progress;
   class G,N,P,W,Y pending;
 ```
 
@@ -111,7 +112,7 @@ flowchart TB
   G5 --> G8["6. Show HealthScore gate"]
   G8 -->|Example| G9["Capture email"]
   G9 --> G10["Queue full formulation"]
-  G10 --> G11["Render limited example email"]
+  G10 --> G11["Render and send limited example email"]
   G11 --> G12["Exit and nurture"]
   G8 -->|Paid| G13["Select plan"]
   G13 --> G14["Payment"]
@@ -129,16 +130,17 @@ flowchart TB
   G20 --> G24["Advisor support"]
   G23 --> G25["Reassess and retain"]
   G24 --> G25
-  G25 --> G26["Prefill previous answers"]
+  G25 --> G25A["Send reminder email with unsubscribe"]
+  G25A --> G26["Prefill previous answers"]
   G26 --> G27["Save new formulation version"]
 
   classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class G1,G2,G3,G5,G8,G13,G15,G18,G20,G26,G27 done;
-  class G3A,G4,G6,G9,G10,G11,G17,G19,G21,G22,G24,G25 progress;
-  class G7,G12,G14,G16,G23 pending;
+  class G1,G2,G3,G3A,G5,G8,G9,G10,G11,G13,G15,G18,G20,G25A,G26,G27 done;
+  class G4,G6,G12,G17,G19,G21,G22,G24,G25 progress;
+  class G7,G14,G16,G23 pending;
 ```
 
 ## Process Detail
@@ -183,7 +185,7 @@ The HealthScore should show:
 
 Purpose: capture value from users who do not choose a paid plan immediately.
 
-Current state: partly built. Email capture, example formulation queueing, and limited HTML email rendering are present. Actual email sending is intentionally not connected yet.
+Current state: built. Email capture, example formulation queueing, limited HTML email rendering, email sending, and delivery audit logging are present.
 
 Target process:
 
@@ -191,7 +193,9 @@ Target process:
 2. User sees an exit screen.
 3. Full formulation is prepared in the background.
 4. A limited example email is rendered from the full formulation.
-5. Later, the email sending step delivers the limited example as a sales lead.
+5. The email is sent through the configured email delivery account.
+6. The send result is audited with delivery status, recipient, email type, and delivery reference when available.
+7. If the user opted into reassessment reminders, the example email includes an unsubscribe link.
 
 The user receives only a limited example, even though the full formulation is processed.
 
@@ -290,7 +294,7 @@ Target process:
 
 Purpose: turn a one-time formulation into an ongoing relationship.
 
-Current state: partly active. The assessment can capture a reassessment email, schedule a recurring 60-day reminder action, render a branded reminder email, log the rendered output for audit, and prefill the questionnaire when the user returns with the plan link. Actual email sending, broader lifecycle messaging, and reporting are not active.
+Current state: partly active. The assessment can capture a reassessment email, schedule a recurring 60-day reminder action, render and send a branded reminder email, audit the rendered output and delivery result, provide an unsubscribe link that cancels the cron action, and prefill the questionnaire when the user returns with the plan link. Broader lifecycle messaging and reporting are not active.
 
 Target process:
 
@@ -298,7 +302,8 @@ Target process:
 - Schedule a recurring 60-day reminder against the plan.
 - Keep one active reassessment reminder per email address and gracefully cancel duplicates.
 - Convert due reminder actions into jobs.
-- Render, audit, and later send a branded email with a reassessment link.
+- Render, audit, and send a branded email with a reassessment link.
+- Include an unsubscribe link that cancels future reassessment reminders.
 - Prefill prior answers when the user returns.
 - Save the reassessment as a new version of the same plan.
 - Bypass the paywall for active Pro members and show a direct continue action.
@@ -312,14 +317,14 @@ Target process:
 | --- | --- | --- |
 | Questionnaire sanity checks | Prevents unusable or risky automated results. | High |
 | Payment activation | Required for paid conversion. | High |
-| Email sending for example path | Captures value from non-paying users. | High |
 | Safety stop rules | Required before scaling traffic. | High |
 | Product whitelist | Required for trustworthy recommendations. | High |
 | Affiliate approval and link setup | Required for marketplace revenue. | High |
 | Qualified reviewer | Reduces compliance and trust risk. | High |
 | Live chat workflow | Needed for Pro Plan value. | Medium |
-| Email sending for reassessment | Scheduled reminders are rendered but not sent. | Medium |
+| Email deliverability monitoring | Needed to watch bounces, spam placement, and email delivery failures after launch. | Medium |
 | Wider follow-up and reassessment | Needed for retention and repeat use beyond the first 60-day reminder. | Medium |
+| Business funnel events | Needed for marketing and conversion optimisation. | Medium |
 | Admin reporting | Needed once traffic begins. | Medium |
 | Blog section | Needed for acquisition, trust, and explainability content. | Medium |
 
@@ -328,14 +333,14 @@ Target process:
 1. Finish plan model and flow cleanup.
 2. Add questionnaire sanity checks and failure handling.
 3. Connect payment.
-4. Connect example email sending.
-5. Add safety stop rules and ingredient exclusion rules.
-6. Build the first trusted product list.
-7. Connect product matching to the result page.
-8. Make advisor chat work for one channel first.
-9. Connect email sending for example and reassessment messages.
-10. Add blog section and early educational content.
-11. Add broader follow-up, reassessment, and basic operational reporting.
+4. Add safety stop rules and ingredient exclusion rules.
+5. Build the first trusted product list.
+6. Connect product matching to the result page.
+7. Make advisor chat work for one channel first.
+8. Add email deliverability monitoring.
+9. Add blog section and early educational content.
+10. Add business funnel events and basic operational reporting.
+11. Add broader follow-up and lifecycle messaging.
 
 ## Open Business Decisions
 

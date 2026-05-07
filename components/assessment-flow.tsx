@@ -1777,7 +1777,7 @@ export function AssessmentFlow({
           },
           exampleExit: {
             body:
-              "เรากำลังจัดเตรียมสูตรฉบับเต็มและจะสร้างอีเมลตัวอย่างให้คุณ ขั้นตอนส่งอีเมลจริงจะเชื่อมต่อในภายหลัง",
+              "เรากำลังจัดเตรียมสูตรฉบับเต็มและจะส่งอีเมลตัวอย่างแบบสั้นให้คุณ เมื่อส่งแล้วระบบจะบันทึกสถานะการจัดส่งไว้",
             title: "ตัวอย่างของคุณกำลังถูกจัดเตรียม"
           },
           retry: "ลองอีกครั้ง",
@@ -1874,7 +1874,7 @@ export function AssessmentFlow({
           },
           exampleExit: {
             body:
-              "We are preparing the full formulation and rendering your example email. The actual email send step will be connected later.",
+              "We are preparing the full formulation and sending your short example email. The delivery result will be logged for traceability.",
             title: "Your example is being prepared"
           },
           retry: "Try again",
