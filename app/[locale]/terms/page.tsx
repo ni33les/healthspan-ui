@@ -24,7 +24,7 @@ export async function generateMetadata({
   const content = getLegalContent(locale, "terms");
 
   return {
-    title: `MATTANUTRA | ${content.title}`,
+    title: `MattaNutra | ${content.title}`,
     description: content.intro
   };
 }

@@ -5,14 +5,30 @@ import {
   normalizeAssessmentPlan,
   type AssessmentPlan
 } from "@/lib/assessment-jobs";
+import {
+  buildExampleEmailHtml,
+  buildExampleEmailSubject
+} from "@/lib/example-email";
+import { validateLeadEmail } from "@/lib/email-validation";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
+import type { FormulationBlueprint } from "@/lib/formulation-types";
+import type { HealthScoreResult } from "@/lib/health-score";
+import {
+  buildReassessmentEmailHtml,
+  buildReassessmentEmailSubject
+} from "@/lib/reassessment-email";
+import { sendTransactionalEmail } from "@/lib/smtp-email";
 import {
   ensureAssessmentSchema,
   isUuid,
   toJsonValue
 } from "@/lib/assessment-store";
 
-type JobType = "formulation";
+type JobType =
+  | "example_email"
+  | "example_formulation"
+  | "formulation"
+  | "reassessment";
 type AuditLevel = "critical" | "high" | "low" | "medium";
 
 type ClaimedJob = {
@@ -20,10 +36,12 @@ type ClaimedJob = {
   id: string;
   job_type: JobType | string;
   plan_id: string | null;
+  payload: unknown;
 };
 
 const globalJobsWorker = globalThis as typeof globalThis & {
-  mattanutraJobsSchemaReadyV4?: Promise<void>;
+  mattanutraCronWorker?: Promise<{ queued: number }>;
+  mattanutraJobsSchemaReadyV6?: Promise<void>;
   mattanutraJobsWorker?: Promise<void>;
 };
 
@@ -35,8 +53,24 @@ function priorityForPlan(plan: AssessmentPlan) {
   return 20;
 }
 
+function payloadRecord(payload: unknown) {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {};
+}
+
+function payloadText(payload: unknown, key: string) {
+  const value = payloadRecord(payload)[key];
+
+  return typeof value === "string" ? value : "";
+}
+
+function newUnsubscribeToken() {
+  return crypto.randomUUID();
+}
+
 async function ensureJobsSchema(sql: postgres.Sql) {
-  globalJobsWorker.mattanutraJobsSchemaReadyV4 ??= (async () => {
+  globalJobsWorker.mattanutraJobsSchemaReadyV6 ??= (async () => {
     await ensureAssessmentSchema();
 
     await sql`
@@ -107,6 +141,56 @@ async function ensureJobsSchema(sql: postgres.Sql) {
     `;
 
     await sql`
+      create table if not exists assessment_example_requests (
+        id uuid primary key,
+        plan_id uuid not null references assessments(plan_id) on delete cascade,
+        email text not null,
+        locale text not null default 'en' check (locale in ('en', 'th')),
+        status text not null default 'requested' check (
+          status in (
+            'requested',
+            'formulation_queued',
+            'formulation_ready',
+            'email_queued',
+            'email_rendered',
+            'email_sent',
+            'failed'
+          )
+        ),
+        health_score jsonb not null default '{}'::jsonb,
+        email_html text null,
+        error_message text null,
+        requested_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )
+    `;
+
+    await sql`
+      create table if not exists cron (
+        id uuid primary key,
+        plan_id uuid null references assessments(plan_id) on delete cascade,
+        action_type text not null,
+        recipient jsonb not null default '{}'::jsonb,
+        payload jsonb not null default '{}'::jsonb,
+        scheduled_for timestamptz not null,
+        status text not null default 'scheduled' check (
+          status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed')
+        ),
+        job_id uuid null references jobs(id) on delete set null,
+        attempts integer not null default 0,
+        recurrence_days integer null,
+        unsubscribe_token text null,
+        unsubscribed_at timestamptz null,
+        result_payload jsonb not null default '{}'::jsonb,
+        error_message text null,
+        created_at timestamptz not null default now(),
+        queued_at timestamptz null,
+        completed_at timestamptz null,
+        updated_at timestamptz not null default now()
+      )
+    `;
+
+    await sql`
       alter table formulations
         add column if not exists version integer not null default 1
     `;
@@ -119,6 +203,119 @@ async function ensureJobsSchema(sql: postgres.Sql) {
     await sql`
       alter table job_audit_events
         add column if not exists level text not null default 'low'
+    `;
+
+    await sql`
+      do $$
+      begin
+        alter table assessment_example_requests
+          drop constraint if exists assessment_example_requests_status_check;
+
+        alter table assessment_example_requests
+          add constraint assessment_example_requests_status_check
+          check (
+            status in (
+              'requested',
+              'formulation_queued',
+              'formulation_ready',
+              'email_queued',
+              'email_rendered',
+              'email_sent',
+              'failed'
+            )
+          );
+      end $$;
+    `;
+
+    await sql`
+      alter table cron
+        add column if not exists action_type text,
+        add column if not exists recipient jsonb not null default '{}'::jsonb,
+        add column if not exists payload jsonb not null default '{}'::jsonb,
+        add column if not exists scheduled_for timestamptz,
+        add column if not exists status text not null default 'scheduled',
+        add column if not exists job_id uuid null references jobs(id) on delete set null,
+        add column if not exists attempts integer not null default 0,
+        add column if not exists recurrence_days integer null,
+        add column if not exists unsubscribe_token text null,
+        add column if not exists unsubscribed_at timestamptz null,
+        add column if not exists result_payload jsonb not null default '{}'::jsonb,
+        add column if not exists error_message text null,
+        add column if not exists created_at timestamptz not null default now(),
+        add column if not exists queued_at timestamptz null,
+        add column if not exists completed_at timestamptz null,
+        add column if not exists updated_at timestamptz not null default now()
+    `;
+
+    await sql`
+      alter table cron
+        drop column if exists email_html
+    `;
+
+    await sql`
+      update cron
+      set action_type = 'reassessment'
+      where action_type = 'reassessment_email'
+    `;
+
+    await sql`
+      update cron
+      set recurrence_days = 60
+      where action_type = 'reassessment'
+        and recurrence_days is null
+    `;
+
+    await sql`
+      update jobs
+      set job_type = 'reassessment'
+      where job_type = 'reassessment_email'
+    `;
+
+    await sql`
+      update cron
+      set
+        action_type = coalesce(action_type, 'reassessment'),
+        recipient = coalesce(recipient, '{}'::jsonb),
+        payload = coalesce(payload, '{}'::jsonb),
+        scheduled_for = coalesce(scheduled_for, now()),
+        status = case
+          when status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed') then status
+          else 'scheduled'
+        end,
+        attempts = coalesce(attempts, 0),
+        result_payload = coalesce(result_payload, '{}'::jsonb),
+        created_at = coalesce(created_at, now()),
+        updated_at = coalesce(updated_at, now())
+      where action_type is null
+        or recipient is null
+        or payload is null
+        or scheduled_for is null
+        or status is null
+        or status not in ('scheduled', 'queued', 'complete', 'cancelled', 'failed')
+        or attempts is null
+        or result_payload is null
+        or created_at is null
+        or updated_at is null
+    `;
+
+    await sql`
+      alter table cron
+        alter column action_type set not null,
+        alter column recipient set default '{}'::jsonb,
+        alter column recipient set not null,
+        alter column payload set default '{}'::jsonb,
+        alter column payload set not null,
+        alter column scheduled_for set not null,
+        alter column status set default 'scheduled',
+        alter column status set not null,
+        alter column attempts set default 0,
+        alter column attempts set not null,
+        alter column result_payload set default '{}'::jsonb,
+        alter column result_payload set not null,
+        alter column created_at set default now(),
+        alter column created_at set not null,
+        alter column updated_at set default now(),
+        alter column updated_at set not null
     `;
 
     await sql`
@@ -146,6 +343,40 @@ async function ensureJobsSchema(sql: postgres.Sql) {
           alter table job_audit_events
             add constraint job_audit_events_level_check
             check (level in ('low', 'medium', 'high', 'critical'));
+        end if;
+      end $$;
+    `;
+
+    await sql`
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conrelid = 'public.cron'::regclass
+            and conname = 'cron_recurrence_days_check'
+        ) then
+          alter table cron
+            add constraint cron_recurrence_days_check
+            check (recurrence_days is null or recurrence_days > 0);
+        end if;
+      end $$;
+    `;
+
+    await sql`
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conrelid = 'public.cron'::regclass
+            and conname = 'cron_status_check'
+        ) then
+          alter table cron
+            add constraint cron_status_check
+            check (
+              status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed')
+            );
         end if;
       end $$;
     `;
@@ -223,12 +454,33 @@ async function ensureJobsSchema(sql: postgres.Sql) {
       create index if not exists job_audit_events_job_idx
         on job_audit_events (job_id, created_at desc)
     `;
+    await sql`
+      create index if not exists assessment_example_requests_plan_idx
+        on assessment_example_requests (plan_id, requested_at desc)
+    `;
+    await sql`
+      create index if not exists assessment_example_requests_status_idx
+        on assessment_example_requests (status, requested_at asc)
+    `;
+    await sql`
+      create index if not exists cron_due_idx
+        on cron (status, scheduled_for asc)
+    `;
+    await sql`
+      create index if not exists cron_plan_action_idx
+        on cron (plan_id, action_type, status)
+    `;
+    await sql`
+      create unique index if not exists cron_unsubscribe_token_idx
+        on cron (unsubscribe_token)
+        where unsubscribe_token is not null
+    `;
   })().catch((error) => {
-    globalJobsWorker.mattanutraJobsSchemaReadyV4 = undefined;
+    globalJobsWorker.mattanutraJobsSchemaReadyV6 = undefined;
     throw error;
   });
 
-  await globalJobsWorker.mattanutraJobsSchemaReadyV4;
+  await globalJobsWorker.mattanutraJobsSchemaReadyV6;
 }
 
 async function auditJobEvent(
@@ -353,6 +605,657 @@ export async function enqueueFormulationJob({
   return jobId;
 }
 
+async function enqueueExampleFormulationJob(
+  sql: postgres.Sql,
+  {
+    planId,
+    requestId
+  }: Readonly<{
+    planId: string;
+    requestId: string;
+  }>
+) {
+  const existing = await sql`
+    select id::text
+    from jobs
+    where plan_id = ${planId}::uuid
+      and job_type = 'example_formulation'
+      and status in ('queued', 'running')
+      and payload ->> 'requestId' = ${requestId}
+    order by queued_at desc
+    limit 1
+  `;
+
+  if (existing[0]) {
+    return existing[0].id as string;
+  }
+
+  const jobId = crypto.randomUUID();
+
+  await sql`
+    insert into jobs (
+      id,
+      job_type,
+      plan_id,
+      status,
+      priority,
+      payload,
+      queued_at,
+      updated_at
+    )
+    values (
+      ${jobId}::uuid,
+      'example_formulation',
+      ${planId}::uuid,
+      'queued',
+      5,
+      ${sql.json(toJsonValue({ requestId }))},
+      now(),
+      now()
+    )
+  `;
+
+  await sql`
+    update assessment_example_requests set
+      status = 'formulation_queued',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+
+  await auditJobEvent(sql, {
+    eventPayload: { requestId },
+    eventType: "example_formulation_job_enqueued",
+    jobId,
+    level: "low",
+    planId
+  });
+
+  return jobId;
+}
+
+async function enqueueExampleEmailJob(
+  sql: postgres.Sql,
+  {
+    planId,
+    requestId
+  }: Readonly<{
+    planId: string;
+    requestId: string;
+  }>
+) {
+  const existing = await sql`
+    select id::text
+    from jobs
+    where plan_id = ${planId}::uuid
+      and job_type = 'example_email'
+      and status in ('queued', 'running')
+      and payload ->> 'requestId' = ${requestId}
+    order by queued_at desc
+    limit 1
+  `;
+
+  if (existing[0]) {
+    return existing[0].id as string;
+  }
+
+  const jobId = crypto.randomUUID();
+
+  await sql`
+    insert into jobs (
+      id,
+      job_type,
+      plan_id,
+      status,
+      priority,
+      payload,
+      queued_at,
+      updated_at
+    )
+    values (
+      ${jobId}::uuid,
+      'example_email',
+      ${planId}::uuid,
+      'queued',
+      4,
+      ${sql.json(toJsonValue({ requestId }))},
+      now(),
+      now()
+    )
+  `;
+
+  await sql`
+    update assessment_example_requests set
+      status = 'email_queued',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+
+  await auditJobEvent(sql, {
+    eventPayload: { requestId },
+    eventType: "example_email_job_enqueued",
+    jobId,
+    level: "low",
+    planId
+  });
+
+  return jobId;
+}
+
+export async function requestExampleBrief({
+  email,
+  locale,
+  planId
+}: Readonly<{
+  email: string;
+  locale?: unknown;
+  planId: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return null;
+  }
+
+  const emailValidation = validateLeadEmail(email);
+
+  if (!emailValidation.ok) {
+    return null;
+  }
+
+  await ensureJobsSchema(sql);
+
+  const assessmentRows = await sql`
+    select health_score
+    from assessments
+    where plan_id = ${planId}::uuid
+    limit 1
+  `;
+
+  if (!assessmentRows[0]) {
+    return null;
+  }
+
+  const existingRequests = await sql<{ id: string; job_id: string | null }[]>`
+    select
+      assessment_example_requests.id::text,
+      (
+        select jobs.id::text
+        from jobs
+        where jobs.plan_id = assessment_example_requests.plan_id
+          and jobs.payload ->> 'requestId' = assessment_example_requests.id::text
+          and jobs.job_type in ('example_formulation', 'example_email')
+          and jobs.status in ('queued', 'running')
+        order by jobs.queued_at desc
+        limit 1
+      ) as job_id
+    from assessment_example_requests
+    where plan_id = ${planId}::uuid
+      and lower(email) = ${emailValidation.email}
+    order by requested_at desc
+    limit 1
+  `;
+  const existingRequest = existingRequests[0];
+
+  if (existingRequest) {
+    return {
+      jobId: existingRequest.job_id ?? "",
+      requestId: existingRequest.id
+    };
+  }
+
+  const requestId = crypto.randomUUID();
+  const normalizedLocale: Locale = isLocale(locale) ? locale : "en";
+
+  await sql`
+    insert into assessment_example_requests (
+      id,
+      plan_id,
+      email,
+      locale,
+      status,
+      health_score,
+      requested_at,
+      updated_at
+    )
+    values (
+      ${requestId}::uuid,
+      ${planId}::uuid,
+      ${emailValidation.email},
+      ${normalizedLocale},
+      'requested',
+      ${sql.json(toJsonValue(assessmentRows[0].health_score))},
+      now(),
+      now()
+    )
+  `;
+
+  const jobId = await enqueueExampleFormulationJob(sql, {
+    planId,
+    requestId
+  });
+
+  return { jobId, requestId };
+}
+
+export async function scheduleReassessmentAction({
+  email,
+  locale,
+  planId
+}: Readonly<{
+  email: string;
+  locale?: unknown;
+  planId: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return null;
+  }
+
+  const emailValidation = validateLeadEmail(email);
+
+  if (!emailValidation.ok) {
+    return null;
+  }
+
+  await ensureJobsSchema(sql);
+
+  const normalizedLocale: Locale = isLocale(locale) ? locale : "en";
+  const existing = await sql<
+    Array<{
+      id: string;
+      plan_id: string | null;
+      unsubscribe_token: string | null;
+    }>
+  >`
+    select id::text
+      , plan_id::text
+      , unsubscribe_token
+    from cron
+    where action_type = 'reassessment'
+      and status in ('scheduled', 'queued')
+      and lower(recipient ->> 'email') = ${emailValidation.email}
+    order by
+      (plan_id = ${planId}::uuid) desc,
+      scheduled_for desc,
+      created_at desc
+  `;
+  const existingPrimary = existing[0];
+
+  if (existingPrimary) {
+    const unsubscribeToken =
+      existingPrimary.unsubscribe_token || newUnsubscribeToken();
+
+    await sql`
+      update cron set
+        plan_id = ${planId}::uuid,
+        recipient = ${sql.json(
+          toJsonValue({ email: emailValidation.email })
+        )},
+        payload = ${sql.json(toJsonValue({ locale: normalizedLocale }))},
+        recurrence_days = 60,
+        unsubscribe_token = ${unsubscribeToken},
+        unsubscribed_at = null,
+        scheduled_for = now() + interval '60 days',
+        status = 'scheduled',
+        job_id = null,
+        error_message = null,
+        updated_at = now()
+      where id = ${existingPrimary.id}::uuid
+    `;
+
+    for (const duplicate of existing.slice(1)) {
+      await sql`
+        update cron set
+          status = 'cancelled',
+          result_payload = ${sql.json(
+            toJsonValue({
+              cancelledReason: "duplicate_reassessment_email",
+              duplicateOf: existingPrimary.id,
+              email: emailValidation.email
+            })
+          )},
+          updated_at = now()
+        where id = ${duplicate.id}::uuid
+      `;
+    }
+
+    await auditJobEvent(sql, {
+      eventPayload: {
+        actionType: "reassessment",
+        cronId: existingPrimary.id,
+        duplicateCount: Math.max(0, existing.length - 1),
+        email: emailValidation.email,
+        recurrenceDays: 60
+      },
+      eventType: "cron_action_deduped",
+      level: existing.length > 1 ? "medium" : "low",
+      planId
+    });
+
+    return existingPrimary.id;
+  }
+
+  const cronId = crypto.randomUUID();
+  const unsubscribeToken = newUnsubscribeToken();
+
+  await sql`
+    insert into cron (
+      id,
+      plan_id,
+      action_type,
+      recipient,
+      payload,
+      scheduled_for,
+      recurrence_days,
+      unsubscribe_token,
+      status,
+      created_at,
+      updated_at
+    )
+    values (
+      ${cronId}::uuid,
+      ${planId}::uuid,
+      'reassessment',
+      ${sql.json(toJsonValue({ email: emailValidation.email }))},
+      ${sql.json(toJsonValue({ locale: normalizedLocale }))},
+      now() + interval '60 days',
+      60,
+      ${unsubscribeToken},
+      'scheduled',
+      now(),
+      now()
+    )
+  `;
+
+  await auditJobEvent(sql, {
+    eventPayload: { actionType: "reassessment", cronId, recurrenceDays: 60 },
+    eventType: "cron_action_scheduled",
+    level: "low",
+    planId
+  });
+
+  return cronId;
+}
+
+export async function cancelReassessmentActionByToken(token: string) {
+  const sql = getSql();
+  const normalizedToken = token.trim();
+
+  if (!sql || !isUuid(normalizedToken)) {
+    return { cancelled: false, reason: "invalid_token" as const };
+  }
+
+  await ensureJobsSchema(sql);
+
+  const rows = await sql<
+    Array<{
+      id: string;
+      job_id: string | null;
+      plan_id: string | null;
+      status: string;
+    }>
+  >`
+    select
+      id::text,
+      job_id::text,
+      plan_id::text,
+      status
+    from cron
+    where action_type = 'reassessment'
+      and unsubscribe_token = ${normalizedToken}
+    order by created_at desc
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    return { cancelled: false, reason: "not_found" as const };
+  }
+
+  if (row.status === "cancelled") {
+    return {
+      cancelled: false,
+      planId: row.plan_id,
+      reason: "already_cancelled" as const
+    };
+  }
+
+  const cancelled = await sql.begin(async (transaction) => {
+    const updated = await transaction<Array<{ id: string }>>`
+      update cron set
+        status = 'cancelled',
+        job_id = null,
+        unsubscribed_at = now(),
+        result_payload = coalesce(result_payload, '{}'::jsonb) || ${transaction.json(
+          toJsonValue({
+            cancelledReason: "email_unsubscribe",
+            unsubscribedAt: new Date().toISOString()
+          })
+        )}::jsonb,
+        updated_at = now()
+      where id = ${row.id}::uuid
+        and status in ('scheduled', 'queued')
+      returning id::text
+    `;
+
+    await transaction`
+      update jobs set
+        status = 'failed',
+        error_message = 'Cancelled by unsubscribe',
+        failed_at = now(),
+        updated_at = now()
+      where job_type = 'reassessment'
+        and status = 'queued'
+        and payload ->> 'cronId' = ${row.id}
+    `;
+
+    return updated.length > 0;
+  });
+
+  await auditJobEvent(sql, {
+    eventPayload: {
+      actionType: "reassessment",
+      cronId: row.id,
+      status: cancelled ? "cancelled" : row.status
+    },
+    eventType: "reassessment_unsubscribed",
+    level: "medium",
+    planId: row.plan_id
+  });
+
+  return {
+    cancelled,
+    planId: row.plan_id,
+    reason: cancelled ? ("cancelled" as const) : ("not_active" as const)
+  };
+}
+
+async function enqueueReassessmentEmailJob(
+  sql: postgres.Sql,
+  {
+    cronId,
+    email,
+    locale,
+    planId
+  }: Readonly<{
+    cronId: string;
+    email: string;
+    locale: Locale;
+    planId: string;
+  }>
+) {
+  const existing = await sql`
+    select id::text
+    from jobs
+    where plan_id = ${planId}::uuid
+      and job_type = 'reassessment'
+      and status in ('queued', 'running')
+      and payload ->> 'cronId' = ${cronId}
+    order by queued_at desc
+    limit 1
+  `;
+
+  if (existing[0]) {
+    return existing[0].id as string;
+  }
+
+  const jobId = crypto.randomUUID();
+
+  await sql`
+    insert into jobs (
+      id,
+      job_type,
+      plan_id,
+      status,
+      priority,
+      payload,
+      queued_at,
+      updated_at
+    )
+    values (
+      ${jobId}::uuid,
+      'reassessment',
+      ${planId}::uuid,
+      'queued',
+      8,
+      ${sql.json(toJsonValue({ cronId, email, locale }))},
+      now(),
+      now()
+    )
+  `;
+
+  await sql`
+    update cron set
+      status = 'queued',
+      job_id = ${jobId}::uuid,
+      queued_at = now(),
+      updated_at = now()
+    where id = ${cronId}::uuid
+  `;
+
+  await auditJobEvent(sql, {
+    eventPayload: { cronId },
+    eventType: "reassessment_job_enqueued",
+    jobId,
+    level: "low",
+    planId
+  });
+
+  return jobId;
+}
+
+async function claimDueCronActions(sql: postgres.Sql) {
+  return sql.begin(async (transaction) => {
+    const rows = await transaction<
+      Array<{
+        id: string;
+        plan_id: string | null;
+        recipient: unknown;
+        payload: unknown;
+      }>
+    >`
+      update cron set
+        status = 'queued',
+        attempts = attempts + 1,
+        updated_at = now()
+      where id in (
+        select id
+        from cron
+        where scheduled_for <= now()
+          and (
+            status = 'scheduled'
+            or (
+              status = 'queued'
+              and job_id is null
+              and updated_at < now() - interval '10 minutes'
+            )
+          )
+        order by scheduled_for asc
+        for update skip locked
+        limit 25
+      )
+      returning id::text, plan_id::text, recipient, payload
+    `;
+
+    return rows;
+  });
+}
+
+async function runCronWorker() {
+  const sql = getSql();
+
+  if (!sql) {
+    return { queued: 0 };
+  }
+
+  await ensureJobsSchema(sql);
+  await auditJobEvent(sql, {
+    eventType: "cron_worker_started",
+    level: "low"
+  });
+
+  const dueActions = await claimDueCronActions(sql);
+  let queued = 0;
+
+  for (const action of dueActions) {
+    const planId = action.plan_id ?? "";
+    const recipient = payloadRecord(action.recipient);
+    const payload = payloadRecord(action.payload);
+    const email = typeof recipient.email === "string" ? recipient.email : "";
+    const locale: Locale = isLocale(payload.locale) ? payload.locale : "en";
+
+    try {
+      if (!isUuid(action.id) || !isUuid(planId)) {
+        throw new Error("Scheduled reassessment action is missing identifiers");
+      }
+
+      const emailValidation = validateLeadEmail(email);
+
+      if (!emailValidation.ok) {
+        throw new Error("Scheduled reassessment action is missing a valid email");
+      }
+
+      await enqueueReassessmentEmailJob(sql, {
+        cronId: action.id,
+        email: emailValidation.email,
+        locale,
+        planId
+      });
+      queued += 1;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown cron worker error";
+
+      await sql`
+        update cron set
+          status = 'failed',
+          error_message = ${message},
+          updated_at = now()
+        where id = ${action.id}::uuid
+      `;
+      await auditJobEvent(sql, {
+        eventPayload: { cronId: action.id, error: message },
+        eventType: "cron_action_failed",
+        level: "high",
+        planId: isUuid(planId) ? planId : null
+      });
+    }
+  }
+
+  await auditJobEvent(sql, {
+    eventPayload: { queued },
+    eventType: "cron_worker_completed",
+    level: "low"
+  });
+
+  if (queued > 0) {
+    void kickJobsWorker();
+  }
+
+  return { queued };
+}
+
 async function claimNextJob(sql: postgres.Sql) {
   return sql.begin(async (transaction) => {
     const rows = await transaction<ClaimedJob[]>`
@@ -369,12 +1272,12 @@ async function claimNextJob(sql: postgres.Sql) {
         for update skip locked
         limit 1
       )
-      returning id::text, job_type, plan_id::text, attempts
+      returning id::text, job_type, plan_id::text, attempts, payload
     `;
 
     const job = rows[0] ?? null;
 
-    if (job?.plan_id) {
+    if (job?.plan_id && job.job_type === "formulation") {
       await transaction`
       update assessments set
         status = 'preparing',
@@ -407,7 +1310,7 @@ async function failJob(
       where id = ${job.id}::uuid
     `;
 
-    if (job.plan_id) {
+    if (job.plan_id && job.job_type === "formulation") {
       await transaction`
         update assessments set
           status = 'failed',
@@ -415,6 +1318,38 @@ async function failJob(
           updated_at = now()
         where plan_id = ${job.plan_id}::uuid
       `;
+    }
+
+    if (
+      job.plan_id &&
+      (job.job_type === "example_formulation" ||
+        job.job_type === "example_email")
+    ) {
+      const requestId = payloadText(job.payload, "requestId");
+
+      if (isUuid(requestId)) {
+        await transaction`
+          update assessment_example_requests set
+            status = 'failed',
+            error_message = ${message},
+            updated_at = now()
+          where id = ${requestId}::uuid
+        `;
+      }
+    }
+
+    if (job.job_type === "reassessment") {
+      const cronId = payloadText(job.payload, "cronId");
+
+      if (isUuid(cronId)) {
+        await transaction`
+          update cron set
+            status = 'failed',
+            error_message = ${message},
+            updated_at = now()
+          where id = ${cronId}::uuid
+        `;
+      }
     }
   });
 
@@ -589,9 +1524,447 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
   });
 }
 
+async function completeExampleFormulationJob(
+  sql: postgres.Sql,
+  job: ClaimedJob
+) {
+  if (!job.plan_id) {
+    throw new Error("Example formulation job is missing plan_id");
+  }
+
+  const requestId = payloadText(job.payload, "requestId");
+
+  if (!isUuid(requestId)) {
+    throw new Error("Example formulation job is missing requestId");
+  }
+
+  const submissions = await sql`
+    select
+      assessments.answers,
+      assessments.locale,
+      assessments.selected_plan::text,
+      assessment_example_requests.status as request_status
+    from assessments
+    join assessment_example_requests
+      on assessment_example_requests.plan_id = assessments.plan_id
+    where assessments.plan_id = ${job.plan_id}::uuid
+      and assessment_example_requests.id = ${requestId}::uuid
+    limit 1
+  `;
+  const submission = submissions[0];
+
+  if (!submission) {
+    throw new Error("Example request not found");
+  }
+
+  const locale: Locale = isLocale(submission.locale)
+    ? submission.locale
+    : "en";
+  const plan = normalizeAssessmentPlan(submission.selected_plan);
+
+  await auditJobEvent(sql, {
+    eventPayload: { requestId },
+    eventType: "example_formulation_analysis_started",
+    jobId: job.id,
+    level: "medium",
+    planId: job.plan_id
+  });
+
+  const analysis = await analyzeFormulationWithGrok({
+    answers: submission.answers,
+    audit: async ({ eventType, level, payload }) =>
+      auditJobEvent(sql, {
+        eventPayload: { ...payload, requestId },
+        eventType,
+        jobId: job.id,
+        level,
+        planId: job.plan_id
+      }),
+    locale,
+    plan,
+    planId: job.plan_id
+  });
+
+  await sql.begin(async (transaction) => {
+    const versionRows = await transaction<{ version: number }[]>`
+      select coalesce(max(version), 0) + 1 as version
+      from formulations
+      where plan_id = ${job.plan_id}::uuid
+    `;
+    const version = Number(versionRows[0]?.version ?? 1);
+
+    await transaction`
+      insert into formulations (
+        plan_id,
+        version,
+        formulation,
+        model_version,
+        generated_at,
+        updated_at
+      )
+      values (
+        ${job.plan_id}::uuid,
+        ${version},
+        ${transaction.json(toJsonValue(analysis.formulation))},
+        ${`xai:${analysis.model}:${analysis.promptVersion}:example`},
+        now(),
+        now()
+      )
+    `;
+
+    await transaction`
+      update assessment_example_requests set
+        status = 'formulation_ready',
+        updated_at = now()
+      where id = ${requestId}::uuid
+    `;
+
+    await transaction`
+      update jobs set
+        status = 'complete',
+        completed_at = now(),
+        updated_at = now()
+      where id = ${job.id}::uuid
+    `;
+
+    await transaction`
+      insert into job_audit_events (
+        id,
+        job_id,
+        plan_id,
+        event_type,
+        level,
+        event_payload,
+        created_at
+      )
+      values (
+        ${crypto.randomUUID()}::uuid,
+        ${job.id}::uuid,
+        ${job.plan_id}::uuid,
+        'example_formulation_version_written',
+        'medium',
+        ${transaction.json(
+          toJsonValue({
+            attempts: analysis.attempts,
+            formulationVersion: version,
+            model: analysis.model,
+            promptVersion: analysis.promptVersion,
+            requestId,
+            responseId: analysis.responseId
+          })
+        )},
+        now()
+      )
+    `;
+  });
+
+  await enqueueExampleEmailJob(sql, {
+    planId: job.plan_id,
+    requestId
+  });
+}
+
+async function completeExampleEmailJob(sql: postgres.Sql, job: ClaimedJob) {
+  if (!job.plan_id) {
+    throw new Error("Example email job is missing plan_id");
+  }
+
+  const requestId = payloadText(job.payload, "requestId");
+
+  if (!isUuid(requestId)) {
+    throw new Error("Example email job is missing requestId");
+  }
+
+  const rows = await sql`
+    select
+      assessment_example_requests.email,
+      assessment_example_requests.health_score,
+      assessment_example_requests.locale,
+      reassessment.cron_id,
+      reassessment.unsubscribe_token,
+      formulations.formulation
+    from assessment_example_requests
+    join lateral (
+      select formulation
+      from formulations
+      where formulations.plan_id = assessment_example_requests.plan_id
+      order by version desc, generated_at desc
+      limit 1
+    ) formulations on true
+    left join lateral (
+      select
+        cron.id::text as cron_id,
+        cron.unsubscribe_token
+      from cron
+      where cron.plan_id = assessment_example_requests.plan_id
+        and cron.action_type = 'reassessment'
+        and cron.status in ('scheduled', 'queued')
+        and lower(cron.recipient ->> 'email') = lower(assessment_example_requests.email)
+      order by cron.scheduled_for desc, cron.created_at desc
+      limit 1
+    ) reassessment on true
+    where assessment_example_requests.id = ${requestId}::uuid
+      and assessment_example_requests.plan_id = ${job.plan_id}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Example email request is missing formulation");
+  }
+
+  const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+  const formulation = row.formulation as FormulationBlueprint;
+  const emailValidation = validateLeadEmail(row.email);
+
+  if (!emailValidation.ok) {
+    throw new Error("Example email request has an invalid recipient");
+  }
+
+  const cronId = typeof row.cron_id === "string" ? row.cron_id : "";
+  let unsubscribeToken =
+    typeof row.unsubscribe_token === "string" ? row.unsubscribe_token : "";
+
+  if (isUuid(cronId) && !unsubscribeToken) {
+    unsubscribeToken = newUnsubscribeToken();
+    await sql`
+      update cron set
+        unsubscribe_token = ${unsubscribeToken},
+        updated_at = now()
+      where id = ${cronId}::uuid
+    `;
+  }
+
+  const emailHtml = buildExampleEmailHtml({
+    formulation,
+    healthScore: row.health_score as HealthScoreResult,
+    locale,
+    planId: job.plan_id,
+    unsubscribeToken: unsubscribeToken || null
+  });
+  const delivery = await sendTransactionalEmail({
+    html: emailHtml,
+    subject: buildExampleEmailSubject(locale),
+    to: emailValidation.email
+  });
+  const eventType = delivery.sent
+    ? "example_email_sent"
+    : "example_email_rendered_not_sent";
+
+  await sql.begin(async (transaction) => {
+    await transaction`
+      update assessment_example_requests set
+        status = ${delivery.sent ? "email_sent" : "email_rendered"},
+        email_html = ${emailHtml},
+        updated_at = now()
+      where id = ${requestId}::uuid
+    `;
+
+    await transaction`
+      update jobs set
+        status = 'complete',
+        completed_at = now(),
+        updated_at = now()
+      where id = ${job.id}::uuid
+    `;
+
+    await transaction`
+      insert into job_audit_events (
+        id,
+        job_id,
+        plan_id,
+        event_type,
+        level,
+        event_payload,
+        created_at
+      )
+      values (
+        ${crypto.randomUUID()}::uuid,
+        ${job.id}::uuid,
+        ${job.plan_id}::uuid,
+        ${eventType},
+        'medium',
+        ${transaction.json(
+          toJsonValue({
+            businessEvent: true,
+            emailType: "example_preview",
+            messageId: delivery.messageId,
+            reason: delivery.reason,
+            requestId,
+            sent: delivery.sent,
+            to: emailValidation.email
+          })
+        )},
+        now()
+      )
+    `;
+  });
+}
+
+async function completeReassessmentJob(
+  sql: postgres.Sql,
+  job: ClaimedJob
+) {
+  if (!job.plan_id) {
+    throw new Error("Reassessment job is missing plan_id");
+  }
+
+  const cronId = payloadText(job.payload, "cronId");
+
+  if (!isUuid(cronId)) {
+    throw new Error("Reassessment job is missing cronId");
+  }
+
+  const rows = await sql`
+    select
+      cron.payload,
+      cron.recurrence_days,
+      cron.recipient,
+      cron.unsubscribe_token
+    from cron
+    where cron.id = ${cronId}::uuid
+      and cron.plan_id = ${job.plan_id}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Scheduled reassessment action not found");
+  }
+
+  const payload = payloadRecord(row.payload);
+  const recipient = payloadRecord(row.recipient);
+  const storedRecurrenceDays = Number(row.recurrence_days ?? 60);
+  const recurrenceDays =
+    Number.isFinite(storedRecurrenceDays) && storedRecurrenceDays > 0
+      ? storedRecurrenceDays
+      : 60;
+  const locale: Locale = isLocale(payload.locale) ? payload.locale : "en";
+  const email = typeof recipient.email === "string" ? recipient.email : "";
+  const emailValidation = validateLeadEmail(email);
+
+  if (!emailValidation.ok) {
+    throw new Error("Scheduled reassessment email is invalid");
+  }
+
+  const unsubscribeToken =
+    typeof row.unsubscribe_token === "string" && row.unsubscribe_token
+      ? row.unsubscribe_token
+      : newUnsubscribeToken();
+
+  const emailHtml = buildReassessmentEmailHtml({
+    locale,
+    planId: job.plan_id,
+    unsubscribeToken
+  });
+  const delivery = await sendTransactionalEmail({
+    html: emailHtml,
+    subject: buildReassessmentEmailSubject(locale),
+    to: emailValidation.email
+  });
+  const eventType = delivery.sent
+    ? "reassessment_email_sent"
+    : "reassessment_rendered_not_sent";
+
+  console.info("Rendered reassessment email", {
+    cronId,
+    email: emailValidation.email,
+    emailHtml,
+    planId: job.plan_id
+  });
+
+  await sql.begin(async (transaction) => {
+    await transaction`
+      update cron set
+        status = case
+          when coalesce(recurrence_days, ${recurrenceDays}) > 0
+          then 'scheduled'
+          else 'complete'
+        end,
+        scheduled_for = case
+          when coalesce(recurrence_days, ${recurrenceDays}) > 0
+          then now() + (coalesce(recurrence_days, ${recurrenceDays}) * interval '1 day')
+          else scheduled_for
+        end,
+        job_id = null,
+        unsubscribe_token = ${unsubscribeToken},
+        result_payload = ${transaction.json(
+          toJsonValue({
+            email: emailValidation.email,
+            lastRenderedAt: new Date().toISOString(),
+            lastRunJobId: job.id,
+            messageId: delivery.messageId,
+            reason: delivery.reason,
+            recurrenceDays,
+            sent: delivery.sent
+          })
+        )},
+        completed_at = now(),
+        updated_at = now()
+      where id = ${cronId}::uuid
+    `;
+
+    await transaction`
+      update jobs set
+        status = 'complete',
+        completed_at = now(),
+        updated_at = now()
+      where id = ${job.id}::uuid
+    `;
+
+    await transaction`
+      insert into job_audit_events (
+        id,
+        job_id,
+        plan_id,
+        event_type,
+        level,
+        event_payload,
+        created_at
+      )
+      values (
+        ${crypto.randomUUID()}::uuid,
+        ${job.id}::uuid,
+        ${job.plan_id}::uuid,
+        ${eventType},
+        'medium',
+        ${transaction.json(
+          toJsonValue({
+            businessEvent: true,
+            cronId,
+            emailHtml,
+            emailType: "reassessment",
+            messageId: delivery.messageId,
+            reason: delivery.reason,
+            recurrenceDays,
+            sent: delivery.sent,
+            to: emailValidation.email
+          })
+        )},
+        now()
+      )
+    `;
+  });
+}
+
 async function processJob(sql: postgres.Sql, job: ClaimedJob) {
+  if (job.job_type === "example_email") {
+    await completeExampleEmailJob(sql, job);
+    return;
+  }
+
+  if (job.job_type === "example_formulation") {
+    await completeExampleFormulationJob(sql, job);
+    return;
+  }
+
   if (job.job_type === "formulation") {
     await completeFormulationJob(sql, job);
+    return;
+  }
+
+  if (job.job_type === "reassessment") {
+    await completeReassessmentJob(sql, job);
     return;
   }
 
@@ -648,4 +2021,16 @@ export function kickJobsWorker() {
   });
 
   return globalJobsWorker.mattanutraJobsWorker;
+}
+
+export function kickCronWorker() {
+  if (globalJobsWorker.mattanutraCronWorker) {
+    return globalJobsWorker.mattanutraCronWorker;
+  }
+
+  globalJobsWorker.mattanutraCronWorker = runCronWorker().finally(() => {
+    globalJobsWorker.mattanutraCronWorker = undefined;
+  });
+
+  return globalJobsWorker.mattanutraCronWorker;
 }

@@ -13,6 +13,11 @@ import {
   ShieldCheckIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
+import {
+  computeHealthScore,
+  type HealthScoreResult
+} from "@/lib/health-score";
+import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { Locale } from "@/lib/i18n";
 
 type Option = Readonly<{
@@ -200,6 +205,7 @@ type Answers = {
   notes: string;
   pills: string;
   protein: string;
+  reassessmentEmail: string;
   sex: string;
   skin: string;
   sleep: string;
@@ -264,6 +270,7 @@ const initialAnswers: Answers = {
   notes: "",
   pills: "",
   protein: "",
+  reassessmentEmail: "",
   sex: "",
   skin: "",
   sleep: "",
@@ -280,6 +287,121 @@ const initialAnswers: Answers = {
   wearable: "",
   weightKg: "70"
 };
+
+function buildInitialAnswers(prefillAnswers?: unknown) {
+  if (
+    !prefillAnswers ||
+    typeof prefillAnswers !== "object" ||
+    Array.isArray(prefillAnswers)
+  ) {
+    return initialAnswers;
+  }
+
+  const prefill = prefillAnswers as Partial<Answers>;
+
+  return {
+    ...initialAnswers,
+    ...prefill,
+    conditions: Array.isArray(prefill.conditions)
+      ? prefill.conditions
+      : initialAnswers.conditions,
+    family: Array.isArray(prefill.family)
+      ? prefill.family
+      : initialAnswers.family,
+    goals: Array.isArray(prefill.goals)
+      ? prefill.goals
+      : initialAnswers.goals,
+    labs:
+      prefill.labs && typeof prefill.labs === "object"
+        ? prefill.labs
+        : initialAnswers.labs,
+    medTypes: Array.isArray(prefill.medTypes)
+      ? prefill.medTypes
+      : initialAnswers.medTypes,
+    symptoms: Array.isArray(prefill.symptoms)
+      ? prefill.symptoms
+      : initialAnswers.symptoms
+  } satisfies Answers;
+}
+
+function randomItem<T>(items: readonly T[]) {
+  return items[Math.floor(Math.random() * items.length)] ?? items[0];
+}
+
+function randomSubset<T>(items: readonly T[], count: number) {
+  const shuffled = [...items].sort(() => Math.random() - 0.5);
+
+  return shuffled.slice(0, count);
+}
+
+function buildRandomDevAnswers(): Answers {
+  const sex = randomItem(["female", "male"] as const);
+  const meds = randomItem(["no", "yes"] as const);
+  const vo2Known = randomItem(["no", "yes"] as const);
+  const heightCm = String(Math.round(155 + Math.random() * 38));
+  const weightKg = String(Math.round(52 + Math.random() * 42));
+
+  return {
+    activity: randomItem(["light", "moderate", "active", "athlete"]),
+    alcohol: randomItem(["none", "low", "moderate"]),
+    age: randomItem(["26-35", "36-45", "46-55", "56-65"]),
+    budget: randomItem(["mid", "good", "high"]),
+    build: randomItem(["average", "muscular", "slim"]),
+    coffee: randomItem(["none", "1", "2-3"]),
+    conditions: randomItem([["none"], ["joints"], ["cholesterol"], ["mood"]]),
+    country: "TH",
+    diet: randomItem(["balanced", "whole", "mediterranean", "plant"]),
+    energy: randomItem(["2", "3", "4", "5"]),
+    family: randomItem([["none"], ["heart"], ["diabetes"], ["bones"]]),
+    fish: randomItem(["rarely", "weekly", "2-3pw", "daily"]),
+    feelGreat: false,
+    form: randomItem(["capsules", "powder", "mixed"]),
+    goals: randomSubset(
+      ["energy", "sleep", "focus", "longevity", "fitness", "mood"],
+      3
+    ),
+    gut: randomItem(["great", "bloat", "constipation"]),
+    heightCm,
+    labs: {
+      b12: String(Math.round(380 + Math.random() * 360)),
+      ferritin: String(Math.round(45 + Math.random() * 90)),
+      hba1c: (5 + Math.random() * 0.8).toFixed(1),
+      hrv: String(Math.round(42 + Math.random() * 36)),
+      omega3: (4.5 + Math.random() * 3.5).toFixed(1),
+      vitaminD: String(Math.round(26 + Math.random() * 34))
+    },
+    lifestage:
+      sex === "female" ? randomItem(["regular", "peri", "post"]) : "",
+    meds,
+    medTypes:
+      meds === "yes"
+        ? randomSubset(["statin", "metformin", "bp", "antidepressant"], 1)
+        : [],
+    name: "",
+    notes: "Development shortcut generated this assessment.",
+    pills: randomItem(["4-6", "7-10", "unlimited"]),
+    protein: randomItem(["mid", "good", "high"]),
+    reassessmentEmail: "dev@example.dev",
+    sex,
+    skin: randomItem(["II", "III", "IV", "V"]),
+    sleep: randomItem(["3", "4", "5"]),
+    sleepHours: randomItem(["6-7", "7-8", "8-9"]),
+    smoke: randomItem(["never", "exlong", "occasional"]),
+    stress: randomItem(["2", "3", "4"]),
+    stressSource: randomItem(["none", "work", "life", "health"]),
+    sun: randomItem(["low", "moderate", "high"]),
+    supps: randomItem(["none", "basic", "several"]),
+    symptoms: randomSubset(["fatigue", "brain", "sleep", "stress", "joints"], 2),
+    vo2Known,
+    vo2Max: vo2Known === "yes" ? String(Math.round(34 + Math.random() * 20)) : "",
+    vo2Proxy:
+      vo2Known === "no"
+        ? randomItem(["moderate", "sustained", "athlete"])
+        : "",
+    wearable: randomItem(["none", "apple", "garmin", "fitbit"]),
+    weightKg
+  };
+}
 
 const en: Copy = {
   about: {
@@ -1242,6 +1364,9 @@ function formatWeightImperial(value: string) {
 
 type AssessmentFlowProps = Readonly<{
   locale: Locale;
+  prefillAnswers?: unknown;
+  returningPlan?: "precision" | "pro" | null;
+  returningPlanId?: string;
 }>;
 
 type AssessmentQuestion = Readonly<{
@@ -1265,12 +1390,13 @@ type AssessmentSection = Readonly<{
 type ProcessingStepState = "active" | "complete" | "failed" | "pending";
 
 type ProcessingStatus = Readonly<{
+  healthScore?: HealthScoreResult;
   planId: string;
   queuePosition: number;
   status: "failed" | "preparing" | "queued" | "ready";
   steps: Array<
     Readonly<{
-      id: "sent" | "preparing" | "ready";
+      id: string;
       state: ProcessingStepState;
     }>
   >;
@@ -1540,10 +1666,18 @@ function getPlanContent(locale: Locale): PlanContent {
   };
 }
 
-export function AssessmentFlow({ locale }: AssessmentFlowProps) {
+export function AssessmentFlow({
+  locale,
+  prefillAnswers,
+  returningPlan,
+  returningPlanId
+}: AssessmentFlowProps) {
   const copy = copies[locale];
   const router = useRouter();
-  const [answers, setAnswers] = useState<Answers>(initialAnswers);
+  const showDevShortcut = process.env.NODE_ENV === "development";
+  const [answers, setAnswers] = useState<Answers>(() =>
+    buildInitialAnswers(prefillAnswers)
+  );
   const [sectionIndex, setSectionIndex] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [processingStatus, setProcessingStatus] =
@@ -1553,6 +1687,18 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     useState<ProcessingStatus | null>(null);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [showPlans, setShowPlans] = useState(false);
+  const [showExampleExit, setShowExampleExit] = useState(false);
+  const [processingMode, setProcessingMode] =
+    useState<"formulation" | "score">("formulation");
+  const [healthScore, setHealthScore] = useState<HealthScoreResult | null>(
+    null
+  );
+  const [exampleEmail, setExampleEmail] = useState("");
+  const [exampleError, setExampleError] = useState("");
+  const [includeExampleReassessment, setIncludeExampleReassessment] =
+    useState(true);
+  const [exampleLoading, setExampleLoading] = useState(false);
+  const [reviewReassessmentError, setReviewReassessmentError] = useState("");
   const captureInFlight = useRef<Promise<ProcessingStatus | null> | null>(null);
   const pollFailureCount = useRef(0);
   const isCompact = useCompactAssessment();
@@ -1561,6 +1707,10 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   const requiredTotal = requiredGroups.length;
   const progress = Math.round((completed / requiredTotal) * 100);
   const canGenerate = completed === requiredTotal;
+  const hasReturningProAccess = returningPlan === "pro";
+  const reassessmentAlreadyOptedIn = validateLeadEmail(
+    answers.reassessmentEmail
+  ).ok;
   const previewTags = buildPreviewTags(copy, answers);
   const progressLabel = canGenerate
     ? copy.progress.complete
@@ -1590,6 +1740,46 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           processingSubtitle:
             "เราได้รับคำตอบของคุณแล้ว และกำลังจัดคิวเพื่อสร้างสูตรอาหารเสริม",
           processingTitle: "กำลังประมวลผลแบบประเมินของคุณ",
+          scoreProcessingQueue: "กำลังคำนวณคะแนนสุขภาพของคุณ",
+          scoreProcessingSteps: {
+            assessment: "บันทึกแบบประเมินแล้ว",
+            score: "กำลังคำนวณ HealthScore",
+            gate: "แสดงตัวเลือกตัวอย่างหรือแผน",
+            plan: "เลือกแผน",
+            payment: "ชำระเงิน",
+            formulation: "เตรียมสูตรฉบับเต็ม",
+            safety: "ตรวจสอบความเหมาะสม",
+            results: "แสดงสูตรส่วนบุคคล"
+          },
+          scoreProcessingSubtitle:
+            "เรากำลังประเมินภาพรวมสุขภาพจากคำตอบของคุณก่อนแสดงตัวเลือกแผน",
+          scoreProcessingTitle: "กำลังคำนวณ HealthScore ของคุณ",
+          scoreGate: {
+            emailButton: "ส่งแผนฟรี 3 ข้อ + HealthScore",
+            emailDescription:
+              "เราจะส่งแผนโภชนาการฟรี 3 ข้อที่ครอบคลุมพื้นฐานสำคัญ เพื่อช่วยเริ่มต้นเส้นทาง wellness ของคุณ",
+            emailDivider: "หรือรับแผนโภชนาการฟรี 3 ข้อทางอีเมล",
+            emailError: "กรุณาใส่อีเมลที่ถูกต้อง",
+            emailPlaceholder: "your@email.com",
+            emailTitle: "ยังไม่พร้อมเลือกแผนแบบชำระเงิน?",
+            planDescription:
+              "ไปต่อเพื่อสร้างสูตรฉบับเต็มและคู่มือเลือกผลิตภัณฑ์",
+            planTitle: "เลือกแผนเพื่อดูสูตรฉบับเต็ม",
+            preparing: "กำลังเตรียม...",
+            proContinueCta: "ไปต่อ",
+            proContinueDescription:
+              "คุณมีสิทธิ์แผน Pro อยู่แล้ว เราจะไปต่อเพื่อสร้างสูตรเวอร์ชันใหม่โดยไม่แสดงตัวเลือกชำระเงิน",
+            proContinueTitle: "แผน Pro พร้อมใช้งาน",
+            reassessmentDescription: "",
+            reassessmentTitle:
+              "รวมการประเมินซ้ำฟรีใน 60 วัน ยกเลิกได้ทุกเมื่อ",
+            title: "HealthScore ของคุณพร้อมแล้ว"
+          },
+          exampleExit: {
+            body:
+              "เรากำลังจัดเตรียมสูตรฉบับเต็มและจะสร้างอีเมลตัวอย่างให้คุณ ขั้นตอนส่งอีเมลจริงจะเชื่อมต่อในภายหลัง",
+            title: "ตัวอย่างของคุณกำลังถูกจัดเตรียม"
+          },
           retry: "ลองอีกครั้ง",
           statusLabels: {
             active: "ตอนนี้",
@@ -1600,6 +1790,15 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           reviewDescription:
             "ตรวจสอบสรุปเบื้องต้น แล้วสร้างบรีฟสูตรอาหารเสริมของคุณ",
           reviewQuestion: "ตรวจสอบบรีฟของคุณ",
+          reviewReassessment: {
+            button: "บันทึกอีเมลสำหรับประเมินซ้ำ",
+            description:
+              "คะแนนของคุณเปลี่ยนได้เมื่อสุขภาพเปลี่ยน เลือกรับการประเมินซ้ำฟรีใน 60 วัน แล้วเราจะแสดงให้เห็นว่าคะแนนเปลี่ยนไปเท่าไร และอะไรเป็นตัวขับเคลื่อน",
+            error: "กรุณาใส่อีเมลที่ถูกต้อง",
+            placeholder: "your@email.com",
+            saved: "บันทึกอีเมลสำหรับประเมินซ้ำแล้ว",
+            title: "ช่วยให้ HealthScore ของคุณดีขึ้นต่อเนื่อง"
+          },
           reviewSafety:
             "อาหารเสริมเป็นผลิตภัณฑ์เพื่อสุขภาพ ไม่ใช่การวินิจฉัย การรักษา หรือคำแนะนำให้หยุดยา",
           reviewTitle: "ตรวจสอบและสร้างบรีฟ",
@@ -1638,6 +1837,46 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           processingSubtitle:
             "We have received your preferences and queued them for formulation.",
           processingTitle: "Processing your assessment",
+          scoreProcessingQueue: "Calculating your HealthScore",
+          scoreProcessingSteps: {
+            assessment: "Assessment saved",
+            score: "Calculating your HealthScore",
+            gate: "Show example or plan options",
+            plan: "Select a plan",
+            payment: "Payment",
+            formulation: "Prepare the full formulation",
+            safety: "Run suitability checks",
+            results: "Show your personalised formulation"
+          },
+          scoreProcessingSubtitle:
+            "We are scoring your main wellness domains before showing the plan options.",
+          scoreProcessingTitle: "Calculating your HealthScore",
+          scoreGate: {
+            emailButton: "Send My Free 3-Point Plan + HealthScore",
+            emailDescription:
+              "We'll send you a free 3-point nutrition plan covering the basic essentials to help you on your wellness journey.",
+            emailDivider: "or get a free 3-point nutrition plan by email",
+            emailError: "Enter a valid email address",
+            emailPlaceholder: "your@email.com",
+            emailTitle: "Not ready for a paid plan?",
+            planDescription:
+              "Continue now to generate the complete formulation and marketplace guide.",
+            planTitle: "Choose a plan to unlock the full formulation",
+            preparing: "Preparing...",
+            proContinueCta: "Continue",
+            proContinueDescription:
+              "Your Pro access is active, so we can prepare a new formulation version without showing payment options.",
+            proContinueTitle: "Pro plan active",
+            reassessmentDescription: "",
+            reassessmentTitle:
+              "Include a free 60-day reassessment. Cancel anytime.",
+            title: "Your HealthScore is ready"
+          },
+          exampleExit: {
+            body:
+              "We are preparing the full formulation and rendering your example email. The actual email send step will be connected later.",
+            title: "Your example is being prepared"
+          },
           retry: "Try again",
           statusLabels: {
             active: "Now",
@@ -1648,6 +1887,15 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
           reviewDescription:
             "Review your draft profile, then generate the formulation brief.",
           reviewQuestion: "Review your brief",
+          reviewReassessment: {
+            button: "Save reassessment email",
+            description:
+              "Your score changes as your health changes. Opt in for a free 60-day reassessment — we'll show you exactly how much your score has moved and what's driving it.",
+            error: "Enter a valid email address",
+            placeholder: "your@email.com",
+            saved: "Reassessment email saved",
+            title: "Keep your HealthScore improving"
+          },
           reviewSafety:
             "Supplements are optional wellness products, not diagnosis, treatment, or advice to stop medication.",
           reviewTitle: "Review and generate",
@@ -2419,6 +2667,22 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     }
   ];
 
+  function fillRandomDefaultsAndReview() {
+    setAnswers(buildRandomDevAnswers());
+    setProcessingError("");
+    setExampleError("");
+    setReviewReassessmentError("");
+    setShowPlans(false);
+    setShowExampleExit(false);
+    setProcessingStatus(null);
+    setCapturedStatus(null);
+    captureInFlight.current = null;
+    const reviewIndex = sections.findIndex((section) => section.id === "review");
+    setSectionIndex(reviewIndex >= 0 ? reviewIndex : sections.length - 1);
+    setQuestionIndex(0);
+    window.scrollTo({ behavior: "smooth", top: 0 });
+  }
+
   const currentSection = sections[Math.min(sectionIndex, sections.length - 1)];
   const currentQuestionIndex = Math.min(
     questionIndex,
@@ -2462,6 +2726,10 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   }
 
   function goBack() {
+    setProcessingError("");
+    setExampleError("");
+    setReviewReassessmentError("");
+
     if (isCompact && currentQuestionIndex > 0) {
       setQuestionIndex(currentQuestionIndex - 1);
       return;
@@ -2477,15 +2745,40 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     return;
   }
 
+  function closePlanGate() {
+    setProcessingError("");
+    setExampleError("");
+    setShowPlans(false);
+    setShowExampleExit(false);
+    setProcessingStatus(null);
+  }
+
   function goNext() {
     if (!canMoveForward) {
       return;
     }
 
     if (isReview) {
-      setShowPlans(true);
-      window.scrollTo({ behavior: "smooth", top: 0 });
-      void captureAssessment(true);
+      let nextAnswers = answers;
+      const emailInput = answers.reassessmentEmail.trim();
+
+      if (emailInput) {
+        const emailValidation = validateLeadEmail(emailInput);
+
+        if (!emailValidation.ok) {
+          setReviewReassessmentError(ui.reviewReassessment.error);
+          return;
+        }
+
+        const email = normalizeLeadEmail(emailValidation.email);
+        nextAnswers = { ...answers, reassessmentEmail: email };
+        setAnswers(nextAnswers);
+        setExampleEmail(email);
+      } else {
+        setReviewReassessmentError("");
+      }
+
+      void prepareHealthScoreGate(nextAnswers);
       return;
     }
 
@@ -2506,10 +2799,71 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   function choosePlan(planId: string) {
     setSelectedPlan(planId);
     setShowPlans(false);
+    setShowExampleExit(false);
+    setProcessingMode("formulation");
     void startProcessing(planId);
   }
 
-  async function captureAssessment(force = false) {
+  async function prepareHealthScoreGate(answerPayload = answers) {
+    setProcessingError("");
+    setExampleError("");
+    setShowPlans(false);
+    setShowExampleExit(false);
+    setProcessingMode("score");
+    setProcessingStatus({
+      planId: "",
+      queuePosition: 0,
+      status: "preparing",
+      steps: [
+        { id: "assessment", state: "complete" },
+        { id: "score", state: "active" },
+        { id: "gate", state: "pending" },
+        { id: "plan", state: "pending" },
+        { id: "payment", state: "pending" },
+        { id: "formulation", state: "pending" },
+        { id: "safety", state: "pending" },
+        { id: "results", state: "pending" }
+      ]
+    });
+    window.scrollTo({ behavior: "smooth", top: 0 });
+
+    try {
+      const localHealthScore = computeHealthScore(answerPayload, locale);
+      const captured = await captureAssessment(true, answerPayload);
+
+      if (!captured?.planId) {
+        throw new Error("Unable to capture assessment before plan selection");
+      }
+
+      setHealthScore(captured.healthScore ?? localHealthScore);
+      setProcessingStatus({
+        ...captured,
+        healthScore: captured.healthScore ?? localHealthScore,
+        planId: "",
+        queuePosition: 0,
+        status: "ready",
+        steps: [
+          { id: "assessment", state: "complete" },
+          { id: "score", state: "complete" },
+          { id: "gate", state: "active" },
+          { id: "plan", state: "pending" },
+          { id: "payment", state: "pending" },
+          { id: "formulation", state: "pending" },
+          { id: "safety", state: "pending" },
+          { id: "results", state: "pending" }
+        ]
+      });
+
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+      setProcessingStatus(null);
+      setShowPlans(true);
+    } catch {
+      setProcessingStatus(null);
+      setProcessingError(ui.processingError);
+    }
+  }
+
+  async function captureAssessment(force = false, answerPayload = answers) {
     if (!force && capturedStatus?.planId) {
       return capturedStatus;
     }
@@ -2520,18 +2874,34 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
 
     captureInFlight.current = (async () => {
       try {
-        const response = await fetch("/api/assessment", {
-          body: JSON.stringify({
-            answers,
-            intent: "capture",
-            locale
-          }),
-          cache: "no-store",
-          headers: {
-            "content-type": "application/json"
-          },
-          method: "POST"
-        });
+        const response = returningPlanId
+          ? await fetch(
+              `/api/assessment/${encodeURIComponent(returningPlanId)}`,
+              {
+                body: JSON.stringify({
+                  answers: answerPayload,
+                  intent: "capture",
+                  locale
+                }),
+                cache: "no-store",
+                headers: {
+                  "content-type": "application/json"
+                },
+                method: "PATCH"
+              }
+            )
+          : await fetch("/api/assessment", {
+              body: JSON.stringify({
+                answers: answerPayload,
+                intent: "capture",
+                locale
+              }),
+              cache: "no-store",
+              headers: {
+                "content-type": "application/json"
+              },
+              method: "POST"
+            });
 
         if (!response.ok) {
           throw new Error("Unable to capture assessment plan");
@@ -2553,6 +2923,7 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
   async function startProcessing(planId = selectedPlan || "precision") {
     setProcessingError("");
     pollFailureCount.current = 0;
+    setProcessingMode("formulation");
     setProcessingStatus({
       planId: "",
       queuePosition: 0,
@@ -2601,6 +2972,60 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
     } catch {
       setProcessingError(ui.processingError);
       setProcessingStatus(null);
+    }
+  }
+
+  async function requestExampleBrief() {
+    const emailValidation = validateLeadEmail(exampleEmail);
+
+    if (!emailValidation.ok) {
+      setExampleError(ui.scoreGate.emailError);
+      return;
+    }
+
+    const email = normalizeLeadEmail(emailValidation.email);
+
+    setExampleLoading(true);
+    setExampleError("");
+
+    try {
+      const captured = capturedStatus?.planId
+        ? capturedStatus
+        : await captureAssessment(true);
+
+      if (!captured?.planId) {
+        throw new Error("Unable to capture assessment before example request");
+      }
+
+      const response = await fetch(
+          `/api/assessment/${encodeURIComponent(captured.planId)}/example`,
+          {
+            body: JSON.stringify({
+              email,
+              includeReassessment:
+                includeExampleReassessment && !reassessmentAlreadyOptedIn,
+              locale
+            }),
+          cache: "no-store",
+          headers: {
+            "content-type": "application/json"
+          },
+          method: "POST"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Unable to request example brief");
+      }
+
+      setShowPlans(false);
+      setShowExampleExit(true);
+      setProcessingStatus(null);
+      window.scrollTo({ behavior: "smooth", top: 0 });
+    } catch {
+      setExampleError(ui.processingError);
+    } finally {
+      setExampleLoading(false);
     }
   }
 
@@ -2682,20 +3107,57 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                 ? ui.processingError
                 : processingError
             }
-            onRetry={() => void startProcessing()}
-            queueLabel={ui.processingQueue(processingStatus.queuePosition)}
+            onRetry={() =>
+              processingMode === "score"
+                ? void prepareHealthScoreGate()
+                : void startProcessing()
+            }
+            queueLabel={
+              processingMode === "score"
+                ? ui.scoreProcessingQueue
+                : ui.processingQueue(processingStatus.queuePosition)
+            }
             retryLabel={ui.retry}
             status={processingStatus}
             statusLabels={ui.statusLabels}
-            stepLabels={ui.processingSteps}
-            subtitle={ui.processingSubtitle}
-            title={ui.processingTitle}
+            stepLabels={
+              processingMode === "score"
+                ? ui.scoreProcessingSteps
+                : ui.processingSteps
+            }
+            subtitle={
+              processingMode === "score"
+                ? ui.scoreProcessingSubtitle
+                : ui.processingSubtitle
+            }
+            title={
+              processingMode === "score"
+                ? ui.scoreProcessingTitle
+                : ui.processingTitle
+            }
+          />
+        ) : showExampleExit ? (
+          <ExampleExitPanel
+            body={ui.exampleExit.body}
+            title={ui.exampleExit.title}
           />
         ) : showPlans ? (
           <PlanSelectionPanel
             content={getPlanContent(locale)}
-            onBack={() => setShowPlans(false)}
+            email={exampleEmail}
+            emailError={exampleError}
+            exampleLoading={exampleLoading}
+            healthScore={healthScore}
+            includeReassessment={includeExampleReassessment}
+            locale={locale}
+            onBack={closePlanGate}
+            onEmailChange={setExampleEmail}
+            onIncludeReassessmentChange={setIncludeExampleReassessment}
+            onRequestExample={() => void requestExampleBrief()}
             onSelect={choosePlan}
+            scoreContent={ui.scoreGate}
+            proAccess={hasReturningProAccess}
+            reassessmentAlreadyOptedIn={reassessmentAlreadyOptedIn}
           />
         ) : (
           <div className="mx-auto max-w-4xl space-y-6">
@@ -2751,6 +3213,15 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                   <p className="mt-5 max-w-2xl text-xs font-medium leading-5 text-muted-foreground">
                     {ui.wellnessDisclaimer}
                   </p>
+                  {showDevShortcut ? (
+                    <button
+                      type="button"
+                      className="mt-6 inline-flex items-center justify-center rounded-md border border-[#3A7BD5]/25 bg-white/85 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#245f9f] shadow-sm backdrop-blur-sm transition hover:bg-white"
+                      onClick={fillRandomDefaultsAndReview}
+                    >
+                      Dev: random defaults to review
+                    </button>
+                  ) : null}
                 </div>
               </section>
             ) : null}
@@ -2789,6 +3260,54 @@ export function AssessmentFlow({ locale }: AssessmentFlowProps) {
                   </Question>
                 ))}
               </SectionCard>
+
+              {isReview ? (
+                <section className="mt-6 rounded-lg bg-[#F3F8FF] px-5 py-8 ring-1 ring-[#3A7BD5]/10 sm:px-6 lg:px-8">
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8">
+                    <div className="lg:col-span-7">
+                      <h3 className="max-w-xl text-2xl font-semibold tracking-tight text-balance text-[#20343A] sm:text-3xl">
+                        <HighlightedHealthScoreTitle
+                          title={ui.reviewReassessment.title}
+                        />
+                      </h3>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
+                        {ui.reviewReassessment.description}
+                      </p>
+                    </div>
+                    <div className="w-full max-w-md lg:col-span-5 lg:pt-1">
+                      <div className="flex flex-col gap-3">
+                        <label
+                          htmlFor="review-reassessment-email"
+                          className="sr-only"
+                        >
+                          {ui.reviewReassessment.placeholder}
+                        </label>
+                        <input
+                          id="review-reassessment-email"
+                          name="review-reassessment-email"
+                          type="email"
+                          value={answers.reassessmentEmail}
+                          placeholder={ui.reviewReassessment.placeholder}
+                          autoComplete="email"
+                          className="min-w-0 rounded-md bg-white px-3.5 py-2.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 transition placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#1FA77A] sm:text-sm/6"
+                          onChange={(event) => {
+                            setReviewReassessmentError("");
+                            setAnswers((current) => ({
+                              ...current,
+                              reassessmentEmail: event.target.value
+                            }));
+                          }}
+                        />
+                      </div>
+                      {reviewReassessmentError ? (
+                        <p className="mt-3 text-sm font-medium text-red-600">
+                          {reviewReassessmentError}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
 
               {!canMoveForward ? (
                 <p className="mt-3 text-sm font-medium text-muted-foreground">
@@ -2864,21 +3383,61 @@ type ProcessingPanelProps = Readonly<{
   retryLabel: string;
   status: ProcessingStatus;
   statusLabels: Record<ProcessingStepState, string>;
-  stepLabels: Record<ProcessingStatus["steps"][number]["id"], string>;
+  stepLabels: Record<string, string>;
   subtitle: string;
   title: string;
 }>;
 
 type PlanSelectionPanelProps = Readonly<{
   content: PlanContent;
+  email: string;
+  emailError: string;
+  exampleLoading: boolean;
+  healthScore: HealthScoreResult | null;
+  includeReassessment: boolean;
+  locale: Locale;
   onBack: () => void;
+  onEmailChange: (value: string) => void;
+  onIncludeReassessmentChange: (value: boolean) => void;
+  onRequestExample: () => void;
   onSelect: (planId: string) => void;
+  proAccess: boolean;
+  reassessmentAlreadyOptedIn: boolean;
+  scoreContent: {
+    emailButton: string;
+    emailDescription: string;
+    emailDivider: string;
+    emailError: string;
+    emailPlaceholder: string;
+    emailTitle: string;
+    planDescription: string;
+    planTitle: string;
+    preparing: string;
+    proContinueCta: string;
+    proContinueDescription: string;
+    proContinueTitle: string;
+    reassessmentDescription: string;
+    reassessmentTitle: string;
+    title: string;
+  };
 }>;
 
 function PlanSelectionPanel({
   content,
+  email,
+  emailError,
+  exampleLoading,
+  healthScore,
+  includeReassessment,
+  locale,
   onBack,
-  onSelect
+  onEmailChange,
+  onIncludeReassessmentChange,
+  onRequestExample,
+  onSelect,
+  proAccess,
+  reassessmentAlreadyOptedIn,
+  scoreContent
 }: PlanSelectionPanelProps) {
   return (
     <section className="relative isolate overflow-hidden rounded-lg bg-white px-6 py-16 ring-1 ring-foreground/10 sm:py-20 lg:px-8">
@@ -2900,15 +3459,50 @@ function PlanSelectionPanel({
           {content.eyebrow}
         </p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl">
-          {content.title}
+          <HighlightedHealthScoreTitle title={scoreContent.title} />
         </h1>
       </div>
       <p className="mx-auto mt-6 max-w-2xl text-center text-lg font-medium text-pretty text-gray-600 sm:text-xl/8">
         {content.subtitle}
       </p>
 
-      <div className="mx-auto mt-14 grid max-w-lg grid-cols-1 items-center gap-y-6 sm:mt-16 sm:gap-y-0 lg:max-w-4xl lg:grid-cols-2">
-        {content.tiers.map((tier, tierIndex) => (
+      {healthScore ? (
+        <HealthScorePanel locale={locale} result={healthScore} />
+      ) : null}
+
+      <div className="mx-auto mt-10 max-w-2xl text-center">
+        <h2 className="text-xl font-semibold text-[#20343A]">
+          {proAccess ? scoreContent.proContinueTitle : scoreContent.planTitle}
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          {proAccess
+            ? scoreContent.proContinueDescription
+            : scoreContent.planDescription}
+        </p>
+      </div>
+
+      {proAccess ? (
+        <div className="mx-auto mt-14 max-w-xl rounded-3xl bg-[#20343A] p-8 text-center shadow-2xl ring-1 ring-gray-900/10 sm:p-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#8BC6FF]">
+            Pro
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white">
+            {scoreContent.proContinueTitle}
+          </h2>
+          <p className="mx-auto mt-4 max-w-md text-base/7 text-gray-300">
+            {scoreContent.proContinueDescription}
+          </p>
+          <button
+            type="button"
+            className="mt-8 rounded-md bg-[#1FA77A] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#188a65] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]"
+            onClick={() => onSelect("pro")}
+          >
+            {scoreContent.proContinueCta}
+          </button>
+        </div>
+      ) : (
+        <div className="mx-auto mt-14 grid max-w-lg grid-cols-1 items-center gap-y-6 sm:mt-16 sm:gap-y-0 lg:max-w-4xl lg:grid-cols-2">
+          {content.tiers.map((tier, tierIndex) => (
           <div
             key={tier.id}
             className={cx(
@@ -3016,8 +3610,29 @@ function PlanSelectionPanel({
               </button>
             </div>
           </div>
-        ))}
+          ))}
+        </div>
+      )}
+
+      <div className="mx-auto mt-14 max-w-2xl">
+        <div className="flex items-center gap-3 text-center text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <span className="h-px flex-1 bg-gray-200" />
+          <span>{scoreContent.emailDivider}</span>
+          <span className="h-px flex-1 bg-gray-200" />
+        </div>
       </div>
+
+      <FreePreviewEmailSection
+        content={scoreContent}
+        email={email}
+        emailError={emailError}
+        exampleLoading={exampleLoading}
+        includeReassessment={includeReassessment}
+        onEmailChange={onEmailChange}
+        onIncludeReassessmentChange={onIncludeReassessmentChange}
+        onRequestExample={onRequestExample}
+        reassessmentAlreadyOptedIn={reassessmentAlreadyOptedIn}
+      />
 
       <div className="mt-8 flex justify-center">
         <button
@@ -3028,6 +3643,284 @@ function PlanSelectionPanel({
           {content.back}
         </button>
       </div>
+    </section>
+  );
+}
+
+function HighlightedHealthScoreTitle({ title }: Readonly<{ title: string }>) {
+  const parts = title.split(/(HealthScore)/i);
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === "healthscore" ? (
+          <span key={`${part}-${index}`} className="text-[#1FA77A]">
+            {part}
+          </span>
+        ) : (
+          <span key={`${part}-${index}`}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function FreePreviewEmailSection({
+  content,
+  email,
+  emailError,
+  exampleLoading,
+  includeReassessment,
+  onEmailChange,
+  onIncludeReassessmentChange,
+  onRequestExample,
+  reassessmentAlreadyOptedIn
+}: Readonly<{
+  content: PlanSelectionPanelProps["scoreContent"];
+  email: string;
+  emailError: string;
+  exampleLoading: boolean;
+  includeReassessment: boolean;
+  onEmailChange: (value: string) => void;
+  onIncludeReassessmentChange: (value: boolean) => void;
+  onRequestExample: () => void;
+  reassessmentAlreadyOptedIn: boolean;
+}>) {
+  return (
+    <section className="mx-auto mt-8 max-w-4xl rounded-3xl bg-white py-12 ring-1 ring-gray-900/10 sm:py-14">
+      <div className="mx-auto grid grid-cols-1 gap-8 px-6 lg:grid-cols-12 lg:gap-8 lg:px-8">
+        <div className="lg:col-span-7">
+          <h2 className="max-w-xl text-3xl font-semibold tracking-tight text-balance text-[#20343A] sm:text-4xl">
+            {content.emailTitle}
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">
+            {content.emailDescription}
+          </p>
+        </div>
+        <form
+          className="w-full max-w-md lg:col-span-5 lg:pt-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onRequestExample();
+          }}
+        >
+          <div className="flex flex-col gap-3">
+            <label htmlFor="free-preview-email" className="sr-only">
+              {content.emailPlaceholder}
+            </label>
+            <input
+              id="free-preview-email"
+              name="email"
+              type="email"
+              required={true}
+              value={email}
+              placeholder={content.emailPlaceholder}
+              autoComplete="email"
+              className="min-w-0 flex-auto rounded-md bg-white px-3.5 py-2.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 transition placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#1FA77A] sm:text-sm/6"
+              onChange={(event) => onEmailChange(event.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={exampleLoading}
+              className="w-full rounded-md bg-[#1FA77A] px-3.5 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-[#188a65] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A] disabled:cursor-wait disabled:opacity-70"
+            >
+              {exampleLoading ? content.preparing : content.emailButton}
+            </button>
+          </div>
+          {emailError ? (
+            <p className="mt-3 text-sm font-medium text-red-600">
+              {emailError}
+            </p>
+          ) : null}
+          {reassessmentAlreadyOptedIn ? null : (
+            <button
+              type="button"
+              aria-pressed={includeReassessment}
+              className="mt-4 flex w-full items-start gap-3 text-left text-sm/6 text-gray-900"
+              onClick={() => onIncludeReassessmentChange(!includeReassessment)}
+            >
+              <span
+                className={cx(
+                  "relative mt-0.5 inline-flex h-6 w-11 flex-none items-center rounded-full transition",
+                  includeReassessment ? "bg-[#1FA77A]" : "bg-gray-300"
+                )}
+              >
+                <span className="sr-only">{content.reassessmentTitle}</span>
+                <span
+                  className={cx(
+                    "inline-block h-5 w-5 rounded-full bg-white shadow-sm transition",
+                    includeReassessment ? "translate-x-5" : "translate-x-1"
+                  )}
+                />
+              </span>
+              <span>
+                <span className="font-semibold text-[#20343A]">
+                  {content.reassessmentTitle}
+                </span>{" "}
+                {content.reassessmentDescription ? (
+                  <span className="text-gray-600">
+                    {content.reassessmentDescription}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          )}
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function getDomainTone(score: number) {
+  if (score >= 80) {
+    return {
+      bar: "bg-[#3A7BD5]",
+      bg: "bg-[#EAF5FF]",
+      ring: "ring-[#3A7BD5]/20",
+      text: "text-[#2563EB]"
+    };
+  }
+
+  if (score >= 50) {
+    return {
+      bar: "bg-[#1FA77A]",
+      bg: "bg-[#EFFBF5]",
+      ring: "ring-[#1FA77A]/20",
+      text: "text-[#126b4f]"
+    };
+  }
+
+  return {
+    bar: "bg-red-500",
+    bg: "bg-red-50",
+    ring: "ring-red-200",
+    text: "text-red-600"
+  };
+}
+
+function HealthScorePanel({
+  locale,
+  result
+}: Readonly<{
+  locale: Locale;
+  result: HealthScoreResult;
+}>) {
+  const labels =
+    locale === "th"
+      ? {
+          domains: "ภาพรวม 6 ด้าน",
+          movers: "จุดที่ช่วยยกระดับคะแนนได้มาก",
+          score: "คะแนนสุขภาพ"
+        }
+      : {
+          domains: "6-domain snapshot",
+          movers: "Highest-impact next moves",
+          score: "HealthScore"
+        };
+
+  return (
+    <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-[#F7FAFD] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-7">
+      <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#3A7BD5]">
+            {labels.score}
+          </p>
+          <div className="mt-3 flex items-end gap-3">
+            <span className="text-6xl font-semibold tracking-normal text-[#20343A]">
+              {result.score}
+            </span>
+            <span className="pb-2 text-lg font-semibold text-muted-foreground">
+              /100
+            </span>
+          </div>
+          <p className="mt-3 inline-flex rounded-full bg-[#1FA77A]/10 px-3 py-1 text-sm font-semibold text-[#126b4f]">
+            {result.band}
+          </p>
+          <h2 className="mt-5 text-xl font-semibold text-[#20343A]">
+            {result.headline}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {result.summary}
+          </p>
+        </div>
+
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+              {labels.domains}
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {result.domains.map((domain) => {
+                const tone = getDomainTone(domain.score);
+
+                return (
+                <div
+                  key={domain.id}
+                  className={cx(
+                    "rounded-xl p-3 ring-1",
+                    tone.bg,
+                    tone.ring
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-[#20343A]">
+                      {domain.label}
+                    </span>
+                    <span className={cx("font-semibold", tone.text)}>
+                      {domain.score}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/80">
+                    <div
+                      className={cx("h-full rounded-full", tone.bar)}
+                      style={{ width: `${domain.score}%` }}
+                    />
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+              {labels.movers}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {result.movers.map((mover) => (
+                <span
+                  key={mover.label}
+                  className="inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#20343A] ring-1 ring-foreground/10"
+                >
+                  {mover.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExampleExitPanel({
+  body,
+  title
+}: Readonly<{
+  body: string;
+  title: string;
+}>) {
+  return (
+    <section className="mx-auto max-w-3xl rounded-lg bg-white p-8 text-center ring-1 ring-foreground/10 sm:p-10">
+      <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#1FA77A]/10">
+        <CheckIcon aria-hidden={true} className="size-7 text-[#1FA77A]" />
+      </div>
+      <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
+        {title}
+      </h1>
+      <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-muted-foreground">
+        {body}
+      </p>
     </section>
   );
 }
@@ -3114,7 +4007,7 @@ function ProcessingPanel({
                             : "text-muted-foreground"
                         )}
                       >
-                        {stepLabels[step.id]}
+                        {stepLabels[step.id] ?? step.id}
                       </p>
                       <p className="whitespace-nowrap text-right text-sm text-muted-foreground">
                         {complete

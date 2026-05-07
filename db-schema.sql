@@ -1,4 +1,4 @@
--- MATTANUTRA database schema
+-- MattaNutra database schema
 -- Re-runnable PostgreSQL schema for UAT/production.
 -- Intended for copy/paste into the DigitalOcean database console.
 
@@ -54,6 +54,7 @@ create table if not exists public.assessments (
   status public.assessment_status not null default 'captured',
   answers jsonb not null default '{}'::jsonb,
   answer_summary jsonb not null default '{}'::jsonb,
+  health_score jsonb not null default '{}'::jsonb,
   queue_position integer null,
   error_message text null,
   captured_at timestamptz not null default now(),
@@ -69,6 +70,7 @@ alter table public.assessments
   add column if not exists status public.assessment_status default 'captured',
   add column if not exists answers jsonb default '{}'::jsonb,
   add column if not exists answer_summary jsonb default '{}'::jsonb,
+  add column if not exists health_score jsonb default '{}'::jsonb,
   add column if not exists queue_position integer null,
   add column if not exists error_message text null,
   add column if not exists captured_at timestamptz default now(),
@@ -83,12 +85,14 @@ set
   status = coalesce(status, 'captured'),
   answers = coalesce(answers, '{}'::jsonb),
   answer_summary = coalesce(answer_summary, '{}'::jsonb),
+  health_score = coalesce(health_score, '{}'::jsonb),
   captured_at = coalesce(captured_at, now()),
   updated_at = coalesce(updated_at, now())
 where locale is null
   or status is null
   or answers is null
   or answer_summary is null
+  or health_score is null
   or captured_at is null
   or updated_at is null;
 
@@ -101,6 +105,8 @@ alter table public.assessments
   alter column answers set not null,
   alter column answer_summary set default '{}'::jsonb,
   alter column answer_summary set not null,
+  alter column health_score set default '{}'::jsonb,
+  alter column health_score set not null,
   alter column captured_at set default now(),
   alter column captured_at set not null,
   alter column updated_at set default now(),
@@ -417,6 +423,260 @@ create index if not exists job_audit_events_job_idx
 create index if not exists job_audit_events_level_idx
   on public.job_audit_events (level, created_at desc);
 
+create table if not exists public.assessment_example_requests (
+  id uuid primary key,
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  email text not null,
+  locale text not null default 'en' check (locale in ('en', 'th')),
+  status text not null default 'requested' check (
+    status in (
+      'requested',
+      'formulation_queued',
+      'formulation_ready',
+      'email_queued',
+      'email_rendered',
+      'email_sent',
+      'failed'
+    )
+  ),
+  health_score jsonb not null default '{}'::jsonb,
+  email_html text null,
+  error_message text null,
+  requested_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.assessment_example_requests
+  add column if not exists plan_id uuid references public.assessments(plan_id) on delete cascade,
+  add column if not exists email text,
+  add column if not exists locale text default 'en',
+  add column if not exists status text default 'requested',
+  add column if not exists health_score jsonb default '{}'::jsonb,
+  add column if not exists email_html text null,
+  add column if not exists error_message text null,
+  add column if not exists requested_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+update public.assessment_example_requests
+set
+  locale = coalesce(locale, 'en'),
+  status = case
+    when status in (
+      'requested',
+      'formulation_queued',
+      'formulation_ready',
+      'email_queued',
+      'email_rendered',
+      'email_sent',
+      'failed'
+    ) then status
+    else 'requested'
+  end,
+  health_score = coalesce(health_score, '{}'::jsonb),
+  requested_at = coalesce(requested_at, now()),
+  updated_at = coalesce(updated_at, now())
+where locale is null
+  or status is null
+  or status not in (
+    'requested',
+    'formulation_queued',
+    'formulation_ready',
+    'email_queued',
+    'email_rendered',
+    'email_sent',
+    'failed'
+  )
+  or health_score is null
+  or requested_at is null
+  or updated_at is null;
+
+alter table public.assessment_example_requests
+  alter column plan_id set not null,
+  alter column email set not null,
+  alter column locale set default 'en',
+  alter column locale set not null,
+  alter column status set default 'requested',
+  alter column status set not null,
+  alter column health_score set default '{}'::jsonb,
+  alter column health_score set not null,
+  alter column requested_at set default now(),
+  alter column requested_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.assessment_example_requests'::regclass
+      and conname = 'assessment_example_requests_locale_check'
+  ) then
+    alter table public.assessment_example_requests
+      add constraint assessment_example_requests_locale_check
+      check (locale in ('en', 'th'));
+  end if;
+
+  alter table public.assessment_example_requests
+    drop constraint if exists assessment_example_requests_status_check;
+
+  alter table public.assessment_example_requests
+    add constraint assessment_example_requests_status_check
+    check (
+      status in (
+        'requested',
+        'formulation_queued',
+        'formulation_ready',
+        'email_queued',
+        'email_rendered',
+        'email_sent',
+        'failed'
+      )
+    );
+end $$;
+
+create index if not exists assessment_example_requests_plan_idx
+  on public.assessment_example_requests (plan_id, requested_at desc);
+
+create index if not exists assessment_example_requests_status_idx
+  on public.assessment_example_requests (status, requested_at asc);
+
+create table if not exists public.cron (
+  id uuid primary key,
+  plan_id uuid null references public.assessments(plan_id) on delete cascade,
+  action_type text not null,
+  recipient jsonb not null default '{}'::jsonb,
+  payload jsonb not null default '{}'::jsonb,
+  scheduled_for timestamptz not null,
+  status text not null default 'scheduled' check (
+    status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed')
+  ),
+  job_id uuid null references public.jobs(id) on delete set null,
+  attempts integer not null default 0,
+  recurrence_days integer null,
+  unsubscribe_token text null,
+  unsubscribed_at timestamptz null,
+  result_payload jsonb not null default '{}'::jsonb,
+  error_message text null,
+  created_at timestamptz not null default now(),
+  queued_at timestamptz null,
+  completed_at timestamptz null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.cron
+  add column if not exists plan_id uuid null references public.assessments(plan_id) on delete cascade,
+  add column if not exists action_type text,
+  add column if not exists recipient jsonb default '{}'::jsonb,
+  add column if not exists payload jsonb default '{}'::jsonb,
+  add column if not exists scheduled_for timestamptz,
+  add column if not exists status text default 'scheduled',
+  add column if not exists job_id uuid null references public.jobs(id) on delete set null,
+  add column if not exists attempts integer default 0,
+  add column if not exists recurrence_days integer null,
+  add column if not exists unsubscribe_token text null,
+  add column if not exists unsubscribed_at timestamptz null,
+  add column if not exists result_payload jsonb default '{}'::jsonb,
+  add column if not exists error_message text null,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists queued_at timestamptz null,
+  add column if not exists completed_at timestamptz null,
+  add column if not exists updated_at timestamptz default now();
+
+alter table public.cron
+  drop column if exists email_html;
+
+update public.cron
+set action_type = 'reassessment'
+where action_type = 'reassessment_email';
+
+update public.jobs
+set job_type = 'reassessment'
+where job_type = 'reassessment_email';
+
+update public.cron
+set recurrence_days = 60
+where action_type = 'reassessment'
+  and recurrence_days is null;
+
+update public.cron
+set
+  action_type = coalesce(action_type, 'reassessment'),
+  recipient = coalesce(recipient, '{}'::jsonb),
+  payload = coalesce(payload, '{}'::jsonb),
+  scheduled_for = coalesce(scheduled_for, now()),
+  status = case
+    when status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed') then status
+    else 'scheduled'
+  end,
+  attempts = coalesce(attempts, 0),
+  result_payload = coalesce(result_payload, '{}'::jsonb),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, now())
+where action_type is null
+  or recipient is null
+  or payload is null
+  or scheduled_for is null
+  or status is null
+  or status not in ('scheduled', 'queued', 'complete', 'cancelled', 'failed')
+  or attempts is null
+  or result_payload is null
+  or created_at is null
+  or updated_at is null;
+
+alter table public.cron
+  alter column action_type set not null,
+  alter column recipient set default '{}'::jsonb,
+  alter column recipient set not null,
+  alter column payload set default '{}'::jsonb,
+  alter column payload set not null,
+  alter column scheduled_for set not null,
+  alter column status set default 'scheduled',
+  alter column status set not null,
+  alter column attempts set default 0,
+  alter column attempts set not null,
+  alter column result_payload set default '{}'::jsonb,
+  alter column result_payload set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.cron'::regclass
+      and conname = 'cron_status_check'
+  ) then
+    alter table public.cron
+      add constraint cron_status_check
+      check (status in ('scheduled', 'queued', 'complete', 'cancelled', 'failed'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.cron'::regclass
+      and conname = 'cron_recurrence_days_check'
+  ) then
+    alter table public.cron
+      add constraint cron_recurrence_days_check
+      check (recurrence_days is null or recurrence_days > 0);
+  end if;
+end $$;
+
+create index if not exists cron_due_idx
+  on public.cron (status, scheduled_for asc);
+
+create index if not exists cron_plan_action_idx
+  on public.cron (plan_id, action_type, status);
+
+create unique index if not exists cron_unsubscribe_token_idx
+  on public.cron (unsubscribe_token)
+  where unsubscribe_token is not null;
+
 -- DOADMIN can apply this script in UAT. If a lower-privilege user reapplies it
 -- locally, ownership changes are skipped with notices rather than aborting.
 do $$
@@ -473,5 +733,17 @@ begin
     execute 'alter table public.job_audit_events owner to mn';
   exception when others then
     raise notice 'Skipping job_audit_events owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.assessment_example_requests owner to mn';
+  exception when others then
+    raise notice 'Skipping assessment_example_requests owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.cron owner to mn';
+  exception when others then
+    raise notice 'Skipping cron owner change: %', sqlerrm;
   end;
 end $$;

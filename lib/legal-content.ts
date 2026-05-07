@@ -23,7 +23,7 @@ const thLastUpdated = "5 พฤษภาคม 2026";
 const enTerms: LegalContent = {
   eyebrow: "Legal",
   intro:
-    "These Terms govern your use of MATTANUTRA, a Thailand-based wellness service. Please read them carefully before using the assessment, formulation brief, product search, or AI support features.",
+    "These Terms govern your use of MattaNutra, a Thailand-based wellness service. Please read them carefully before using the assessment, formulation brief, product search, or AI support features.",
   lastUpdated: enLastUpdated,
   title: "Terms of Service",
   updatedLabel: "Last updated",
@@ -31,7 +31,7 @@ const enTerms: LegalContent = {
     {
       title: "1. Acceptance of these Terms",
       paragraphs: [
-        "By accessing or using MATTANUTRA, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service.",
+        "By accessing or using MattaNutra, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service.",
         "We may update these Terms from time to time. The updated version applies from the date it is posted unless a later effective date is stated.",
         "If you access the service from outside Thailand, you are responsible for ensuring that your use is lawful where you are located."
       ]
@@ -39,7 +39,7 @@ const enTerms: LegalContent = {
     {
       title: "2. Wellness information only",
       paragraphs: [
-        "MATTANUTRA is a Thailand-based wellness company. Our assessment, AI-generated formulation brief, marketplace search guide, chat support, and other content are provided for general wellness and informational purposes only.",
+        "MattaNutra is a Thailand-based wellness company. Our assessment, AI-generated formulation brief, marketplace search guide, chat support, and other content are provided for general wellness and informational purposes only.",
         "We do not provide medical advice, diagnosis, treatment, prevention, or cure. Nothing on the service creates a doctor-patient, pharmacist-patient, dietitian-client, or other healthcare professional relationship.",
         "You should speak with a qualified healthcare professional before starting, stopping, or changing any supplement, medication, diet, exercise, sleep, or health routine, especially if you are pregnant, nursing, have a medical condition, have abnormal lab results, or use prescription or over-the-counter medication."
       ]
@@ -47,7 +47,7 @@ const enTerms: LegalContent = {
     {
       title: "3. Emergencies and medical concerns",
       paragraphs: [
-        "Do not use MATTANUTRA for urgent or emergency medical issues. If you believe you may have a medical emergency, contact local emergency services or a qualified healthcare professional immediately."
+        "Do not use MattaNutra for urgent or emergency medical issues. If you believe you may have a medical emergency, contact local emergency services or a qualified healthcare professional immediately."
       ]
     },
     {
@@ -82,7 +82,7 @@ const enTerms: LegalContent = {
     {
       title: "8. Intellectual property",
       paragraphs: [
-        "The service, branding, design, text, software, and generated presentation of the service are owned by MATTANUTRA or its licensors. You may use the service for personal, non-commercial wellness purposes only unless we agree otherwise in writing."
+        "The service, branding, design, text, software, and generated presentation of the service are owned by MattaNutra or its licensors. You may use the service for personal, non-commercial wellness purposes only unless we agree otherwise in writing."
       ]
     },
     {
@@ -94,7 +94,7 @@ const enTerms: LegalContent = {
     {
       title: "10. Limitation of liability",
       paragraphs: [
-        "To the maximum extent permitted by applicable law, including Thai law, MATTANUTRA and its owners, directors, employees, contractors, affiliates, suppliers, and partners will not be liable for any indirect, incidental, special, consequential, exemplary, punitive, or similar damages, or for loss of profits, revenue, data, goodwill, health outcomes, product purchases, or reliance on the service.",
+        "To the maximum extent permitted by applicable law, including Thai law, MattaNutra and its owners, directors, employees, contractors, affiliates, suppliers, and partners will not be liable for any indirect, incidental, special, consequential, exemplary, punitive, or similar damages, or for loss of profits, revenue, data, goodwill, health outcomes, product purchases, or reliance on the service.",
         "To the maximum extent permitted by applicable law, including Thai law, we are not liable for adverse reactions, interactions, injuries, losses, decisions, purchases, or outcomes arising from supplements, products, third-party services, AI outputs, marketplace links, or your use of or reliance on wellness information.",
         "To the maximum extent permitted by applicable law, including Thai law, our total aggregate liability for all claims relating to the service will not exceed the greater of the amount you paid us for the service in the three months before the claim or THB 1,000."
       ]
@@ -102,7 +102,7 @@ const enTerms: LegalContent = {
     {
       title: "11. Indemnity",
       paragraphs: [
-        "You agree to indemnify and hold MATTANUTRA harmless from claims, losses, liabilities, damages, costs, and expenses arising from your misuse of the service, your breach of these Terms, your submitted information, or your violation of law or third-party rights."
+        "You agree to indemnify and hold MattaNutra harmless from claims, losses, liabilities, damages, costs, and expenses arising from your misuse of the service, your breach of these Terms, your submitted information, or your violation of law or third-party rights."
       ]
     },
     {
@@ -120,7 +120,7 @@ const enTerms: LegalContent = {
     {
       title: "14. Contact",
       paragraphs: [
-        "Questions about these Terms can be sent to MATTANUTRA in Thailand at support@mattanutra.com."
+        "Questions about these Terms can be sent to MattaNutra in Thailand at support@mattanutra.com."
       ]
     }
   ]
@@ -129,7 +129,7 @@ const enTerms: LegalContent = {
 const enPrivacy: LegalContent = {
   eyebrow: "Legal",
   intro:
-    "This Privacy Policy explains how MATTANUTRA, a Thailand-based wellness service, collects, uses, shares, stores, and protects information when you use our wellness assessment, formulation brief, product search, and AI support features.",
+    "This Privacy Policy explains how MattaNutra, a Thailand-based wellness service, collects, uses, shares, stores, and protects information when you use our wellness assessment, formulation brief, product search, and AI support features.",
   lastUpdated: enLastUpdated,
   title: "Privacy Policy",
   updatedLabel: "Last updated",
@@ -137,15 +137,16 @@ const enPrivacy: LegalContent = {
     {
       title: "1. Who we are",
       paragraphs: [
-        "MATTANUTRA provides wellness information and supplement formulation support from Thailand. We are not a medical provider and we do not maintain medical records.",
-        "The assessment is designed to be anonymous. You can use it without giving us your name, home address, phone number, or direct contact details.",
-        "Where Thailand's Personal Data Protection Act B.E. 2562 (2019), as amended, applies, MATTANUTRA acts as a personal data controller for the personal data we collect and decide how to use."
+        "MattaNutra provides wellness information and supplement formulation support from Thailand. We are not a medical provider and we do not maintain medical records.",
+        "The assessment is designed to be anonymous. You can use it without giving us your name, home address, phone number, or direct contact details. If you request a free email example or contact support, you may choose to provide an email address or chat handle for that limited purpose.",
+        "Where Thailand's Personal Data Protection Act B.E. 2562 (2019), as amended, applies, MattaNutra acts as a personal data controller for the personal data we collect and decide how to use."
       ]
     },
     {
       title: "2. Information we collect",
       bullets: [
         "We do not ask for or intentionally collect your name, home address, phone number, or other direct contact details through the assessment. The formulation brief is linked to a plan ID rather than your identity.",
+        "Email address if you choose to request a free example by email. This is optional and is not required to complete the anonymous assessment.",
         "Assessment answers, such as age range, biological sex, height, weight, skin tone, country, goals, symptoms, sleep, activity, diet, sun exposure, alcohol, caffeine, medication categories, supplement use, budget, preferences, and optional notes.",
         "Optional precision information, such as family history, stress, gut health, wearable data, VO2 max estimates, HRV, and lab values you choose to enter.",
         "Plan and transaction information, such as selected plan, plan ID, status, and payment status. Payment card or banking details are handled by payment providers and are not intended to be stored by us.",
@@ -163,11 +164,11 @@ const enPrivacy: LegalContent = {
     {
       title: "4. How we use information",
       bullets: [
-        "To provide the assessment, generate your formulation brief, show plan status, and display product search guidance.",
+        "To provide the assessment, generate your formulation brief, show plan status, display product search guidance, and render or send any free example you request.",
         "To provide support, AI chat continuity, plan retrieval, and account or purchase assistance.",
         "To process payments, manage plans, prevent fraud, secure the service, debug errors, and maintain logs.",
         "To improve our service, models, content, user experience, and product matching logic.",
-        "To comply with legal obligations, enforce our Terms, and protect users, MATTANUTRA, and third parties."
+        "To comply with legal obligations, enforce our Terms, and protect users, MattaNutra, and third parties."
       ]
     },
     {
@@ -180,7 +181,7 @@ const enPrivacy: LegalContent = {
       title: "6. How we share information",
       paragraphs: [
         "We do not sell your personal information. We may share information with service providers that help us host the site, process assessments, provide AI functionality, process payments, manage chat support, analyze usage, send communications, and secure the service.",
-        "Although the MATTANUTRA assessment is designed to be anonymous, payment providers, chat apps, marketplaces, and technical systems may process their own account identifiers, transaction identifiers, IP addresses, device details, or chat handles under their own terms and privacy policies. We may also disclose information if required by law, to protect rights and safety, or as part of a business transfer."
+        "Although the MattaNutra assessment is designed to be anonymous, payment providers, chat apps, marketplaces, and technical systems may process their own account identifiers, transaction identifiers, IP addresses, device details, or chat handles under their own terms and privacy policies. We may also disclose information if required by law, to protect rights and safety, or as part of a business transfer."
       ]
     },
     {
@@ -228,7 +229,7 @@ const enPrivacy: LegalContent = {
     {
       title: "14. Contact",
       paragraphs: [
-        "Privacy questions and data rights requests can be sent to MATTANUTRA in Thailand at support@mattanutra.com."
+        "Privacy questions and data rights requests can be sent to MattaNutra in Thailand at support@mattanutra.com."
       ]
     }
   ]
@@ -237,7 +238,7 @@ const enPrivacy: LegalContent = {
 const thTerms: LegalContent = {
   eyebrow: "ข้อมูลทางกฎหมาย",
   intro:
-    "ข้อกำหนดนี้ใช้กับการใช้งาน MATTANUTRA ซึ่งเป็นบริการ wellness ที่ตั้งอยู่ในประเทศไทย โปรดอ่านก่อนใช้แบบประเมิน บรีฟสูตรอาหารเสริม การค้นหาผลิตภัณฑ์ หรือการสนับสนุนด้วย AI",
+    "ข้อกำหนดนี้ใช้กับการใช้งาน MattaNutra ซึ่งเป็นบริการ wellness ที่ตั้งอยู่ในประเทศไทย โปรดอ่านก่อนใช้แบบประเมิน บรีฟสูตรอาหารเสริม การค้นหาผลิตภัณฑ์ หรือการสนับสนุนด้วย AI",
   lastUpdated: thLastUpdated,
   title: "เงื่อนไขการให้บริการ",
   updatedLabel: "ปรับปรุงล่าสุด",
@@ -245,7 +246,7 @@ const thTerms: LegalContent = {
     {
       title: "1. การยอมรับเงื่อนไข",
       paragraphs: [
-        "เมื่อเข้าถึงหรือใช้งาน MATTANUTRA คุณตกลงตามเงื่อนไขนี้และนโยบายความเป็นส่วนตัวของเรา หากคุณไม่ตกลง โปรดหยุดใช้งานบริการ",
+        "เมื่อเข้าถึงหรือใช้งาน MattaNutra คุณตกลงตามเงื่อนไขนี้และนโยบายความเป็นส่วนตัวของเรา หากคุณไม่ตกลง โปรดหยุดใช้งานบริการ",
         "เราอาจปรับปรุงเงื่อนไขนี้เป็นครั้งคราว โดยฉบับที่ปรับปรุงจะมีผลตั้งแต่วันที่เผยแพร่ เว้นแต่จะระบุวันมีผลภายหลัง",
         "หากคุณเข้าถึงบริการจากนอกประเทศไทย คุณมีหน้าที่ตรวจสอบว่าการใช้งานของคุณถูกต้องตามกฎหมายในพื้นที่ที่คุณอยู่"
       ]
@@ -253,7 +254,7 @@ const thTerms: LegalContent = {
     {
       title: "2. ข้อมูลเพื่อ wellness เท่านั้น",
       paragraphs: [
-        "MATTANUTRA เป็นบริษัทด้าน wellness ที่ตั้งอยู่ในประเทศไทย แบบประเมิน บรีฟสูตรที่สร้างด้วย AI คู่มือค้นหาผลิตภัณฑ์ การสนับสนุนผ่านแชท และเนื้อหาอื่นๆ จัดทำเพื่อข้อมูลทั่วไปด้าน wellness เท่านั้น",
+        "MattaNutra เป็นบริษัทด้าน wellness ที่ตั้งอยู่ในประเทศไทย แบบประเมิน บรีฟสูตรที่สร้างด้วย AI คู่มือค้นหาผลิตภัณฑ์ การสนับสนุนผ่านแชท และเนื้อหาอื่นๆ จัดทำเพื่อข้อมูลทั่วไปด้าน wellness เท่านั้น",
         "เราไม่ได้ให้คำแนะนำทางการแพทย์ การวินิจฉัย การรักษา การป้องกัน หรือการรักษาโรคใดๆ การใช้งานบริการไม่ทำให้เกิดความสัมพันธ์แบบแพทย์กับผู้ป่วย เภสัชกรกับผู้ป่วย นักกำหนดอาหารกับลูกค้า หรือความสัมพันธ์ด้านวิชาชีพสุขภาพอื่นใด",
         "คุณควรปรึกษาผู้เชี่ยวชาญด้านสุขภาพที่มีคุณสมบัติเหมาะสมก่อนเริ่ม หยุด หรือเปลี่ยนอาหารเสริม ยา อาหาร การออกกำลังกาย การนอน หรือกิจวัตรด้านสุขภาพ โดยเฉพาะหากตั้งครรภ์ ให้นมบุตร มีโรคประจำตัว มีผลแล็บผิดปกติ หรือใช้ยาตามใบสั่งแพทย์หรือยาที่ซื้อเอง"
       ]
@@ -261,7 +262,7 @@ const thTerms: LegalContent = {
     {
       title: "3. เหตุฉุกเฉินและข้อกังวลทางการแพทย์",
       paragraphs: [
-        "ห้ามใช้ MATTANUTRA สำหรับปัญหาทางการแพทย์เร่งด่วนหรือฉุกเฉิน หากคุณคิดว่าอาจมีเหตุฉุกเฉินทางการแพทย์ โปรดติดต่อบริการฉุกเฉินในพื้นที่หรือผู้เชี่ยวชาญด้านสุขภาพทันที"
+        "ห้ามใช้ MattaNutra สำหรับปัญหาทางการแพทย์เร่งด่วนหรือฉุกเฉิน หากคุณคิดว่าอาจมีเหตุฉุกเฉินทางการแพทย์ โปรดติดต่อบริการฉุกเฉินในพื้นที่หรือผู้เชี่ยวชาญด้านสุขภาพทันที"
       ]
     },
     {
@@ -296,7 +297,7 @@ const thTerms: LegalContent = {
     {
       title: "8. ทรัพย์สินทางปัญญา",
       paragraphs: [
-        "บริการ แบรนด์ ดีไซน์ ข้อความ ซอฟต์แวร์ และรูปแบบการนำเสนอของบริการเป็นของ MATTANUTRA หรือผู้อนุญาต คุณใช้บริการได้เพื่อ wellness ส่วนบุคคลและไม่ใช่เชิงพาณิชย์เท่านั้น เว้นแต่เราอนุญาตเป็นลายลักษณ์อักษร"
+        "บริการ แบรนด์ ดีไซน์ ข้อความ ซอฟต์แวร์ และรูปแบบการนำเสนอของบริการเป็นของ MattaNutra หรือผู้อนุญาต คุณใช้บริการได้เพื่อ wellness ส่วนบุคคลและไม่ใช่เชิงพาณิชย์เท่านั้น เว้นแต่เราอนุญาตเป็นลายลักษณ์อักษร"
       ]
     },
     {
@@ -308,7 +309,7 @@ const thTerms: LegalContent = {
     {
       title: "10. การจำกัดความรับผิด",
       paragraphs: [
-        "ภายใต้ขอบเขตสูงสุดที่กฎหมายที่ใช้บังคับอนุญาต รวมถึงกฎหมายไทย MATTANUTRA รวมถึงเจ้าของ กรรมการ พนักงาน ผู้รับจ้าง บริษัทในเครือ ผู้จัดหา และพันธมิตร จะไม่รับผิดชอบต่อความเสียหายทางอ้อม อุบัติเหตุ พิเศษ ต่อเนื่อง เป็นเยี่ยงอย่าง เชิงลงโทษ หรือความเสียหายในลักษณะคล้ายกัน รวมถึงการสูญเสียกำไร รายได้ ข้อมูล ชื่อเสียง ผลลัพธ์ด้านสุขภาพ การซื้อผลิตภัณฑ์ หรือการพึ่งพาบริการ",
+        "ภายใต้ขอบเขตสูงสุดที่กฎหมายที่ใช้บังคับอนุญาต รวมถึงกฎหมายไทย MattaNutra รวมถึงเจ้าของ กรรมการ พนักงาน ผู้รับจ้าง บริษัทในเครือ ผู้จัดหา และพันธมิตร จะไม่รับผิดชอบต่อความเสียหายทางอ้อม อุบัติเหตุ พิเศษ ต่อเนื่อง เป็นเยี่ยงอย่าง เชิงลงโทษ หรือความเสียหายในลักษณะคล้ายกัน รวมถึงการสูญเสียกำไร รายได้ ข้อมูล ชื่อเสียง ผลลัพธ์ด้านสุขภาพ การซื้อผลิตภัณฑ์ หรือการพึ่งพาบริการ",
         "ภายใต้ขอบเขตสูงสุดที่กฎหมายที่ใช้บังคับอนุญาต รวมถึงกฎหมายไทย เราไม่รับผิดชอบต่ออาการไม่พึงประสงค์ ปฏิกิริยาระหว่างสาร การบาดเจ็บ ความสูญเสีย การตัดสินใจ การซื้อ หรือผลลัพธ์ที่เกิดจากอาหารเสริม ผลิตภัณฑ์ บริการภายนอก ผลลัพธ์จาก AI ลิงก์ marketplace หรือการใช้หรือพึ่งพาข้อมูลด้าน wellness ของคุณ",
         "ภายใต้ขอบเขตสูงสุดที่กฎหมายที่ใช้บังคับอนุญาต รวมถึงกฎหมายไทย ความรับผิดรวมทั้งหมดของเราสำหรับข้อเรียกร้องใดๆ ที่เกี่ยวข้องกับบริการจะไม่เกินจำนวนที่มากกว่าระหว่างเงินที่คุณชำระให้เราในช่วงสามเดือนก่อนเกิดข้อเรียกร้อง หรือ 1,000 บาท"
       ]
@@ -316,7 +317,7 @@ const thTerms: LegalContent = {
     {
       title: "11. การชดใช้ความเสียหาย",
       paragraphs: [
-        "คุณตกลงที่จะชดใช้และปกป้อง MATTANUTRA จากข้อเรียกร้อง ความสูญเสีย ความรับผิด ความเสียหาย ค่าใช้จ่าย และต้นทุนที่เกิดจากการใช้บริการในทางที่ผิด การละเมิดเงื่อนไขนี้ ข้อมูลที่คุณส่ง หรือการละเมิดกฎหมายหรือสิทธิของบุคคลภายนอก"
+        "คุณตกลงที่จะชดใช้และปกป้อง MattaNutra จากข้อเรียกร้อง ความสูญเสีย ความรับผิด ความเสียหาย ค่าใช้จ่าย และต้นทุนที่เกิดจากการใช้บริการในทางที่ผิด การละเมิดเงื่อนไขนี้ ข้อมูลที่คุณส่ง หรือการละเมิดกฎหมายหรือสิทธิของบุคคลภายนอก"
       ]
     },
     {
@@ -334,7 +335,7 @@ const thTerms: LegalContent = {
     {
       title: "14. ติดต่อ",
       paragraphs: [
-        "สอบถามเกี่ยวกับเงื่อนไขนี้ได้ที่ MATTANUTRA ในประเทศไทย ผ่าน support@mattanutra.com"
+        "สอบถามเกี่ยวกับเงื่อนไขนี้ได้ที่ MattaNutra ในประเทศไทย ผ่าน support@mattanutra.com"
       ]
     }
   ]
@@ -343,7 +344,7 @@ const thTerms: LegalContent = {
 const thPrivacy: LegalContent = {
   eyebrow: "ข้อมูลทางกฎหมาย",
   intro:
-    "นโยบายความเป็นส่วนตัวนี้อธิบายว่า MATTANUTRA ซึ่งเป็นบริการ wellness ที่ตั้งอยู่ในประเทศไทย เก็บรวบรวม ใช้ เปิดเผย จัดเก็บ และปกป้องข้อมูลอย่างไร เมื่อคุณใช้แบบประเมิน wellness บรีฟสูตรอาหารเสริม การค้นหาผลิตภัณฑ์ และฟีเจอร์สนับสนุนด้วย AI",
+    "นโยบายความเป็นส่วนตัวนี้อธิบายว่า MattaNutra ซึ่งเป็นบริการ wellness ที่ตั้งอยู่ในประเทศไทย เก็บรวบรวม ใช้ เปิดเผย จัดเก็บ และปกป้องข้อมูลอย่างไร เมื่อคุณใช้แบบประเมิน wellness บรีฟสูตรอาหารเสริม การค้นหาผลิตภัณฑ์ และฟีเจอร์สนับสนุนด้วย AI",
   lastUpdated: thLastUpdated,
   title: "นโยบายความเป็นส่วนตัว",
   updatedLabel: "ปรับปรุงล่าสุด",
@@ -351,15 +352,16 @@ const thPrivacy: LegalContent = {
     {
       title: "1. เราคือใคร",
       paragraphs: [
-        "MATTANUTRA ให้ข้อมูลด้าน wellness และสนับสนุนการสร้างสูตรอาหารเสริมจากประเทศไทย เราไม่ใช่ผู้ให้บริการทางการแพทย์ และเราไม่ได้จัดเก็บเวชระเบียน",
-        "แบบประเมินถูกออกแบบให้ใช้งานแบบไม่ระบุตัวตน คุณสามารถใช้งานได้โดยไม่ต้องให้ชื่อ ที่อยู่บ้าน หมายเลขโทรศัพท์ หรือข้อมูลติดต่อโดยตรง",
-        "ในกรณีที่พระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 และที่แก้ไขเพิ่มเติม (PDPA) ของประเทศไทยมีผลใช้บังคับ MATTANUTRA มีสถานะเป็นผู้ควบคุมข้อมูลส่วนบุคคลสำหรับข้อมูลส่วนบุคคลที่เราเก็บรวบรวมและกำหนดวัตถุประสงค์การใช้"
+        "MattaNutra ให้ข้อมูลด้าน wellness และสนับสนุนการสร้างสูตรอาหารเสริมจากประเทศไทย เราไม่ใช่ผู้ให้บริการทางการแพทย์ และเราไม่ได้จัดเก็บเวชระเบียน",
+        "แบบประเมินถูกออกแบบให้ใช้งานแบบไม่ระบุตัวตน คุณสามารถใช้งานได้โดยไม่ต้องให้ชื่อ ที่อยู่บ้าน หมายเลขโทรศัพท์ หรือข้อมูลติดต่อโดยตรง หากคุณขอตัวอย่างฟรีทางอีเมลหรือติดต่อฝ่ายสนับสนุน คุณอาจเลือกให้อีเมลหรือ chat handle เพื่อวัตถุประสงค์นั้นเท่านั้น",
+        "ในกรณีที่พระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 และที่แก้ไขเพิ่มเติม (PDPA) ของประเทศไทยมีผลใช้บังคับ MattaNutra มีสถานะเป็นผู้ควบคุมข้อมูลส่วนบุคคลสำหรับข้อมูลส่วนบุคคลที่เราเก็บรวบรวมและกำหนดวัตถุประสงค์การใช้"
       ]
     },
     {
       title: "2. ข้อมูลที่เราเก็บรวบรวม",
       bullets: [
         "เราไม่ขอและไม่ได้ตั้งใจเก็บชื่อ ที่อยู่บ้าน หมายเลขโทรศัพท์ หรือข้อมูลติดต่อโดยตรงอื่นๆ ผ่านแบบประเมิน บรีฟสูตรจะเชื่อมกับ plan ID แทนตัวตนของคุณ",
+        "อีเมล หากคุณเลือกขอตัวอย่างฟรีทางอีเมล ข้อมูลนี้เป็นทางเลือกและไม่จำเป็นสำหรับการทำแบบประเมินแบบไม่ระบุตัวตน",
         "คำตอบในแบบประเมิน เช่น ช่วงอายุ เพศทางชีววิทยา ส่วนสูง น้ำหนัก สีผิว ประเทศ เป้าหมาย อาการ การนอน กิจกรรม อาหาร แสงแดด แอลกอฮอล์ คาเฟอีน ประเภทยา การใช้อาหารเสริม งบประมาณ ความต้องการ และบันทึกเพิ่มเติมที่คุณเลือกกรอก",
         "ข้อมูลเพิ่มความแม่นยำที่ไม่บังคับ เช่น ประวัติครอบครัว ความเครียด สุขภาพลำไส้ ข้อมูล wearable ค่า VO2 max ค่า HRV และค่าแล็บที่คุณเลือกกรอก",
         "ข้อมูลแผนและธุรกรรม เช่น แผนที่เลือก plan ID สถานะ และสถานะการชำระเงิน ข้อมูลบัตรหรือบัญชีธนาคารจะจัดการโดยผู้ให้บริการชำระเงิน และเราไม่ได้ตั้งใจจัดเก็บข้อมูลเหล่านั้น",
@@ -377,11 +379,11 @@ const thPrivacy: LegalContent = {
     {
       title: "4. เราใช้ข้อมูลอย่างไร",
       bullets: [
-        "เพื่อให้บริการแบบประเมิน สร้างบรีฟสูตร แสดงสถานะแผน และแสดงคำแนะนำค้นหาผลิตภัณฑ์",
+        "เพื่อให้บริการแบบประเมิน สร้างบรีฟสูตร แสดงสถานะแผน แสดงคำแนะนำค้นหาผลิตภัณฑ์ และสร้างหรือส่งตัวอย่างฟรีที่คุณร้องขอ",
         "เพื่อให้การสนับสนุน ความต่อเนื่องของ AI chat การดึงข้อมูลแผน และความช่วยเหลือเกี่ยวกับบัญชีหรือการซื้อ",
         "เพื่อประมวลผลการชำระเงิน จัดการแผน ป้องกันการทุจริต รักษาความปลอดภัย แก้ไขข้อผิดพลาด และดูแล log",
         "เพื่อปรับปรุงบริการ โมเดล เนื้อหา ประสบการณ์ผู้ใช้ และ logic การจับคู่ผลิตภัณฑ์",
-        "เพื่อปฏิบัติตามกฎหมาย บังคับใช้เงื่อนไข และปกป้องผู้ใช้ MATTANUTRA และบุคคลภายนอก"
+        "เพื่อปฏิบัติตามกฎหมาย บังคับใช้เงื่อนไข และปกป้องผู้ใช้ MattaNutra และบุคคลภายนอก"
       ]
     },
     {
@@ -394,7 +396,7 @@ const thPrivacy: LegalContent = {
       title: "6. การเปิดเผยข้อมูล",
       paragraphs: [
         "เราไม่ขายข้อมูลส่วนบุคคลของคุณ เราอาจเปิดเผยข้อมูลให้ผู้ให้บริการที่ช่วยเราโฮสต์เว็บไซต์ ประมวลผลแบบประเมิน ให้ฟังก์ชัน AI ประมวลผลการชำระเงิน จัดการแชทสนับสนุน วิเคราะห์การใช้งาน ส่งการสื่อสาร และรักษาความปลอดภัยของบริการ",
-        "แม้แบบประเมินของ MATTANUTRA จะถูกออกแบบให้ใช้งานแบบไม่ระบุตัวตน ผู้ให้บริการชำระเงิน แอปแชท marketplace และระบบทางเทคนิคอาจประมวลผลตัวระบุบัญชี ตัวระบุธุรกรรม IP address รายละเอียดอุปกรณ์ หรือ chat handle ของตนเองตามเงื่อนไขและนโยบายความเป็นส่วนตัวของบริการนั้นๆ เราอาจเปิดเผยข้อมูลหากกฎหมายกำหนด เพื่อปกป้องสิทธิและความปลอดภัย หรือเป็นส่วนหนึ่งของการโอนธุรกิจ"
+        "แม้แบบประเมินของ MattaNutra จะถูกออกแบบให้ใช้งานแบบไม่ระบุตัวตน ผู้ให้บริการชำระเงิน แอปแชท marketplace และระบบทางเทคนิคอาจประมวลผลตัวระบุบัญชี ตัวระบุธุรกรรม IP address รายละเอียดอุปกรณ์ หรือ chat handle ของตนเองตามเงื่อนไขและนโยบายความเป็นส่วนตัวของบริการนั้นๆ เราอาจเปิดเผยข้อมูลหากกฎหมายกำหนด เพื่อปกป้องสิทธิและความปลอดภัย หรือเป็นส่วนหนึ่งของการโอนธุรกิจ"
       ]
     },
     {
@@ -442,7 +444,7 @@ const thPrivacy: LegalContent = {
     {
       title: "14. ติดต่อ",
       paragraphs: [
-        "สอบถามหรือใช้สิทธิเกี่ยวกับความเป็นส่วนตัวได้ที่ MATTANUTRA ในประเทศไทย ผ่าน support@mattanutra.com"
+        "สอบถามหรือใช้สิทธิเกี่ยวกับความเป็นส่วนตัวได้ที่ MattaNutra ในประเทศไทย ผ่าน support@mattanutra.com"
       ]
     }
   ]

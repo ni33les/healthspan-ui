@@ -9,9 +9,26 @@ import {
   getStoredAssessmentSnapshot,
   persistAssessmentSubmission
 } from "@/lib/assessment-store";
-import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
+import { computeHealthScore } from "@/lib/health-score";
+import {
+  enqueueFormulationJob,
+  kickCronWorker,
+  kickJobsWorker,
+  scheduleReassessmentAction
+} from "@/lib/job-queue";
+import { isLocale } from "@/lib/i18n";
 
 export const runtime = "nodejs";
+
+function reassessmentEmailFromAnswers(answers: unknown) {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+    return "";
+  }
+
+  const value = (answers as Record<string, unknown>).reassessmentEmail;
+
+  return typeof value === "string" ? value : "";
+}
 
 export async function POST(request: Request) {
   let body: {
@@ -51,6 +68,10 @@ export async function POST(request: Request) {
     selectedPlan = body.plan;
   }
   const snapshot = createAssessmentSnapshot({
+    healthScore: computeHealthScore(
+      body.answers,
+      isLocale(body.locale) ? body.locale : "en"
+    ),
     plan: selectedPlan ?? DEFAULT_ASSESSMENT_PLAN
   });
   let responseSnapshot = snapshot;
@@ -63,6 +84,17 @@ export async function POST(request: Request) {
       snapshot,
       status: intent === "capture" ? "captured" : snapshot.status
     });
+
+    const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
+
+    if (reassessmentEmail) {
+      await scheduleReassessmentAction({
+        email: reassessmentEmail,
+        locale: body.locale,
+        planId: snapshot.planId
+      });
+      void kickCronWorker();
+    }
 
     if (intent === "process" && selectedPlan) {
       const jobId = await enqueueFormulationJob({

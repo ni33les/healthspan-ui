@@ -1,42 +1,54 @@
 # MattaNutra Business Process Roadmap
 
-This document distils the business process from the revised roadmap and maps it to the current product state. Technical choices, vendor details, credentials, hosting decisions, and implementation mechanics have been removed.
+This document distils the business process and maps it to the current product state. It intentionally avoids technical vendor choices and implementation detail.
 
 ## Status Legend
 
 | Status | Meaning |
 | --- | --- |
-| Done | Already working in the current product |
+| Done | Working in the current product |
 | In Progress | Partly built or present as a placeholder |
 | Pending | Not yet built |
 | Decision Needed | Business decision or external dependency required |
 
 ## Current State Summary
 
-MattaNutra already has the core assessment-to-formulation journey working. A customer can land on the site, complete an anonymous assessment, select a plan level, and receive a personalised nutritional formulation generated from their answers.
+MattaNutra can capture an anonymous wellness assessment, calculate a HealthScore, show a plan gate, and generate a personalised nutritional formulation from the saved assessment.
 
-The main missing business pieces are payment activation, product matching, affiliate purchase links, safety governance, and ongoing customer follow-up.
+The new commercial flow is now:
+
+1. Save the assessment before payment.
+2. Optionally capture an email for a free 60-day reassessment reminder.
+3. Calculate and show the HealthScore.
+4. Let the user either request a free email example or choose a paid plan.
+5. For the free path, prepare the full formulation but render only a limited email example.
+6. For the paid path, continue processing and show the full formulation page.
+7. For reassessment reminders, schedule a recurring 60-day action that can invite the user back with the previous plan prefilled.
 
 | Business Area | Current State | Status |
 | --- | --- | --- |
-| Brand and website | MattaNutra branding, English and Thai pages, legal pages, footer, and core site navigation exist. | Done |
+| Brand and website | MattaNutra branding, English and Thai pages, legal pages, footer, and navigation exist. | Done |
 | Anonymous assessment | Questionnaire captures profile, goals, lifestyle, preferences, and constraints. | Done |
-| Assessment sanity check | Basic impossible values and stop conditions still need a formal business path. | In Progress |
-| Assessment storage | Assessment answers are saved before payment so abandoned paywall users are still captured. | Done |
-| Plan selection | Customer can choose Precision or Pro before formulation processing. | Done |
-| Formulation generation | Assessment answers are processed and return a personalised formulation. | Done |
-| Formulation storage | The final formulation is saved before the results page renders it. | Done |
+| Assessment storage | Assessment answers are saved before payment or plan selection. | Done |
+| Questionnaire sanity check | Required fields exist, but formal impossible-value and high-risk handling is not complete. | In Progress |
+| HealthScore | HealthScore is calculated from assessment answers before the paywall. | Done |
+| HealthScore gate | User sees score context before choosing email example or paid plan. | Done |
+| Free example capture | Email can be captured for a free example lead path. | In Progress |
+| Example formulation | The full formulation can be queued for the example path. | In Progress |
+| Example email | A limited HTML email preview can be rendered, but actual sending is not connected. | In Progress |
+| Plan selection | Customer can choose Precision or Pro before full formulation processing. | Done |
+| Returning reassessment | A returning plan link can prefill previous answers and create a new formulation version for the same plan. | Done |
+| Payment | Plan gate exists, but payment collection is not active. | Pending |
+| Full formulation generation | Assessment answers are processed and return a personalised formulation. | Done |
+| Formulation storage | Formulation versions are saved before display. | Done |
 | Bilingual result display | Formulation fields can be returned and shown in English or Thai. | Done |
-| Product recommendations | Result page handles recommendations, but live product matching is not yet active. | In Progress |
-| Recommendation storage | Recommendation versions can be saved, but live matched content is not yet active. | In Progress |
+| Product recommendations | Result page handles recommendations, but live product matching is not active. | In Progress |
+| Recommendation storage | Recommendation versions can be saved. Live matched content is not active. | In Progress |
 | Chat support | Chat CTA exists, but live advisor workflow is not fully connected. | In Progress |
-| Payment | Plan selection exists, but payment collection is not yet active. | Pending |
-| Payment abandonment | Assessment is saved first, but abandoned-payment follow-up is not yet active. | Pending |
-| Affiliate purchase journey | Business model is affiliate-led, but affiliate product links are not yet live. | Pending |
-| Safety governance | Disclaimers and legal pages exist; dosing rules, exclusions, and practitioner review are still needed. | In Progress |
-| Social operations | Social presence and inbound handling remain a business operations task. | Pending |
-| Follow-up and retention | Reassessment, reorder, and lifecycle messaging are not yet active. | Pending |
-| Admin and reporting | Operational dashboard and funnel reporting are not yet active. | Pending |
+| Affiliate purchase journey | Affiliate-led purchase flow is not live. | Pending |
+| Safety governance | Disclaimers and legal pages exist; hard dosing, exclusion, and review rules are still needed. | In Progress |
+| Follow-up and retention | Recurring reassessment scheduling and branded email rendering exist; actual sending and wider lifecycle messaging are not active. | In Progress |
+| Admin and reporting | Operational dashboard and funnel reporting are not active. | Pending |
 
 ## Target Customer Journey
 
@@ -44,132 +56,96 @@ The main missing business pieces are payment activation, product matching, affil
 flowchart LR
   A["Visitor lands on MattaNutra"] --> B["Completes anonymous assessment"]
   B --> C["Assessment is saved"]
-  C --> D["Questionnaire sanity check"]
-  D -->|Pass| E["Chooses plan level"]
-  D -->|Fail| L["Correct answers or route to human review"]
-  E --> M["Payment"]
-  M -->|Paid| N["Personalised formulation is prepared"]
-  M -->|Abandoned| R["Abandoned-payment follow-up"]
-  N --> O["Safety checks"]
-  O -->|Pass| P["Formulation is saved"]
-  O -->|Fail| L
-  P --> F["Customer views results"]
-  F --> G["Matched products are prepared"]
-  G --> Q["Recommendations are saved"]
-  Q --> H["Customer buys through affiliate link"]
-  F --> I["Customer connects to advisor chat"]
-  I --> J["Ongoing support and refinement"]
-  H --> K["Reassessment and reorder prompts"]
+  C --> C1["Schedule reassessment if email supplied"]
+  C1 --> D["Questionnaire sanity check"]
+  D -->|Pass| E["HealthScore is calculated"]
+  D -->|Fixable issue| F["Ask customer to correct answers"]
+  D -->|High-risk| G["Route to human review"]
+  F --> D
+  E --> H["HealthScore gate"]
+  H -->|Free example| I["Capture email"]
+  I --> J["Queue full formulation"]
+  J --> K["Render limited example email"]
+  K --> L["Show exit screen"]
+  H -->|Paid plan| M["Select Precision or Pro"]
+  M --> N["Payment"]
+  N -->|Paid| O["Prepare full formulation"]
+  N -->|Abandoned| P["Abandoned-payment follow-up"]
+  O --> Q["Safety checks"]
+  Q -->|Pass| R["Save formulation"]
+  Q -->|Fail 1-2| S["Revise formulation request"]
+  S --> O
+  Q -->|Fail 3| G
+  R --> T["Show results"]
+  T --> U["Match products"]
+  U --> V["Save recommendations"]
+  V --> W["Customer buys through affiliate link"]
+  T --> X["Customer connects to advisor chat"]
+  X --> Y["Ongoing support and refinement"]
+  W --> Z["Reassessment and reorder prompts"]
+  Z --> ZA["Recurring 60-day reminder"]
+  ZA --> ZAA["Return with previous answers prefilled"]
+  ZAA --> ZB["Create new formulation version"]
 
   classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class A,B,C,E,N,P,F done;
-  class D,O,G,Q,I,L progress;
-  class H,J,K,M,R pending;
+  class A,B,C,E,H,L,M,O,R,T,ZAA,ZB done;
+  class C1,D,F,I,J,K,Q,S,U,V,X,Z,ZA progress;
+  class G,N,P,W,Y pending;
 ```
 
 ## Business Process Gates
 
 ```mermaid
 flowchart TB
-  G1["1. Establish brand trust"] --> G2["2. Capture assessment"]
+  G1["1. Establish trust"] --> G2["2. Capture assessment"]
   G2 --> G3["3. Save assessment"]
-  G3 --> G4["4. Sanity check questionnaire"]
-  G4 -->|Pass| G5["5. Select plan and collect payment"]
-  G4 -->|Fail| G9["Correct answers or human review"]
-  G5 -->|Paid| G6["6. Generate formulation"]
-  G5 -->|Abandoned| G16["Abandoned-payment follow-up"]
-  G6 --> G7["7. Run safety checks"]
-  G7 -->|Pass| G8["8. Save formulation"]
-  G7 -->|Fail| G9
-  G8 --> G10["9. Show results"]
-  G10 --> G11["10. Match products"]
-  G11 --> G12["11. Save recommendations"]
-  G12 --> G13["12. Send customer to affiliate purchase"]
-  G10 --> G14["13. Offer ongoing advisor support"]
-  G13 --> G15["14. Follow up, reassess, and retain"]
-  G14 --> G15
+  G3 --> G3A["Schedule reassessment if requested"]
+  G3A --> G4["4. Sanity check"]
+  G4 -->|Pass| G5["5. Calculate HealthScore"]
+  G4 -->|Fixable| G6["Ask for correction"]
+  G4 -->|High-risk| G7["Human review"]
+  G6 --> G4
+  G5 --> G8["6. Show HealthScore gate"]
+  G8 -->|Example| G9["Capture email"]
+  G9 --> G10["Queue full formulation"]
+  G10 --> G11["Render limited example email"]
+  G11 --> G12["Exit and nurture"]
+  G8 -->|Paid| G13["Select plan"]
+  G13 --> G14["Payment"]
+  G14 -->|Paid| G15["Generate formulation"]
+  G14 -->|Abandoned| G16["Follow up"]
+  G15 --> G17["Safety checks"]
+  G17 -->|Pass| G18["Save formulation"]
+  G17 -->|Fail 1-2| G19["Revise and retry"]
+  G19 --> G15
+  G17 -->|Fail 3| G7
+  G18 --> G20["Show results"]
+  G20 --> G21["Match products"]
+  G21 --> G22["Save recommendations"]
+  G22 --> G23["Affiliate purchase"]
+  G20 --> G24["Advisor support"]
+  G23 --> G25["Reassess and retain"]
+  G24 --> G25
+  G25 --> G26["Prefill previous answers"]
+  G26 --> G27["Save new formulation version"]
 
   classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class G1,G2,G3,G5,G6,G8,G10 done;
-  class G4,G7,G9,G11,G12,G14 progress;
-  class G13,G15,G16 pending;
+  class G1,G2,G3,G5,G8,G13,G15,G18,G20,G26,G27 done;
+  class G3A,G4,G6,G9,G10,G11,G17,G19,G21,G22,G24,G25 progress;
+  class G7,G12,G14,G16,G23 pending;
 ```
 
-## Operating Model
+## Process Detail
 
-```mermaid
-flowchart LR
-  subgraph Acquisition["Customer Acquisition"]
-    A1["Website"] --> A2["Social channels"]
-    A2 --> A3["Chat entry points"]
-  end
+### 1. Assessment
 
-  subgraph Assessment["Assessment and Plan"]
-    B1["Anonymous questionnaire"] --> B2["Assessment saved"]
-    B2 --> B3["Questionnaire sanity check"]
-    B3 --> B4["Plan selection"]
-    B4 --> B5["Payment"]
-    B5 --> B6["Abandoned-payment follow-up"]
-  end
-
-  subgraph Formulation["Formulation"]
-    C1["Assessment review"] --> C2["Personalised formulation"]
-    C2 --> C3["Safety checks"]
-    C3 --> C4["Formulation saved"]
-    C4 --> C5["Results displayed"]
-  end
-
-  subgraph Commerce["Commerce"]
-    D1["Product matching"] --> D2["Recommendations saved"]
-    D2 --> D3["Affiliate basket"]
-    D3 --> D4["Customer buys on marketplace"]
-  end
-
-  subgraph Retention["Retention"]
-    E1["Advisor chat"] --> E2["Follow-up prompts"]
-    E2 --> E3["Reassessment"]
-  end
-
-  A1 --> B1
-  A3 --> B1
-  B5 --> C1
-  C5 --> D1
-  C5 --> E1
-  D4 --> E2
-
-  classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
-  classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
-  classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
-  classDef decision fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
-
-  class A1,B1,B2,B4,C1,C2,C4,C5 done;
-  class A3,B3,C3,D1,D2,E1 progress;
-  class A2,B5,B6,D3,D4,E2,E3 pending;
-```
-
-## Simplified Process Detail
-
-### 1. Brand and Trust
-
-Purpose: make MattaNutra look credible enough for a customer to start the assessment.
-
-Current state: website, brand, English and Thai pages, privacy policy, terms, and wellness disclaimers are in place.
-
-Next business work:
-
-- Finalise social handles.
-- Ensure the public website includes enough information for payment and affiliate review.
-- Add a simple contact route for customer trust.
-
-### 2. Assessment
-
-Purpose: collect enough anonymous information to personalise the formulation.
+Purpose: collect enough anonymous information to personalise the formulation and calculate a useful HealthScore.
 
 Current state: built and working.
 
@@ -178,58 +154,50 @@ The assessment captures:
 - Profile basics.
 - Region.
 - Goals.
-- Lifestyle.
-- Diet.
+- Lifestyle and diet.
 - Medication and supplement considerations.
 - Preferences such as budget and capsule limit.
+- Optional precision inputs such as labs, family history, stress, wearable data, and VO2 context.
 
 Next business work:
 
-- Review all questions for regulatory sensitivity.
-- Confirm any values that should stop the process and route to human review.
-- Confirm the customer-facing message when the sanity check fails.
+- Define formal impossible-value checks.
+- Define high-risk answers that must stop automation.
+- Confirm the customer-facing message when sanity checks fail.
 
-### 2.1 Questionnaire Sanity Check
+### 2. HealthScore
 
-Purpose: catch impossible, contradictory, or high-risk answers before taking payment or preparing a formulation.
+Purpose: give the user immediate value before the paywall and identify the areas that shape the formulation.
 
-Current state: partially defined. The assessment has required fields, but the formal failed-sanity path still needs to be completed.
+Current state: built. HealthScore is calculated after the assessment is saved and before plan selection.
 
-The sanity check should catch:
+The HealthScore should show:
 
-- Impossible profile values.
-- Missing required answers.
-- Contradictory answers.
-- Joke or clearly unusable submissions.
-- High-risk answers that should not continue automatically.
+- Overall score.
+- Score band.
+- Six domain scores.
+- Short summary of the largest opportunity.
+- A few high-impact areas that would most improve the score.
 
-If the sanity check fails:
+### 3. Free Example Lead Path
 
-1. If the issue is fixable, ask the customer to correct the answers.
-2. If the issue is high-risk, stop the automated journey and route to human review.
-3. Do not take payment until the assessment passes or is approved for continuation.
+Purpose: capture value from users who do not choose a paid plan immediately.
 
-```mermaid
-flowchart TB
-  A["Assessment completed"] --> B["Assessment saved"]
-  B --> C["Questionnaire sanity check"]
-  C -->|Pass| D["Plan selection"]
-  C -->|Fixable issue| E["Ask customer to correct answers"]
-  E --> C
-  C -->|High-risk or unusable| F["Route to human review"]
+Current state: partly built. Email capture, example formulation queueing, and limited HTML email rendering are present. Actual email sending is intentionally not connected yet.
 
-  classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
-  classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
-  classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
+Target process:
 
-  class A,B,D done;
-  class C,E progress;
-  class F pending;
-```
+1. User enters email on the HealthScore gate.
+2. User sees an exit screen.
+3. Full formulation is prepared in the background.
+4. A limited example email is rendered from the full formulation.
+5. Later, the email sending step delivers the limited example as a sales lead.
 
-### 3. Plan and Payment
+The user receives only a limited example, even though the full formulation is processed.
 
-Purpose: convert the assessment into a paid or supported plan.
+### 4. Plan and Payment
+
+Purpose: convert the assessment into a paid plan.
 
 Current state: plan selection exists. Payment is not connected.
 
@@ -238,7 +206,7 @@ Planned plans:
 | Plan | Business Promise |
 | --- | --- |
 | Precision Plan | Full personalised formulation and product guidance. |
-| Pro Plan | Precision Plan plus ongoing AI advisor support and refinement. |
+| Pro Plan | Precision Plan plus ongoing specialist AI advisor support and refinement. |
 
 Next business work:
 
@@ -246,34 +214,55 @@ Next business work:
 - Confirm refund policy.
 - Activate payment acceptance.
 - Decide what happens if payment fails or is abandoned.
-- Use the saved assessment to support a respectful follow-up if the customer abandons payment.
+- Use the saved assessment and HealthScore to support respectful follow-up.
 
-### 4. Formulation
+### 5. Formulation
 
 Purpose: turn assessment answers into a clear wellness formulation.
 
-Current state: working. The formulation is prepared, saved, and then rendered on the results page.
+Current state: working. The formulation is prepared, saved, versioned, and then rendered on the results page.
 
 The formulation result should remain:
 
 - Concise.
 - Bilingual.
-- Tied to the customer assessment.
+- Tied to the saved assessment.
 - Safe in tone.
 - Free of disease-treatment claims.
-- Saved before it is displayed to the customer.
+- Saved before it is displayed or used in an email example.
 
-Next business work:
+### 6. Safety and Compliance
 
-- Add formal safety review rules.
-- Define when a customer should be shown a “consult a qualified professional” message instead of a formulation.
-- Identify the qualified reviewer for formula logic and compliance sign-off.
+Purpose: keep the service in the wellness category and reduce avoidable risk.
 
-### 5. Product Matching
+Current state: legal pages and disclaimers exist. Hard safety rules are still needed.
+
+```mermaid
+flowchart TB
+  A["Assessment completed"] --> B["Questionnaire sanity check"]
+  B -->|Stop condition| C["Human review or consult-professional message"]
+  B -->|Pass| D["Prepare formulation"]
+  D --> E["Check ingredient limits and exclusions"]
+  E -->|Pass| F["Save formulation"]
+  F --> G["Use formulation for result or email example"]
+  E -->|Fail, attempts 1-2| H["Create revised prompt"]
+  H --> D
+  E -->|Fail on attempt 3| C
+
+  classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
+  classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
+  classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
+
+  class A,D,F,G done;
+  class B,E,H progress;
+  class C pending;
+```
+
+### 7. Product Matching
 
 Purpose: translate the formulation into trustworthy products the customer can buy.
 
-Current state: not active yet. The result page can gracefully show no products.
+Current state: the result page can gracefully show no recommendations. Live matching is not active.
 
 Target process:
 
@@ -284,52 +273,7 @@ Target process:
 5. Show clear product rationale.
 6. Send the customer to marketplace purchase links.
 
-Next business work:
-
-- Confirm first ingredient scope.
-- Build the initial trusted product list.
-- Confirm affiliate approval and link rules.
-- Define product quality standards.
-
-### 6. Safety and Compliance
-
-Purpose: keep the service in the wellness category and reduce avoidable risk.
-
-Current state: legal pages and disclaimers exist. Hard safety rules are still needed.
-
-Business rules to define:
-
-- Conditions that stop formulation generation.
-- Ingredients that should be excluded for pregnancy, medication conflicts, age, or serious health conditions.
-- Maximum daily supplement amounts.
-- Human review triggers.
-- How long records should be retained.
-
-Safety should be treated as a hard gate, not a warning at the end.
-
-```mermaid
-flowchart TB
-  A["Assessment completed"] --> B["Check for stop conditions"]
-  B -->|Stop condition found| C["Show consult-professional message"]
-  B -->|No stop condition| D["Prepare formulation"]
-  D --> E["Check ingredient limits and exclusions"]
-  E -->|Pass| F["Save formulation"]
-  F --> I["Show formulation"]
-  E -->|Fail, attempts 1-2| G["Create revised formulation request"]
-  G --> D
-  E -->|Fail on attempt 3| H["Route to human review"]
-
-  classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
-  classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
-  classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
-  classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
-
-  class A,D,F,I done;
-  class B,E,G progress;
-  class C,H pending;
-```
-
-### 7. Advisor Support
+### 8. Advisor Support
 
 Purpose: give customers a way to continue the conversation after receiving their plan.
 
@@ -342,62 +286,69 @@ Target process:
 - Advisor retrieves the customer’s plan.
 - Advisor helps refine timing, routine, travel, diet, and practical use.
 
-Next business work:
-
-- Confirm which chat channels launch first.
-- Confirm advisor behaviour and escalation rules.
-- Define what support is included in each plan.
-
-### 8. Retention and Operations
+### 9. Retention and Operations
 
 Purpose: turn a one-time formulation into an ongoing relationship.
 
-Current state: not active.
+Current state: partly active. The assessment can capture a reassessment email, schedule a recurring 60-day reminder action, render a branded reminder email, log the rendered output for audit, and prefill the questionnaire when the user returns with the plan link. Actual email sending, broader lifecycle messaging, and reporting are not active.
 
 Target process:
 
-- Follow up after purchase.
-- Prompt reassessment.
+- Capture optional reassessment consent before plan selection.
+- Schedule a recurring 60-day reminder against the plan.
+- Keep one active reassessment reminder per email address and gracefully cancel duplicates.
+- Convert due reminder actions into jobs.
+- Render, audit, and later send a branded email with a reassessment link.
+- Prefill prior answers when the user returns.
+- Save the reassessment as a new version of the same plan.
+- Bypass the paywall for active Pro members and show a direct continue action.
+- Follow up after example request, plan purchase, and product purchase.
 - Support reorder decisions.
-- Track customer outcomes.
-- Review conversion and retention metrics weekly.
+- Track conversion and retention metrics.
 
 ## Current MVP Gap Map
 
 | Gap | Why It Matters | Suggested Priority |
 | --- | --- | --- |
+| Questionnaire sanity checks | Prevents unusable or risky automated results. | High |
 | Payment activation | Required for paid conversion. | High |
-| Affiliate approval and link setup | Required for revenue from product purchases. | High |
-| Product whitelist | Required for trustworthy recommendations. | High |
+| Email sending for example path | Captures value from non-paying users. | High |
 | Safety stop rules | Required before scaling traffic. | High |
+| Product whitelist | Required for trustworthy recommendations. | High |
+| Affiliate approval and link setup | Required for marketplace revenue. | High |
 | Qualified reviewer | Reduces compliance and trust risk. | High |
 | Live chat workflow | Needed for Pro Plan value. | Medium |
-| Social launch | Needed for low-cost customer acquisition. | Medium |
-| Follow-up and reassessment | Needed for retention and repeat use. | Medium |
+| Email sending for reassessment | Scheduled reminders are rendered but not sent. | Medium |
+| Wider follow-up and reassessment | Needed for retention and repeat use beyond the first 60-day reminder. | Medium |
 | Admin reporting | Needed once traffic begins. | Medium |
+| Blog section | Needed for acquisition, trust, and explainability content. | Medium |
 
 ## Recommended Next Sequence
 
-1. Finish payment readiness.
-2. Confirm affiliate onboarding and marketplace link rules.
-3. Build the first trusted product list.
-4. Add safety stop rules and ingredient exclusion rules.
-5. Connect product matching to the result page.
-6. Make advisor chat work for one channel first.
-7. Add follow-up and reassessment messages.
-8. Add basic operational reporting.
+1. Finish plan model and flow cleanup.
+2. Add questionnaire sanity checks and failure handling.
+3. Connect payment.
+4. Connect example email sending.
+5. Add safety stop rules and ingredient exclusion rules.
+6. Build the first trusted product list.
+7. Connect product matching to the result page.
+8. Make advisor chat work for one channel first.
+9. Connect email sending for example and reassessment messages.
+10. Add blog section and early educational content.
+11. Add broader follow-up, reassessment, and basic operational reporting.
 
 ## Open Business Decisions
 
 | Decision | Needed Because |
 | --- | --- |
 | Final pricing for Precision and Pro | Required before payment launch. |
+| Free example content depth | Defines how much value is given away before payment. |
+| Email follow-up cadence | Determines how leads are nurtured. |
 | First product category scope | Keeps product matching manageable. |
 | Qualified reviewer | Needed for formulation logic and claim review. |
 | Support promise for Pro | Defines what customers are buying. |
-| Product quality standard | Protects trust and reduces poor recommendations. |
 | Stop-condition policy | Defines when MattaNutra should not generate a plan. |
 
 ## One-Line Business Process
 
-MattaNutra captures an anonymous wellness assessment, turns it into a personalised nutritional formulation, connects that formulation to trusted purchasable products, and supports the customer over time through reassessment and advisor-led refinement.
+MattaNutra captures an anonymous wellness assessment, calculates a useful HealthScore, converts the user through either a paid plan or limited email example, and turns the saved assessment into a personalised nutritional formulation with future product matching and advisor support.

@@ -8,9 +8,26 @@ import {
   isUuid,
   persistAssessmentSubmission
 } from "@/lib/assessment-store";
-import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
+import { computeHealthScore } from "@/lib/health-score";
+import {
+  enqueueFormulationJob,
+  kickCronWorker,
+  kickJobsWorker,
+  scheduleReassessmentAction
+} from "@/lib/job-queue";
+import { isLocale } from "@/lib/i18n";
 
 export const runtime = "nodejs";
+
+function reassessmentEmailFromAnswers(answers: unknown) {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+    return "";
+  }
+
+  const value = (answers as Record<string, unknown>).reassessmentEmail;
+
+  return typeof value === "string" ? value : "";
+}
 
 type AssessmentStatusRouteProps = Readonly<{
   params: Promise<{
@@ -40,6 +57,7 @@ export async function GET(
   if (snapshot.status !== "ready") {
     void kickJobsWorker();
   }
+  void kickCronWorker();
 
   return NextResponse.json(snapshot, {
     headers: {
@@ -53,11 +71,17 @@ export async function PATCH(
   { params }: AssessmentStatusRouteProps
 ) {
   const { planId } = await params;
-  let body: { answers?: unknown; locale?: unknown; plan?: unknown } = {};
+  let body: {
+    answers?: unknown;
+    intent?: "capture" | "process";
+    locale?: unknown;
+    plan?: unknown;
+  } = {};
 
   try {
     body = (await request.json()) as {
       answers?: unknown;
+      intent?: "capture" | "process";
       locale?: unknown;
       plan?: unknown;
     };
@@ -77,7 +101,9 @@ export async function PATCH(
     );
   }
 
-  if (!isAssessmentPlan(body.plan)) {
+  const intent = body.intent === "capture" ? "capture" : "process";
+
+  if (intent === "process" && !isAssessmentPlan(body.plan)) {
     return NextResponse.json(
       { message: "Unsupported assessment plan" },
       {
@@ -90,10 +116,17 @@ export async function PATCH(
   }
 
   try {
-    const selectedPlan = body.plan;
     const existingSnapshot = await getStoredAssessmentSnapshot(planId);
+    const selectedPlan =
+      intent === "process" && isAssessmentPlan(body.plan)
+        ? body.plan
+        : (existingSnapshot?.plan ?? null);
     const snapshot = createAssessmentSnapshot({
-      plan: selectedPlan,
+      healthScore: computeHealthScore(
+        body.answers,
+        isLocale(body.locale) ? body.locale : "en"
+      ),
+      plan: selectedPlan ?? existingSnapshot?.plan,
       planId,
       queuePosition: existingSnapshot?.queuePosition,
       status: "queued"
@@ -104,8 +137,34 @@ export async function PATCH(
       locale: body.locale,
       selectedPlan,
       snapshot,
-      status: "queued"
+      status: intent === "capture" ? "captured" : "queued"
     });
+
+    const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
+
+    if (reassessmentEmail) {
+      await scheduleReassessmentAction({
+        email: reassessmentEmail,
+        locale: body.locale,
+        planId: snapshot.planId
+      });
+      void kickCronWorker();
+    }
+
+    if (intent === "capture") {
+      const storedSnapshot = await getStoredAssessmentSnapshot(snapshot.planId);
+
+      return NextResponse.json(storedSnapshot ?? snapshot, {
+        headers: {
+          "Cache-Control": "no-store"
+        }
+      });
+    }
+
+    if (!selectedPlan) {
+      throw new Error("Assessment plan selection is missing");
+    }
+
     const jobId = await enqueueFormulationJob({
       answers: body.answers,
       locale: body.locale,

@@ -11,6 +11,7 @@ import {
   type FormulationResult,
   type RecommendedProduct
 } from "@/lib/formulation-types";
+import { computeHealthScore } from "@/lib/health-score";
 import { getSql } from "@/lib/db";
 
 export type StoredAssessmentStatus =
@@ -219,6 +220,7 @@ export async function ensureAssessmentSchema() {
         status assessment_status not null default 'captured',
         answers jsonb not null default '{}'::jsonb,
         answer_summary jsonb not null default '{}'::jsonb,
+        health_score jsonb not null default '{}'::jsonb,
         queue_position integer null,
         error_message text null,
         captured_at timestamptz not null default now(),
@@ -231,7 +233,8 @@ export async function ensureAssessmentSchema() {
 
     await sql`
       alter table assessments
-        add column if not exists error_message text null
+        add column if not exists error_message text null,
+        add column if not exists health_score jsonb not null default '{}'::jsonb
     `;
 
     await sql`
@@ -301,6 +304,7 @@ export async function persistAssessmentSubmission({
       status,
       answers,
       answer_summary,
+      health_score,
       queue_position,
       plan_selected_at,
       processing_started_at,
@@ -314,6 +318,12 @@ export async function persistAssessmentSubmission({
       ${status},
       ${sql.json(toJsonValue(answers))},
       ${sql.json(toJsonValue(buildAnswerSummary(answers)))},
+      ${sql.json(
+        toJsonValue(
+          snapshot.healthScore ??
+            computeHealthScore(answers, normalizeLocale(locale))
+        )
+      )},
       ${snapshot.queuePosition},
       ${selectedPlan ? sql`now()` : null},
       ${status === "queued" || status === "preparing" || status === "ready"
@@ -328,6 +338,7 @@ export async function persistAssessmentSubmission({
       status = excluded.status,
       answers = excluded.answers,
       answer_summary = excluded.answer_summary,
+      health_score = excluded.health_score,
       queue_position = excluded.queue_position,
       error_message = case
         when excluded.status in ('captured', 'queued', 'preparing', 'ready')
@@ -364,6 +375,7 @@ export async function getStoredAssessmentSnapshot(planId: string) {
       plan_id::text,
       selected_plan::text,
       status::text,
+      health_score,
       queue_position
     from assessments
     where plan_id = ${planId}::uuid
@@ -411,13 +423,48 @@ export async function getStoredAssessmentSnapshot(planId: string) {
     }
   }
 
+  const healthScore = asRecord(row.health_score);
+
   return {
+    ...(typeof healthScore.score === "number"
+      ? { healthScore: healthScore as AssessmentSnapshot["healthScore"] }
+      : {}),
     plan: fromStoredPlan(row.selected_plan),
     planId: row.plan_id,
     queuePosition: status === "queued" ? Math.max(1, queuePosition) : 0,
     status,
     steps: buildAssessmentSteps(status)
   } satisfies AssessmentSnapshot;
+}
+
+export async function getStoredAssessmentPrefill(planId: string) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return null;
+  }
+
+  await ensureAssessmentSchema();
+
+  const rows = await sql`
+    select
+      answers,
+      selected_plan::text
+    from assessments
+    where plan_id = ${planId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    answers: asRecord(row.answers),
+    plan: row.selected_plan ? fromStoredPlan(row.selected_plan) : null,
+    planId
+  };
 }
 
 export async function getStoredFormulationResult(planId: string) {

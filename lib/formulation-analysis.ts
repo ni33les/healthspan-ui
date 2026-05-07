@@ -73,7 +73,7 @@ function getGrokConfig() {
 
 function systemPrompt(promptVersion: string) {
   return [
-    `MATTANUTRA formulation analysis engine ${promptVersion}.`,
+    `MattaNutra formulation analysis engine ${promptVersion}.`,
     "You are generating a wellness-oriented nutritional formulation brief.",
     "This is not medical advice, a prescription, a diagnosis, or a treatment plan.",
     "Use the completed assessment to produce a concise supplement breakdown.",

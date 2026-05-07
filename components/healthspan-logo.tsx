@@ -10,7 +10,7 @@ export function HealthspanLogo({
   return (
     <div
       role="img"
-      aria-label="MATTANUTRA logo. Knowing the right amount."
+      aria-label="MattaNutra logo. know the right amount."
       className={cn("inline-flex w-max items-center gap-[13.5px]", className)}
       {...props}
     >
@@ -26,12 +26,12 @@ export function HealthspanLogo({
       </svg>
 
       <span className="inline-grid leading-none">
-        <span className="flex items-baseline text-[20px] font-semibold uppercase tracking-[0.04em] sm:text-[22.5px]">
-          <span className="font-extrabold text-[#20343A]">MATTA</span>
-          <span className="text-[#66747A]">NUTRA</span>
+        <span className="flex items-baseline text-[20px] font-semibold tracking-[0.04em] sm:text-[22.5px]">
+          <span className="font-extrabold text-[#20343A]">Matta</span>
+          <span className="text-[#66747A]">Nutra</span>
         </span>
         <span className="mt-[4.5px] text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground sm:text-[11.5px]">
-          Knowing the right amount
+          know the right amount
         </span>
       </span>
     </div>

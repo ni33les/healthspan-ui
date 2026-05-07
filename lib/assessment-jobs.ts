@@ -1,3 +1,5 @@
+import type { HealthScoreResult } from "@/lib/health-score";
+
 type AssessmentStatus = "failed" | "queued" | "preparing" | "ready";
 type StepState = "active" | "complete" | "failed" | "pending";
 
@@ -6,6 +8,7 @@ export type AssessmentPlan = "precision" | "pro";
 export const DEFAULT_ASSESSMENT_PLAN: AssessmentPlan = "precision";
 
 export type AssessmentSnapshot = {
+  healthScore?: HealthScoreResult;
   planId: string;
   plan: AssessmentPlan;
   queuePosition: number;
@@ -17,6 +20,7 @@ export type AssessmentSnapshot = {
 };
 
 type AssessmentSnapshotInput = Readonly<{
+  healthScore?: HealthScoreResult;
   plan?: unknown;
   planId?: string;
   queuePosition?: number | null;
@@ -59,6 +63,7 @@ export function buildAssessmentSteps(status: AssessmentStatus) {
 }
 
 export function createAssessmentSnapshot({
+  healthScore,
   plan,
   planId = crypto.randomUUID(),
   queuePosition,
@@ -68,6 +73,7 @@ export function createAssessmentSnapshot({
     status === "queued" ? Math.max(1, queuePosition ?? 1) : 0;
 
   return {
+    ...(healthScore ? { healthScore } : {}),
     plan: normalizeAssessmentPlan(plan),
     planId,
     queuePosition: normalizedQueuePosition,
