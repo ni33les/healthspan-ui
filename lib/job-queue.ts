@@ -32,11 +32,7 @@ function priorityForPlan(plan: AssessmentPlan) {
     return 30;
   }
 
-  if (plan === "precision") {
-    return 20;
-  }
-
-  return 10;
+  return 20;
 }
 
 async function ensureJobsSchema(sql: postgres.Sql) {
@@ -227,7 +223,10 @@ async function ensureJobsSchema(sql: postgres.Sql) {
       create index if not exists job_audit_events_job_idx
         on job_audit_events (job_id, created_at desc)
     `;
-  })();
+  })().catch((error) => {
+    globalJobsWorker.mattanutraJobsSchemaReadyV4 = undefined;
+    throw error;
+  });
 
   await globalJobsWorker.mattanutraJobsSchemaReadyV4;
 }

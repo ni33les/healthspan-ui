@@ -1,6 +1,7 @@
 import type postgres from "postgres";
 import {
   buildAssessmentSteps,
+  normalizeAssessmentPlan,
   type AssessmentPlan,
   type AssessmentSnapshot
 } from "@/lib/assessment-jobs";
@@ -189,6 +190,28 @@ export async function ensureAssessmentSchema() {
     `;
 
     await sql`
+      alter type assessment_plan add value if not exists 'precision'
+    `;
+    await sql`
+      alter type assessment_plan add value if not exists 'pro'
+    `;
+    await sql`
+      alter type assessment_status add value if not exists 'captured'
+    `;
+    await sql`
+      alter type assessment_status add value if not exists 'queued'
+    `;
+    await sql`
+      alter type assessment_status add value if not exists 'preparing'
+    `;
+    await sql`
+      alter type assessment_status add value if not exists 'ready'
+    `;
+    await sql`
+      alter type assessment_status add value if not exists 'failed'
+    `;
+
+    await sql`
       create table if not exists assessments (
         plan_id uuid primary key,
         locale text not null default 'en' check (locale in ('en', 'th')),
@@ -223,21 +246,16 @@ export async function ensureAssessmentSchema() {
       create index if not exists assessments_answers_gin_idx
         on assessments using gin (answers jsonb_path_ops)
     `;
-  })();
+  })().catch((error) => {
+    schemaReady = null;
+    throw error;
+  });
 
   await schemaReady;
 }
 
 function fromStoredPlan(plan: unknown): AssessmentPlan {
-  if (plan === "pro") {
-    return "pro";
-  }
-
-  if (plan === "precision") {
-    return "precision";
-  }
-
-  return "free";
+  return normalizeAssessmentPlan(plan);
 }
 
 function toSnapshotStatus(status: unknown): AssessmentSnapshot["status"] {

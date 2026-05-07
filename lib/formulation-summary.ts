@@ -25,12 +25,10 @@ const countryLabels: Record<string, string> = {
 
 const planLabels = {
   en: {
-    free: "Basic",
     precision: "Precision",
     pro: "Pro"
   },
   th: {
-    free: "พื้นฐาน",
     precision: "ความแม่นยำ",
     pro: "โปร"
   }

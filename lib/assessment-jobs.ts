@@ -1,7 +1,9 @@
 type AssessmentStatus = "failed" | "queued" | "preparing" | "ready";
 type StepState = "active" | "complete" | "failed" | "pending";
 
-export type AssessmentPlan = "free" | "precision" | "pro";
+export type AssessmentPlan = "precision" | "pro";
+
+export const DEFAULT_ASSESSMENT_PLAN: AssessmentPlan = "precision";
 
 export type AssessmentSnapshot = {
   planId: string;
@@ -21,20 +23,20 @@ type AssessmentSnapshotInput = Readonly<{
   status?: AssessmentStatus;
 }>;
 
-function randomQueuePosition() {
-  return Math.floor(Math.random() * 6) + 3;
-}
-
-export function normalizeAssessmentPlan(plan: unknown): AssessmentPlan {
+export function isAssessmentPlan(plan: unknown): plan is AssessmentPlan {
   if (plan === "pro") {
-    return "pro";
+    return true;
   }
 
   if (plan === "precision") {
-    return "precision";
+    return true;
   }
 
-  return "free";
+  return false;
+}
+
+export function normalizeAssessmentPlan(plan: unknown): AssessmentPlan {
+  return isAssessmentPlan(plan) ? plan : DEFAULT_ASSESSMENT_PLAN;
 }
 
 export function buildAssessmentSteps(status: AssessmentStatus) {
@@ -63,7 +65,7 @@ export function createAssessmentSnapshot({
   status = "queued"
 }: AssessmentSnapshotInput = {}) {
   const normalizedQueuePosition =
-    status === "queued" ? Math.max(1, queuePosition ?? randomQueuePosition()) : 0;
+    status === "queued" ? Math.max(1, queuePosition ?? 1) : 0;
 
   return {
     plan: normalizeAssessmentPlan(plan),

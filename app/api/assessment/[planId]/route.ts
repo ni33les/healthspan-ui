@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createAssessmentSnapshot,
-  normalizeAssessmentPlan
+  isAssessmentPlan
 } from "@/lib/assessment-jobs";
 import {
   getStoredAssessmentSnapshot,
@@ -77,8 +77,20 @@ export async function PATCH(
     );
   }
 
+  if (!isAssessmentPlan(body.plan)) {
+    return NextResponse.json(
+      { message: "Unsupported assessment plan" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 400
+      }
+    );
+  }
+
   try {
-    const selectedPlan = normalizeAssessmentPlan(body.plan);
+    const selectedPlan = body.plan;
     const existingSnapshot = await getStoredAssessmentSnapshot(planId);
     const snapshot = createAssessmentSnapshot({
       plan: selectedPlan,

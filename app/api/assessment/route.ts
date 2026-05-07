@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   createAssessmentSnapshot,
-  normalizeAssessmentPlan
+  DEFAULT_ASSESSMENT_PLAN,
+  isAssessmentPlan,
+  type AssessmentPlan
 } from "@/lib/assessment-jobs";
-import { persistAssessmentSubmission } from "@/lib/assessment-store";
+import {
+  getStoredAssessmentSnapshot,
+  persistAssessmentSubmission
+} from "@/lib/assessment-store";
 import { enqueueFormulationJob, kickJobsWorker } from "@/lib/job-queue";
 
 export const runtime = "nodejs";
@@ -14,9 +19,7 @@ export async function POST(request: Request) {
     intent?: "capture" | "process";
     locale?: unknown;
     plan?: unknown;
-  } = {
-    plan: "free"
-  };
+  } = {};
 
   try {
     body = (await request.json()) as {
@@ -26,14 +29,31 @@ export async function POST(request: Request) {
       plan?: unknown;
     };
   } catch {
-    body = { plan: "free" };
+    body = {};
   }
 
-  const selectedPlan =
-    body.intent === "capture" ? null : normalizeAssessmentPlan(body.plan);
+  const intent = body.intent === "process" ? "process" : "capture";
+  let selectedPlan: AssessmentPlan | null = null;
+
+  if (intent === "process") {
+    if (!isAssessmentPlan(body.plan)) {
+      return NextResponse.json(
+        { message: "Unsupported assessment plan" },
+        {
+          headers: {
+            "Cache-Control": "no-store"
+          },
+          status: 400
+        }
+      );
+    }
+
+    selectedPlan = body.plan;
+  }
   const snapshot = createAssessmentSnapshot({
-    plan: selectedPlan ?? body.plan
+    plan: selectedPlan ?? DEFAULT_ASSESSMENT_PLAN
   });
+  let responseSnapshot = snapshot;
 
   try {
     await persistAssessmentSubmission({
@@ -41,10 +61,10 @@ export async function POST(request: Request) {
       locale: body.locale,
       selectedPlan,
       snapshot,
-      status: body.intent === "capture" ? "captured" : snapshot.status
+      status: intent === "capture" ? "captured" : snapshot.status
     });
 
-    if (body.intent === "process" && selectedPlan) {
+    if (intent === "process" && selectedPlan) {
       const jobId = await enqueueFormulationJob({
         answers: body.answers,
         locale: body.locale,
@@ -57,6 +77,8 @@ export async function POST(request: Request) {
       }
 
       void kickJobsWorker();
+      responseSnapshot =
+        (await getStoredAssessmentSnapshot(snapshot.planId)) ?? snapshot;
     }
   } catch (error) {
     console.error("Unable to persist assessment submission", error);
@@ -72,7 +94,7 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json(snapshot, {
+  return NextResponse.json(responseSnapshot, {
     headers: {
       "Cache-Control": "no-store"
     }
