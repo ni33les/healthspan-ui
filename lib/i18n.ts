@@ -38,6 +38,11 @@ const en = {
     options: ["Energy", "Sleep", "Focus", "Calm", "Recovery", "Healthy aging"],
     helper: "Questionnaire controls and progress will be layered in next."
   },
+  blog: {
+    description:
+      "Practical ideas on personalised nutrition, smarter supplement choices, and healthier routines.",
+    title: "Insights"
+  },
   featureSection: {
     eyebrow: "Personalized wellness",
     title: "From goals to supplement options",
@@ -140,6 +145,11 @@ const dictionaries: Record<Locale, Dictionary> = {
         "สูงวัยอย่างมีสุขภาพดี"
       ],
       helper: "ส่วนควบคุมแบบสอบถามและแถบความคืบหน้าจะเพิ่มในขั้นตอนถัดไป"
+    },
+    blog: {
+      description:
+        "แนวคิดที่นำไปใช้ได้จริงเกี่ยวกับโภชนาการเฉพาะบุคคล การเลือกอาหารเสริม และกิจวัตรสุขภาพที่ดีขึ้น",
+      title: "จากบทความ"
     },
     featureSection: {
       eyebrow: "สุขภาพเฉพาะบุคคล",

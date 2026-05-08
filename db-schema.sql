@@ -677,6 +677,452 @@ create unique index if not exists cron_unsubscribe_token_idx
   on public.cron (unsubscribe_token)
   where unsubscribe_token is not null;
 
+create table if not exists public.blog_testimonials (
+  id uuid primary key,
+  locale text not null default 'en',
+  status text not null default 'published',
+  quote text not null,
+  author_name text not null,
+  author_title text null,
+  author_handle text null,
+  author_image_url text null,
+  author_image_alt text null,
+  sort_order integer not null default 0,
+  source_agent text null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.blog_testimonials
+  add column if not exists locale text default 'en',
+  add column if not exists status text default 'published',
+  add column if not exists quote text,
+  add column if not exists author_name text,
+  add column if not exists author_title text null,
+  add column if not exists author_handle text null,
+  add column if not exists author_image_url text null,
+  add column if not exists author_image_alt text null,
+  add column if not exists sort_order integer default 0,
+  add column if not exists source_agent text null,
+  add column if not exists metadata jsonb default '{}'::jsonb,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+update public.blog_testimonials
+set
+  locale = coalesce(locale, 'en'),
+  status = case
+    when status in ('draft', 'review', 'published', 'archived') then status
+    else 'published'
+  end,
+  quote = coalesce(quote, ''),
+  author_name = coalesce(author_name, 'MattaNutra reader'),
+  sort_order = coalesce(sort_order, 0),
+  metadata = coalesce(metadata, '{}'::jsonb),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, now())
+where locale is null
+  or status is null
+  or status not in ('draft', 'review', 'published', 'archived')
+  or quote is null
+  or author_name is null
+  or sort_order is null
+  or metadata is null
+  or created_at is null
+  or updated_at is null;
+
+alter table public.blog_testimonials
+  alter column locale set default 'en',
+  alter column locale set not null,
+  alter column status set default 'published',
+  alter column status set not null,
+  alter column quote set not null,
+  alter column author_name set not null,
+  alter column sort_order set default 0,
+  alter column sort_order set not null,
+  alter column metadata set default '{}'::jsonb,
+  alter column metadata set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  alter table public.blog_testimonials
+    drop constraint if exists blog_testimonials_locale_check;
+
+  alter table public.blog_testimonials
+    add constraint blog_testimonials_locale_check
+    check (locale in ('en', 'th'));
+
+  alter table public.blog_testimonials
+    drop constraint if exists blog_testimonials_status_check;
+
+  alter table public.blog_testimonials
+    add constraint blog_testimonials_status_check
+    check (status in ('draft', 'review', 'published', 'archived'));
+end $$;
+
+create table if not exists public.blog_posts (
+  id uuid primary key,
+  locale text not null default 'en',
+  slug text not null,
+  status text not null default 'draft',
+  title text not null,
+  subtitle text null,
+  excerpt text not null,
+  body jsonb not null default '{}'::jsonb,
+  image_url text null,
+  image_alt text null,
+  testimonial_id uuid null references public.blog_testimonials(id) on delete set null,
+  tags text[] not null default '{}'::text[],
+  seo_title text null,
+  seo_description text null,
+  social_title text null,
+  social_description text null,
+  social_image_url text null,
+  source_channel text null,
+  source_agent text null,
+  source_ref text null,
+  metadata jsonb not null default '{}'::jsonb,
+  published_at timestamptz null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (locale, slug)
+);
+
+alter table public.blog_posts
+  add column if not exists locale text default 'en',
+  add column if not exists slug text,
+  add column if not exists status text default 'draft',
+  add column if not exists title text,
+  add column if not exists subtitle text null,
+  add column if not exists excerpt text,
+  add column if not exists body jsonb default '{}'::jsonb,
+  add column if not exists image_url text null,
+  add column if not exists image_alt text null,
+  add column if not exists testimonial_id uuid null references public.blog_testimonials(id) on delete set null,
+  add column if not exists tags text[] default '{}'::text[],
+  add column if not exists seo_title text null,
+  add column if not exists seo_description text null,
+  add column if not exists social_title text null,
+  add column if not exists social_description text null,
+  add column if not exists social_image_url text null,
+  add column if not exists source_channel text null,
+  add column if not exists source_agent text null,
+  add column if not exists source_ref text null,
+  add column if not exists metadata jsonb default '{}'::jsonb,
+  add column if not exists published_at timestamptz null,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+update public.blog_posts
+set
+  locale = coalesce(locale, 'en'),
+  slug = coalesce(slug, id::text),
+  status = case
+    when status in ('draft', 'review', 'published', 'archived') then status
+    else 'draft'
+  end,
+  title = coalesce(title, 'Untitled article'),
+  excerpt = coalesce(excerpt, ''),
+  body = coalesce(body, '{}'::jsonb),
+  tags = coalesce(tags, '{}'::text[]),
+  metadata = coalesce(metadata, '{}'::jsonb),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, now())
+where locale is null
+  or slug is null
+  or status is null
+  or status not in ('draft', 'review', 'published', 'archived')
+  or title is null
+  or excerpt is null
+  or body is null
+  or tags is null
+  or metadata is null
+  or created_at is null
+  or updated_at is null;
+
+alter table public.blog_posts
+  alter column locale set default 'en',
+  alter column locale set not null,
+  alter column slug set not null,
+  alter column status set default 'draft',
+  alter column status set not null,
+  alter column title set not null,
+  alter column excerpt set not null,
+  alter column body set default '{}'::jsonb,
+  alter column body set not null,
+  alter column tags set default '{}'::text[],
+  alter column tags set not null,
+  alter column metadata set default '{}'::jsonb,
+  alter column metadata set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  alter table public.blog_posts
+    drop constraint if exists blog_posts_locale_check;
+
+  alter table public.blog_posts
+    add constraint blog_posts_locale_check
+    check (locale in ('en', 'th'));
+
+  alter table public.blog_posts
+    drop constraint if exists blog_posts_status_check;
+
+  alter table public.blog_posts
+    add constraint blog_posts_status_check
+    check (status in ('draft', 'review', 'published', 'archived'));
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.blog_posts'::regclass
+      and conname = 'blog_posts_locale_slug_key'
+  ) then
+    alter table public.blog_posts
+      add constraint blog_posts_locale_slug_key unique (locale, slug);
+  end if;
+end $$;
+
+create index if not exists blog_posts_published_idx
+  on public.blog_posts (locale, status, published_at desc nulls last, created_at desc);
+
+create index if not exists blog_posts_status_idx
+  on public.blog_posts (status, updated_at desc);
+
+create index if not exists blog_posts_tags_idx
+  on public.blog_posts using gin (tags);
+
+create index if not exists blog_testimonials_status_idx
+  on public.blog_testimonials (locale, status, sort_order asc, created_at desc);
+
+insert into public.blog_testimonials (
+  id,
+  locale,
+  status,
+  quote,
+  author_name,
+  author_title,
+  author_handle,
+  author_image_url,
+  author_image_alt,
+  sort_order,
+  source_agent,
+  metadata
+)
+values
+  (
+    '11111111-1111-4111-8111-111111111111',
+    'en',
+    'published',
+    'I liked that the guidance connected sleep, food, training and supplement choices. It felt practical, not like another generic list.',
+    'Daniel P.',
+    'Founder, Bangkok',
+    '@daniel-wellness',
+    'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    'Smiling professional man',
+    1,
+    'seed',
+    '{"seed": true}'::jsonb
+  ),
+  (
+    '22222222-2222-4222-8222-222222222222',
+    'en',
+    'published',
+    'The useful part was knowing what to prioritise first. I did not want more products; I wanted a clearer decision.',
+    'Mai S.',
+    'Runner and product lead',
+    '@mai-runs',
+    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
+    'Smiling woman',
+    2,
+    'seed',
+    '{"seed": true}'::jsonb
+  ),
+  (
+    '33333333-3333-4333-8333-333333333333',
+    'en',
+    'published',
+    'The reassessment idea made sense to me. My routine changes, so a static plan was never going to be enough.',
+    'Arun K.',
+    'Consultant',
+    '',
+    null,
+    null,
+    3,
+    'seed',
+    '{"seed": true}'::jsonb
+  )
+on conflict (id) do update
+set
+  quote = excluded.quote,
+  author_name = excluded.author_name,
+  author_title = excluded.author_title,
+  author_handle = excluded.author_handle,
+  author_image_url = excluded.author_image_url,
+  author_image_alt = excluded.author_image_alt,
+  sort_order = excluded.sort_order,
+  source_agent = excluded.source_agent,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+insert into public.blog_posts (
+  id,
+  locale,
+  slug,
+  status,
+  title,
+  subtitle,
+  excerpt,
+  body,
+  image_url,
+  image_alt,
+  testimonial_id,
+  tags,
+  seo_title,
+  seo_description,
+  social_title,
+  social_description,
+  social_image_url,
+  source_channel,
+  source_agent,
+  source_ref,
+  metadata,
+  published_at
+)
+values
+  (
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+    'en',
+    'why-a-healthscore-beats-a-generic-supplement-list',
+    'published',
+    'Why a HealthScore beats a generic supplement list',
+    'A useful plan starts by understanding what is actually holding you back.',
+    'A HealthScore helps turn scattered lifestyle answers into a clearer starting point for better nutrition, recovery and supplement decisions.',
+    jsonb_build_object(
+      'intro', 'Most people do not need a longer supplement list. They need a clearer way to decide what matters first. A HealthScore gives the conversation a starting point before any product is recommended.',
+      'points', jsonb_build_array(
+        jsonb_build_object('title', 'It creates context.', 'body', 'Sleep, activity, diet, stress and habits influence each other. Scoring these areas together helps avoid treating one symptom in isolation.'),
+        jsonb_build_object('title', 'It reduces guesswork.', 'body', 'Instead of starting with a trendy ingredient, the plan starts with the user profile and the strongest opportunity for improvement.'),
+        jsonb_build_object('title', 'It supports follow-up.', 'body', 'When the same person returns later, the score gives the business and customer a simple way to talk about what changed.')
+      ),
+      'sectionTitle', 'The score is not the product',
+      'sectionBody', 'The score is the moment of clarity. The formulation, product guidance and advisor support are the next steps that turn that clarity into action.',
+      'closing', 'The best HealthScore experience should leave the user thinking: this understands me, and I can see what to do next.'
+    ),
+    'https://images.unsplash.com/photo-1496128858413-b36217c2ce36?auto=format&fit=crop&w=2400&q=80',
+    'Notebook and wellness planning desk',
+    '11111111-1111-4111-8111-111111111111',
+    array['healthscore','personalisation','wellness'],
+    'Why a HealthScore beats a generic supplement list',
+    'How a HealthScore creates context before supplement recommendations.',
+    'Why a HealthScore beats a generic supplement list',
+    'A clearer way to begin personalised nutrition and supplement guidance.',
+    'https://images.unsplash.com/photo-1496128858413-b36217c2ce36?auto=format&fit=crop&w=1200&q=80',
+    'seed',
+    'seed',
+    'seed-healthscore',
+    '{"seed": true}'::jsonb,
+    now() - interval '3 days'
+  ),
+  (
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+    'en',
+    'how-to-choose-supplements-without-wasting-money',
+    'published',
+    'How to choose supplements without wasting money',
+    'The useful question is not what is popular. It is what fits your body, diet and routine.',
+    'Supplement spending becomes smarter when the plan considers budget, dose, product form and what the user already gets from food.',
+    jsonb_build_object(
+      'intro', 'The supplement aisle is noisy. The easiest mistake is buying single products one at a time without understanding how they fit together.',
+      'points', jsonb_build_array(
+        jsonb_build_object('title', 'Start with the gap.', 'body', 'Diet pattern, fish intake, sun exposure, sleep and stress often explain more than a generic bestseller list.'),
+        jsonb_build_object('title', 'Respect the budget.', 'body', 'A medium budget should prioritise the highest-confidence choices and avoid stacking products that overlap.'),
+        jsonb_build_object('title', 'Check the form.', 'body', 'Capsules, powders and liquids can all be useful, but the right format is the one the customer will actually use.')
+      ),
+      'sectionTitle', 'Value comes from fit',
+      'sectionBody', 'A good recommendation should explain what the product supports, why it is relevant, and how much of the plan it covers.',
+      'closing', 'Smart supplement guidance should save research time, reduce trial and error, and help the customer buy fewer wrong things.'
+    ),
+    'https://images.unsplash.com/photo-1547586696-ea22b4d4235d?auto=format&fit=crop&w=2400&q=80',
+    'Mountain landscape and clear path',
+    '22222222-2222-4222-8222-222222222222',
+    array['supplements','budget','product guidance'],
+    'How to choose supplements without wasting money',
+    'How personalised guidance can reduce wasted supplement spend.',
+    'How to choose supplements without wasting money',
+    'Choose supplements by fit, budget and use, not hype.',
+    'https://images.unsplash.com/photo-1547586696-ea22b4d4235d?auto=format&fit=crop&w=1200&q=80',
+    'seed',
+    'seed',
+    'seed-budget',
+    '{"seed": true}'::jsonb,
+    now() - interval '2 days'
+  ),
+  (
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+    'en',
+    'what-changes-after-50-energy-sleep-and-recovery',
+    'published',
+    'What changes after 50: energy, sleep and recovery',
+    'Health goals after 50 are often less about extremes and more about consistency.',
+    'After 50, the best wellness plan usually supports sleep quality, muscle maintenance, recovery and practical daily energy.',
+    jsonb_build_object(
+      'intro', 'Many people over 50 are not trying to become athletes. They want steadier energy, better recovery and confidence that their routine is supporting the next decade.',
+      'points', jsonb_build_array(
+        jsonb_build_object('title', 'Recovery matters more.', 'body', 'Sleep quality, stress and training load can change how the body responds to the same routine.'),
+        jsonb_build_object('title', 'Muscle is a health signal.', 'body', 'Protein intake and resistance activity become more important for everyday strength and resilience.'),
+        jsonb_build_object('title', 'Small changes compound.', 'body', 'The biggest gains often come from consistent basics, not an overloaded supplement routine.')
+      ),
+      'sectionTitle', 'A better plan is easier to repeat',
+      'sectionBody', 'A personalised formulation should respect the customer''s appetite for complexity. Too many pills can reduce adherence even when the science is reasonable.',
+      'closing', 'For a 52-year-old customer, the winning experience is clear, practical and repeatable.'
+    ),
+    null,
+    null,
+    '33333333-3333-4333-8333-333333333333',
+    array['healthy aging','energy','recovery'],
+    'What changes after 50: energy, sleep and recovery',
+    'A practical view of wellness priorities after 50.',
+    'What changes after 50: energy, sleep and recovery',
+    'How sleep, recovery and consistency shape wellness after 50.',
+    null,
+    'seed',
+    'seed',
+    'seed-after-50',
+    '{"seed": true}'::jsonb,
+    now() - interval '1 day'
+  )
+on conflict (locale, slug) do update
+set
+  status = excluded.status,
+  title = excluded.title,
+  subtitle = excluded.subtitle,
+  excerpt = excluded.excerpt,
+  body = excluded.body,
+  image_url = excluded.image_url,
+  image_alt = excluded.image_alt,
+  testimonial_id = excluded.testimonial_id,
+  tags = excluded.tags,
+  seo_title = excluded.seo_title,
+  seo_description = excluded.seo_description,
+  social_title = excluded.social_title,
+  social_description = excluded.social_description,
+  social_image_url = excluded.social_image_url,
+  source_channel = excluded.source_channel,
+  source_agent = excluded.source_agent,
+  source_ref = excluded.source_ref,
+  metadata = excluded.metadata,
+  published_at = excluded.published_at,
+  updated_at = now();
+
 -- DOADMIN can apply this script in UAT. If a lower-privilege user reapplies it
 -- locally, ownership changes are skipped with notices rather than aborting.
 do $$
@@ -745,5 +1191,17 @@ begin
     execute 'alter table public.cron owner to mn';
   exception when others then
     raise notice 'Skipping cron owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.blog_testimonials owner to mn';
+  exception when others then
+    raise notice 'Skipping blog_testimonials owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.blog_posts owner to mn';
+  exception when others then
+    raise notice 'Skipping blog_posts owner change: %', sqlerrm;
   end;
 end $$;

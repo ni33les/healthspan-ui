@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
+import { BlogSection } from "@/components/blog-section";
 import { CtaSection } from "@/components/cta-section";
 import { FeatureRow } from "@/components/feature-row";
 import { HeroSplit } from "@/components/hero-split";
 import { SiteFooter } from "@/components/site-footer";
 import { SupportFeatureSection } from "@/components/support-feature-section";
 import { TitleBar } from "@/components/title-bar";
+import { getPublishedBlogPosts } from "@/lib/blog";
 import { getDictionary, isLocale, locales, type Locale } from "@/lib/i18n";
 
 type HomeProps = Readonly<{
@@ -17,6 +19,8 @@ export function generateStaticParams() {
   return locales.map((locale) => ({ locale }));
 }
 
+export const dynamic = "force-dynamic";
+
 export default async function Home({ params }: HomeProps) {
   const { locale: rawLocale } = await params;
 
@@ -27,6 +31,7 @@ export default async function Home({ params }: HomeProps) {
   const locale: Locale = rawLocale;
   const dictionary = getDictionary(locale);
   const assessmentPath = `/${locale}/assessment`;
+  const blogPosts = await getPublishedBlogPosts(locale, 3);
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
@@ -48,6 +53,7 @@ export default async function Home({ params }: HomeProps) {
           subheadline={dictionary.hero.followOn}
           subheadlineAccent={dictionary.hero.followOnAccent}
         />
+        <BlogSection content={dictionary.blog} posts={blogPosts} />
         <FeatureRow content={dictionary.featureSection} />
         <CtaSection content={dictionary.cta} ctaHref={assessmentPath} />
         <SupportFeatureSection content={dictionary.supportSection} />

@@ -357,6 +357,7 @@ flowchart TB
 - What exact moment should trigger payment: before formulation generation, after a teaser, or after partial formulation?
 - Should every paid user provide an email before payment so reassessment follow-up is reliable?
 - How much of the formulation should the free email reveal?
+- After the free email has been requested or sent, where should the user go next and what components should that page include?
 - Which one chat channel should be made excellent first?
 - What proof will convince a skeptical 52-year-old that the plan is not generic?
 - Should Pro include guaranteed human review for edge cases, or only AI advisor support?

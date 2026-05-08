@@ -29,7 +29,7 @@ const securityHeaders = [
       "font-src 'self' data:",
       "form-action 'self'",
       "frame-ancestors 'none'",
-      "img-src 'self' data: blob: https://images.unsplash.com",
+      "img-src 'self' data: blob: https:",
       "manifest-src 'self'",
       "object-src 'none'",
       isDevelopment

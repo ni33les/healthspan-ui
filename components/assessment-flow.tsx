@@ -1268,6 +1268,10 @@ function getProcessingStepIndex(status: ProcessingStatus) {
   return Math.max(0, completeIndex);
 }
 
+function getInitialProcessingStepIndex(status: ProcessingStatus) {
+  return getProcessingStepIndex(status);
+}
+
 function isStepComplete(status: ProcessingStatus, index: number) {
   return status.steps[index]?.state === "complete";
 }
@@ -2685,7 +2689,9 @@ export function AssessmentFlow({
 
   function showProcessingStatus(status: ProcessingStatus) {
     displayedStepStartedAt.current = Date.now();
-    setDisplayedProcessingStatus(getPacedProcessingStatus(status, 0));
+    setDisplayedProcessingStatus(
+      getPacedProcessingStatus(status, getInitialProcessingStepIndex(status))
+    );
     setProcessingStatus(status);
   }
 
@@ -2944,7 +2950,10 @@ export function AssessmentFlow({
       const timeout = window.setTimeout(() => {
         displayedStepStartedAt.current = Date.now();
         setDisplayedProcessingStatus(
-          getPacedProcessingStatus(processingStatus, 0)
+          getPacedProcessingStatus(
+            processingStatus,
+            getInitialProcessingStepIndex(processingStatus)
+          )
         );
       }, 0);
 

@@ -264,6 +264,8 @@ Business questions:
 
 - What exactly is included?
 - What is held back for paid plans?
+- After the free email has been requested or sent, what should the next page ask the user to do?
+- Which components belong on that post-email page: plan upgrade, chat invitation, testimonials, education, reassessment promise, or product teaser?
 - What follow-up sequence should start after the free preview?
 
 ### 3. Activate the Paid Plan Moment
