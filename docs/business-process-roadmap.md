@@ -115,6 +115,7 @@ Business interpretation:
 - The displayed score is clamped between 8 and 96.
 - Score bands are: Excellent at 80+, Good at 65-79, Fair at 50-64, and Needs Attention below 50.
 - The current implementation has been checked against sampled workbook outcomes and is considered complete for the current product flow.
+- The backend is the single source of truth for HealthScore generation; the frontend only renders the score returned by the assessment API.
 
 ## Current Commercial Flow
 

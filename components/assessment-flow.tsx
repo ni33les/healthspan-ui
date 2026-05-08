@@ -15,13 +15,10 @@ import {
   SparklesIcon
 } from "@heroicons/react/20/solid";
 import { HighlightedBrandText } from "@/components/highlighted-brand-text";
-import {
-  computeHealthScore,
-  type HealthScoreResult
-} from "@/lib/health-score";
 import { buildChatChannels } from "@/lib/chat-links";
 import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { BlogTestimonial } from "@/lib/blog";
+import type { HealthScoreResult } from "@/lib/health-score";
 import type { Locale } from "@/lib/i18n";
 
 type Option = Readonly<{
@@ -2716,17 +2713,20 @@ export function AssessmentFlow({
     window.scrollTo({ behavior: "smooth", top: 0 });
 
     try {
-      const localHealthScore = computeHealthScore(answerPayload, locale);
       const captured = await captureAssessment(true, answerPayload);
 
       if (!captured?.planId) {
         throw new Error("Unable to capture assessment before plan selection");
       }
 
-      setHealthScore(captured.healthScore ?? localHealthScore);
+      if (!captured.healthScore) {
+        throw new Error("Assessment capture did not return a HealthScore");
+      }
+
+      setHealthScore(captured.healthScore);
       setProcessingStatus({
         ...captured,
-        healthScore: captured.healthScore ?? localHealthScore,
+        healthScore: captured.healthScore,
         planId: "",
         queuePosition: 0,
         status: "ready",
