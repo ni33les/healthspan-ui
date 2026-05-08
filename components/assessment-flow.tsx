@@ -18,7 +18,7 @@ import { HighlightedBrandText } from "@/components/highlighted-brand-text";
 import { buildChatChannels } from "@/lib/chat-links";
 import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { BlogTestimonial } from "@/lib/blog";
-import type { HealthScoreResult } from "@/lib/health-score";
+import type { HealthScoreDomain, HealthScoreResult } from "@/lib/health-score";
 import type { Locale } from "@/lib/i18n";
 
 type Option = Readonly<{
@@ -1708,10 +1708,10 @@ export function AssessmentFlow({
             emailDivider: "หรือรับแผนโภชนาการฟรี 3 ข้อทางอีเมล",
             emailError: "กรุณาใส่อีเมลที่ถูกต้อง",
             emailPlaceholder: "your@email.com",
-            emailTitle: "ยังไม่พร้อมเลือกแผนแบบชำระเงิน?",
+            emailTitle: "ยังไม่พร้อมปลดล็อก?",
             planDescription:
-              "ไปต่อเพื่อสร้างสูตรฉบับเต็มและคู่มือเลือกผลิตภัณฑ์",
-            planTitle: "เลือกแผนเพื่อดูสูตรฉบับเต็ม",
+              "รู้ชัดว่าร่างกายของคุณต้องการอะไร เพื่อดูแลสุขภาพให้ดีที่สุดในปริมาณที่เหมาะสม",
+            planTitle: "ปลดล็อกแผนโภชนาการเฉพาะตัวของคุณ",
             preparing: "กำลังเตรียม...",
             proContinueCta: "ไปต่อ",
             proContinueDescription:
@@ -1808,10 +1808,10 @@ export function AssessmentFlow({
             emailDivider: "or get a free 3-point nutrition plan by email",
             emailError: "Enter a valid email address",
             emailPlaceholder: "your@email.com",
-            emailTitle: "Not ready for a paid plan?",
+            emailTitle: "Not ready to unlock?",
             planDescription:
-              "Continue now to generate the complete formulation and marketplace guide.",
-            planTitle: "Choose a plan to unlock the full formulation",
+              "Know exactly what your body needs to maximise your health, in the right amount.",
+            planTitle: "Unlock your bespoke nutrition plan",
             preparing: "Preparing...",
             proContinueCta: "Continue",
             proContinueDescription:
@@ -3954,6 +3954,68 @@ function DomainSnapshot({
   );
 }
 
+function lowestDomainAdvice(domain: HealthScoreDomain, locale: Locale) {
+  if (locale === "th") {
+    return `คะแนนด้าน ${domain.label} ของคุณ (${domain.score}/100) ยังมีพื้นที่ให้ปรับปรุง ${domain.description} จุดนี้เป็นพื้นที่ที่ชัดที่สุดในการเริ่มปรับแผนสุขภาพของคุณ`;
+  }
+
+  return `Your ${domain.label} score (${domain.score}/100) has room to improve. ${domain.description} This is the clearest place to focus first.`;
+}
+
+function HealthScoreAdvice({
+  locale,
+  result
+}: Readonly<{
+  locale: Locale;
+  result: HealthScoreResult;
+}>) {
+  const lowest = [...result.domains].sort((a, b) => a.score - b.score)[0];
+  const labels =
+    locale === "th"
+      ? {
+          actions: "พื้นที่ที่ควรโฟกัส",
+          lowest: "พื้นที่ที่ควรให้ความสำคัญที่สุด",
+          meaning: "คะแนนนี้บอกอะไรเรา"
+        }
+      : {
+          actions: "Your focus area",
+          lowest: "Your lowest area",
+          meaning: "How to improve"
+        };
+  const body =
+    locale === "th"
+      ? `${result.headline} ใช้คะแนนนี้เป็นจุดเริ่มต้น โดยรักษาด้านที่ทำได้ดีไว้ และให้ความสำคัญกับพื้นที่คะแนนต่ำสุดก่อน`
+      : `${result.headline} Use this as a practical starting point: protect the areas already working well, then focus first on this lowest-scoring domain.`;
+
+  return (
+    <div className="mx-auto mt-4 max-w-4xl rounded-2xl bg-[#F7FAFD] p-4 ring-1 ring-[#3A7BD5]/10 sm:mt-5 sm:p-7">
+      <div className="rounded-2xl bg-white p-4 ring-1 ring-[#3A7BD5]/10 sm:p-6">
+        <p className="text-center text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+          {labels.actions}
+        </p>
+        <div className="mt-4 grid gap-3">
+          <div className="rounded-2xl bg-red-50 p-5 ring-1 ring-red-200 sm:p-6">
+            <p className="text-sm font-semibold text-[#20343A]">
+              {labels.lowest}: {lowest.label} ({lowest.score}/100)
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {lowestDomainAdvice(lowest, locale)}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-[#EFFBF5] p-5 ring-1 ring-[#1FA77A]/20 sm:p-6">
+            <p className="text-sm font-semibold text-[#20343A]">
+              {labels.meaning}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {body}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HealthScorePanel({
   locale,
   result
@@ -3973,31 +4035,34 @@ function HealthScorePanel({
         };
 
   return (
-    <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-[#F7FAFD] p-4 ring-1 ring-[#3A7BD5]/10 sm:p-7">
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 lg:items-stretch">
-        <div className="flex min-w-0 flex-col">
-          <div className="flex h-full min-h-[14rem] flex-col justify-between rounded-2xl bg-white p-5 text-center ring-1 ring-[#3A7BD5]/10 sm:min-h-0 sm:p-8">
-            <p className="text-center text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
-              {labels.score}
-            </p>
-            <div className="flex items-end justify-center gap-3">
-              <span className="text-6xl font-semibold tracking-normal text-[#20343A] sm:text-8xl">
-                {result.score}
-              </span>
-              <span className="pb-2 text-lg font-semibold text-muted-foreground sm:pb-3 sm:text-xl">
-                /100
-              </span>
+    <>
+      <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-[#F7FAFD] p-4 ring-1 ring-[#3A7BD5]/10 sm:p-7">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 lg:items-stretch">
+          <div className="flex min-w-0 flex-col">
+            <div className="flex h-full min-h-[14rem] flex-col justify-between rounded-2xl bg-white p-5 text-center ring-1 ring-[#3A7BD5]/10 sm:min-h-0 sm:p-8">
+              <p className="text-center text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+                {labels.score}
+              </p>
+              <div className="flex items-end justify-center gap-3">
+                <span className="text-6xl font-semibold tracking-normal text-[#20343A] sm:text-8xl">
+                  {result.score}
+                </span>
+                <span className="pb-2 text-lg font-semibold text-muted-foreground sm:pb-3 sm:text-xl">
+                  /100
+                </span>
+              </div>
+              <p className="inline-flex self-center rounded-full bg-[#1FA77A]/10 px-4 py-1.5 text-sm font-semibold text-[#126b4f]">
+                {result.band}
+              </p>
             </div>
-            <p className="inline-flex self-center rounded-full bg-[#1FA77A]/10 px-4 py-1.5 text-sm font-semibold text-[#126b4f]">
-              {result.band}
-            </p>
           </div>
-        </div>
 
-        <HealthScoreRadar result={result} />
+          <HealthScoreRadar result={result} />
+        </div>
+        <HealthScoreVisuals locale={locale} result={result} />
       </div>
-      <HealthScoreVisuals locale={locale} result={result} />
-    </div>
+      <HealthScoreAdvice locale={locale} result={result} />
+    </>
   );
 }
 
