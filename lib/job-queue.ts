@@ -30,6 +30,7 @@ type JobType =
   | "formulation"
   | "reassessment";
 type AuditLevel = "critical" | "high" | "low" | "medium";
+type StepState = "active" | "complete" | "failed" | "pending";
 
 type ClaimedJob = {
   attempts: number;
@@ -41,16 +42,24 @@ type ClaimedJob = {
 
 const globalJobsWorker = globalThis as typeof globalThis & {
   mattanutraCronWorker?: Promise<{ queued: number }>;
-  mattanutraJobsSchemaReadyV6?: Promise<void>;
+  mattanutraJobsSchemaReadyV7?: Promise<void>;
   mattanutraJobsWorker?: Promise<void>;
 };
 
+const JOB_PRIORITIES = {
+  exampleEmail: 3,
+  exampleFormulation: 5,
+  precision: 20,
+  pro: 30,
+  reassessment: 10
+} as const;
+
 function priorityForPlan(plan: AssessmentPlan) {
   if (plan === "pro") {
-    return 30;
+    return JOB_PRIORITIES.pro;
   }
 
-  return 20;
+  return JOB_PRIORITIES.precision;
 }
 
 function payloadRecord(payload: unknown) {
@@ -70,7 +79,7 @@ function newUnsubscribeToken() {
 }
 
 async function ensureJobsSchema(sql: postgres.Sql) {
-  globalJobsWorker.mattanutraJobsSchemaReadyV6 ??= (async () => {
+  globalJobsWorker.mattanutraJobsSchemaReadyV7 ??= (async () => {
     await ensureAssessmentSchema();
 
     await sql`
@@ -476,11 +485,11 @@ async function ensureJobsSchema(sql: postgres.Sql) {
         where unsubscribe_token is not null
     `;
   })().catch((error) => {
-    globalJobsWorker.mattanutraJobsSchemaReadyV6 = undefined;
+    globalJobsWorker.mattanutraJobsSchemaReadyV7 = undefined;
     throw error;
   });
 
-  await globalJobsWorker.mattanutraJobsSchemaReadyV6;
+  await globalJobsWorker.mattanutraJobsSchemaReadyV7;
 }
 
 async function auditJobEvent(
@@ -652,8 +661,8 @@ async function enqueueExampleFormulationJob(
       'example_formulation',
       ${planId}::uuid,
       'queued',
-      5,
-      ${sql.json(toJsonValue({ requestId }))},
+      ${JOB_PRIORITIES.exampleFormulation},
+      ${sql.json(toJsonValue({ priorityClass: "free_example", requestId }))},
       now(),
       now()
     )
@@ -667,10 +676,12 @@ async function enqueueExampleFormulationJob(
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: {
-      businessEvent: true,
-      requestId
-    },
+      eventPayload: {
+        businessEvent: true,
+        priority: JOB_PRIORITIES.exampleFormulation,
+        priorityClass: "free_example",
+        requestId
+      },
     eventType: "example_formulation_job_enqueued",
     jobId,
     level: "low",
@@ -723,8 +734,8 @@ async function enqueueExampleEmailJob(
       'example_email',
       ${planId}::uuid,
       'queued',
-      4,
-      ${sql.json(toJsonValue({ requestId }))},
+      ${JOB_PRIORITIES.exampleEmail},
+      ${sql.json(toJsonValue({ priorityClass: "free_example", requestId }))},
       now(),
       now()
     )
@@ -738,10 +749,12 @@ async function enqueueExampleEmailJob(
   `;
 
   await auditJobEvent(sql, {
-    eventPayload: {
-      businessEvent: true,
-      requestId
-    },
+      eventPayload: {
+        businessEvent: true,
+        priority: JOB_PRIORITIES.exampleEmail,
+        priorityClass: "free_example",
+        requestId
+      },
     eventType: "example_email_job_enqueued",
     jobId,
     level: "low",
@@ -785,9 +798,14 @@ export async function requestExampleBrief({
     return null;
   }
 
-  const existingRequests = await sql<{ id: string; job_id: string | null }[]>`
+  const existingRequests = await sql<{
+    id: string;
+    job_id: string | null;
+    status: string;
+  }[]>`
     select
       assessment_example_requests.id::text,
+      assessment_example_requests.status,
       (
         select jobs.id::text
         from jobs
@@ -806,7 +824,7 @@ export async function requestExampleBrief({
   `;
   const existingRequest = existingRequests[0];
 
-  if (existingRequest) {
+  if (existingRequest && existingRequest.status !== "failed") {
     await auditJobEvent(sql, {
       eventPayload: {
         businessEvent: true,
@@ -867,6 +885,94 @@ export async function requestExampleBrief({
   });
 
   return { jobId, requestId };
+}
+
+function mapExampleRequestStatus(status: unknown) {
+  if (status === "failed") {
+    return "failed";
+  }
+
+  if (
+    status === "formulation_queued" ||
+    status === "formulation_ready" ||
+    status === "email_queued" ||
+    status === "email_rendered" ||
+    status === "email_sent"
+  ) {
+    return "ready";
+  }
+
+  return "preparing";
+}
+
+function buildExampleRequestSteps(status: unknown) {
+  const mappedStatus = mapExampleRequestStatus(status);
+  const isReady = mappedStatus === "ready";
+  const isRequestQueued = status === "formulation_queued";
+  const hasFailed = mappedStatus === "failed";
+  const formulationState: StepState = isReady
+    ? "complete"
+    : hasFailed
+      ? "failed"
+      : "active";
+
+  return [
+    { id: "assessment", state: "complete" },
+    { id: "score", state: "complete" },
+    { id: "payment", state: "complete" },
+    { id: "formulation", state: formulationState },
+    {
+      id: "safety",
+      state: isReady && !isRequestQueued ? "complete" : "pending"
+    },
+    {
+      id: "results",
+      state: isReady && !isRequestQueued ? "complete" : "pending"
+    }
+  ];
+}
+
+export async function getExampleBriefStatus({
+  planId,
+  requestId
+}: Readonly<{
+  planId: string;
+  requestId: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId) || !isUuid(requestId)) {
+    return null;
+  }
+
+  await ensureJobsSchema(sql);
+
+  const rows = await sql<{
+    error_message: string | null;
+    status: string;
+  }[]>`
+    select
+      status,
+      error_message
+    from assessment_example_requests
+    where plan_id = ${planId}::uuid
+      and id = ${requestId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...(row.error_message ? { errorMessage: row.error_message } : {}),
+    planId,
+    queuePosition: 0,
+    requestId,
+    status: mapExampleRequestStatus(row.status),
+    steps: buildExampleRequestSteps(row.status)
+  };
 }
 
 export async function scheduleReassessmentAction({
@@ -1157,7 +1263,7 @@ async function enqueueReassessmentEmailJob(
       'reassessment',
       ${planId}::uuid,
       'queued',
-      8,
+      ${JOB_PRIORITIES.reassessment},
       ${sql.json(toJsonValue({ cronId, email, locale }))},
       now(),
       now()

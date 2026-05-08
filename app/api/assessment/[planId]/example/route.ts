@@ -5,6 +5,7 @@ import {
 } from "@/lib/assessment-store";
 import { validateLeadEmail } from "@/lib/email-validation";
 import {
+  getExampleBriefStatus,
   kickCronWorker,
   kickJobsWorker,
   requestExampleBrief,
@@ -56,6 +57,50 @@ function rateLimitAllows(key: string, limit: number, windowMs: number) {
 
   bucket.count += 1;
   return true;
+}
+
+export async function GET(request: Request, { params }: ExampleRouteProps) {
+  const { planId } = await params;
+  const requestId =
+    new URL(request.url).searchParams.get("requestId") ??
+    new URL(request.url).searchParams.get("request") ??
+    "";
+
+  if (!isUuid(planId) || !isUuid(requestId)) {
+    return NextResponse.json(
+      { message: "Example request not found" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 404
+      }
+    );
+  }
+
+  const status = await getExampleBriefStatus({ planId, requestId });
+
+  if (!status) {
+    return NextResponse.json(
+      { message: "Example request not found" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 404
+      }
+    );
+  }
+
+  if (status.status !== "ready" && status.status !== "failed") {
+    void kickJobsWorker();
+  }
+
+  return NextResponse.json(status, {
+    headers: {
+      "Cache-Control": "no-store"
+    }
+  });
 }
 
 export async function POST(request: Request, { params }: ExampleRouteProps) {

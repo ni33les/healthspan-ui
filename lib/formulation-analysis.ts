@@ -78,6 +78,9 @@ function systemPrompt(promptVersion: string) {
     "This is not medical advice, a prescription, a diagnosis, or a treatment plan.",
     "Use the completed assessment to produce a concise supplement breakdown.",
     "Do not include product recommendations, marketplace links, personal contact data, markdown, explanations outside JSON, or medical claims.",
+    "The first character of your response must be { and the last character must be }.",
+    "Every supplementBreakdown entry must be a JSON object, never a string.",
+    "Use double-quoted JSON only. Do not use comments, markdown fences, or trailing commas.",
     "Return JSON only."
   ].join("\n");
 }
@@ -116,6 +119,7 @@ function userPrompt({
       instructions: [
         "Return a JSON object with exactly one top-level key: supplementBreakdown.",
         "supplementBreakdown must contain 6 to 18 items.",
+        "Every supplementBreakdown array entry must be an object. Do not put plain strings in the array.",
         "Every item must include id, category, supplement, dailyDose, status, and rationale.",
         "supplement, dailyDose, and rationale must each be localized objects with exactly en and th string values.",
         "Write the English fields for a consumer wellness audience, and the Thai fields as natural Thai, not transliterated English unless the ingredient name is normally used that way.",
@@ -137,6 +141,9 @@ function retryPrompt(errors: string[]) {
   return [
     "The previous JSON response failed validation.",
     "Return corrected JSON only, matching the required contract.",
+    "Do not include markdown or prose.",
+    "Every supplementBreakdown item must be a JSON object, not a string.",
+    "If a field is uncertain, set status to review and still return valid JSON.",
     "Validation errors:",
     ...errors.map((error) => `- ${error}`)
   ].join("\n");
@@ -193,14 +200,24 @@ function parseJsonObject(content: string | null | undefined) {
     throw new Error("Model returned empty content");
   }
 
+  const trimmed = content
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
   try {
-    return JSON.parse(content) as unknown;
+    return JSON.parse(trimmed) as unknown;
   } catch {
-    const start = content.indexOf("{");
-    const end = content.lastIndexOf("}");
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
 
     if (start >= 0 && end > start) {
-      return JSON.parse(content.slice(start, end + 1)) as unknown;
+      const candidate = trimmed
+        .slice(start, end + 1)
+        .replace(/,\s*([}\]])/g, "$1");
+
+      return JSON.parse(candidate) as unknown;
     }
 
     throw new Error("Model returned content that was not valid JSON");
@@ -216,6 +233,22 @@ function readText(record: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function slugify(value: string, fallback: string) {
+  const slug = value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+
+  return slug || fallback;
+}
+
+function localizedFallback(value: string): LocalizedText {
+  return { en: value, th: value };
+}
+
 function readLocalizedText(
   record: Record<string, unknown>,
   key: string,
@@ -223,6 +256,10 @@ function readLocalizedText(
   errors: string[]
 ): LocalizedText {
   const value = record[key];
+
+  if (typeof value === "string" && value.trim()) {
+    return localizedFallback(value.trim());
+  }
 
   if (!isRecord(value)) {
     errors.push(
@@ -255,15 +292,50 @@ function readLocalizedText(
   return { en, th };
 }
 
+function fallbackIngredientFromText(text: string, index: number) {
+  const supplement = text.trim() || `Item ${index + 1}`;
+
+  return {
+    category: "Review",
+    dailyDose: {
+      en: "Review label and clinician guidance",
+      th: "ตรวจสอบฉลากและคำแนะนำจากผู้เชี่ยวชาญ"
+    },
+    id: slugify(supplement, `review-item-${index + 1}`),
+    rationale: {
+      en: "Included for review because the analysis returned limited structured detail.",
+      th: "รวมไว้เพื่อให้ตรวจสอบเพิ่มเติม เนื่องจากผลวิเคราะห์มีรายละเอียดเชิงโครงสร้างจำกัด"
+    },
+    status: "review" as FormulationStatus,
+    supplement: localizedFallback(supplement)
+  } satisfies FormulationIngredient;
+}
+
+function textFromLocalizedCandidate(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (!isRecord(value)) {
+    return "";
+  }
+
+  return readText(value, "en") || readText(value, "th");
+}
+
 function validateFormulation(value: unknown) {
   const errors: string[] = [];
   const supplementBreakdown: FormulationIngredient[] = [];
 
-  if (!isRecord(value)) {
+  const response = Array.isArray(value)
+    ? { supplementBreakdown: value }
+    : value;
+
+  if (!isRecord(response)) {
     return { errors: ["Top-level response must be a JSON object"] };
   }
 
-  const unexpectedTopLevelKeys = Object.keys(value).filter(
+  const unexpectedTopLevelKeys = Object.keys(response).filter(
     (key) => key !== "supplementBreakdown"
   );
 
@@ -273,7 +345,7 @@ function validateFormulation(value: unknown) {
     );
   }
 
-  const rawItems = value.supplementBreakdown;
+  const rawItems = response.supplementBreakdown;
 
   if (!Array.isArray(rawItems)) {
     return { errors: ["supplementBreakdown must be an array"] };
@@ -290,16 +362,34 @@ function validateFormulation(value: unknown) {
   const seenIds = new Set<string>();
 
   rawItems.forEach((item, index) => {
+    if (typeof item === "string") {
+      const fallback = fallbackIngredientFromText(item, index);
+
+      if (seenIds.has(fallback.id)) {
+        fallback.id = `${fallback.id}-${index + 1}`;
+      }
+
+      seenIds.add(fallback.id);
+      supplementBreakdown.push(fallback);
+      return;
+    }
+
     if (!isRecord(item)) {
       errors.push(`supplementBreakdown[${index}] must be an object`);
       return;
     }
 
-    const id = readText(item, "id");
-    const category = readText(item, "category");
+    const supplementText = textFromLocalizedCandidate(item.supplement);
+    const id =
+      readText(item, "id") ||
+      slugify(supplementText, `supplement-${index + 1}`);
+    const category = readText(item, "category") || "Targeted";
     const supplement = readLocalizedText(item, "supplement", index, errors);
     const dailyDose = readLocalizedText(item, "dailyDose", index, errors);
-    const status = readText(item, "status");
+    const rawStatus = readText(item, "status");
+    const status = VALID_STATUSES.has(rawStatus as FormulationStatus)
+      ? rawStatus
+      : "review";
     const rationale = readLocalizedText(item, "rationale", index, errors);
 
     if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(id)) {
@@ -310,16 +400,6 @@ function validateFormulation(value: unknown) {
       errors.push(`supplementBreakdown[${index}].id is duplicated`);
     } else {
       seenIds.add(id);
-    }
-
-    if (!category) {
-      errors.push(`supplementBreakdown[${index}].category is required`);
-    }
-
-    if (!VALID_STATUSES.has(status as FormulationStatus)) {
-      errors.push(
-        `supplementBreakdown[${index}].status must be covered, add, or review`
-      );
     }
 
     supplementBreakdown.push({

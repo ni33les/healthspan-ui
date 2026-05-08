@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
   BeakerIcon,
   CheckIcon,
   CheckCircleIcon,
@@ -17,6 +18,7 @@ import {
   computeHealthScore,
   type HealthScoreResult
 } from "@/lib/health-score";
+import { buildChatChannels } from "@/lib/chat-links";
 import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { Locale } from "@/lib/i18n";
 
@@ -500,7 +502,7 @@ const en: Copy = {
   },
   fixedAction: {
     complete: "All essentials answered - ready to generate.",
-    generate: "Continue",
+    generate: "Generate my health score",
     remaining: (count) =>
       `${count} required question${count === 1 ? "" : "s"} remaining`
   },
@@ -621,7 +623,7 @@ const en: Copy = {
     ]
   },
   precision: {
-    title: "Precision boost",
+    title: "Precision",
     helper:
       "Optional. Answer any or all. These details can sharpen your formulation brief.",
     family: "Family history",
@@ -908,7 +910,7 @@ const th: Copy = {
   },
   fixedAction: {
     complete: "ตอบคำถามสำคัญครบแล้ว พร้อมสร้างบรีฟ",
-    generate: "ดำเนินการต่อ",
+    generate: "สร้าง HealthScore ของฉัน",
     remaining: (count) => `เหลือคำถามจำเป็น ${count} ข้อ`
   },
   goals: {
@@ -1029,7 +1031,7 @@ const th: Copy = {
   },
   precision: {
     ...en.precision,
-    title: "เพิ่มความแม่นยำ",
+    title: "ความแม่นยำ",
     helper: "ไม่บังคับ ตอบเท่าที่ทราบ รายละเอียดเหล่านี้ช่วยให้บรีฟแม่นขึ้น",
     family: "ประวัติครอบครัว",
     familyOptions: [
@@ -1269,75 +1271,6 @@ function getOptionLabel(options: readonly Option[], value: string) {
   return options.find((option) => option.value === value)?.label ?? value;
 }
 
-function buildPreviewTags(copy: Copy, answers: Answers) {
-  const tags: string[] = [];
-  const add = (label: string, value: string | undefined) => {
-    if (value) {
-      tags.push(`${label}: ${value}`);
-    }
-  };
-  const addOptions = (
-    label: string,
-    options: readonly Option[],
-    values: readonly string[]
-  ) => {
-    values.forEach((value) => add(label, getOptionLabel(options, value)));
-  };
-  const heightImperial = formatHeightImperial(answers.heightCm);
-  const weightImperial = formatWeightImperial(answers.weightKg);
-
-  add(copy.about.name, answers.name.trim());
-  add(copy.about.sex, answers.sex ? getOptionLabel(copy.about.sexOptions, answers.sex) : "");
-  add(copy.about.age, answers.age ? getOptionLabel(copy.about.ageOptions, answers.age) : "");
-  add(
-    copy.about.height,
-    answers.heightCm
-      ? `${answers.heightCm} cm${heightImperial ? ` / ${heightImperial}` : ""}`
-      : ""
-  );
-  add(
-    copy.about.weight,
-    answers.weightKg
-      ? `${answers.weightKg} kg${weightImperial ? ` / ${weightImperial}` : ""}`
-      : ""
-  );
-  add(copy.about.skin, answers.skin ? getOptionLabel(copy.about.skinOptions, answers.skin) : "");
-  add(copy.about.country, answers.country ? getOptionLabel(copy.about.countryOptions, answers.country) : "");
-  add(copy.lifestyle.sun, answers.sun ? getOptionLabel(copy.lifestyle.sunOptions, answers.sun) : "");
-  add(copy.about.activity, answers.activity ? getOptionLabel(copy.about.activityOptions, answers.activity) : "");
-  addOptions(copy.goals.title, copy.goals.options, answers.goals);
-
-  if (answers.feelGreat) {
-    add(copy.symptoms.title, copy.symptoms.great.label);
-  } else {
-    addOptions(copy.symptoms.title, copy.symptoms.options, answers.symptoms);
-  }
-
-  add(copy.sleepBasics.average, answers.sleepHours ? getOptionLabel(copy.sleepBasics.options, answers.sleepHours) : "");
-  add(copy.lifestyle.diet, answers.diet ? getOptionLabel(copy.lifestyle.dietOptions, answers.diet) : "");
-  add(copy.lifestyle.fish, answers.fish ? getOptionLabel(copy.lifestyle.fishOptions, answers.fish) : "");
-  add(copy.lifestyle.smoke, answers.smoke ? getOptionLabel(copy.lifestyle.smokeOptions, answers.smoke) : "");
-  add(copy.lifestyle.alcohol, answers.alcohol ? getOptionLabel(copy.lifestyle.alcoholOptions, answers.alcohol) : "");
-  add(copy.lifestyle.meds, answers.meds ? getOptionLabel(copy.lifestyle.medsOptions, answers.meds) : "");
-  addOptions(copy.lifestyle.medType, copy.lifestyle.medTypeOptions, answers.medTypes);
-  add(copy.preferences.budget, answers.budget ? getOptionLabel(copy.preferences.budgetOptions, answers.budget) : "");
-  add(copy.preferences.pills, answers.pills ? getOptionLabel(copy.preferences.pillsOptions, answers.pills) : "");
-  add(copy.symptoms.energy, answers.energy ? getOptionLabel(copy.symptoms.energyOptions, answers.energy) : "");
-  add(copy.lifestyle.coffee, answers.coffee ? getOptionLabel(copy.lifestyle.coffeeOptions, answers.coffee) : "");
-  add(copy.lifestyle.supps, answers.supps ? getOptionLabel(copy.lifestyle.suppsOptions, answers.supps) : "");
-  add(copy.preferences.form, answers.form ? getOptionLabel(copy.preferences.formOptions, answers.form) : "");
-  add(copy.lifestyle.lifestage, answers.lifestage ? getOptionLabel(copy.lifestyle.lifestageOptions, answers.lifestage) : "");
-  addOptions(copy.conditions.title, copy.conditions.options, answers.conditions);
-  addOptions(copy.precision.family, copy.precision.familyOptions, answers.family);
-
-  Object.entries(answers.labs).forEach(([key, value]) => {
-    const field = copy.precision.labFields.find((item) => item.value === key);
-    add(field?.label ?? key, value ? `${value}${field?.hint ? ` ${field.hint}` : ""}` : "");
-  });
-
-  return tags;
-}
-
 function formatHeightImperial(value: string) {
   const cm = Number(value);
 
@@ -1401,6 +1334,95 @@ type ProcessingStatus = Readonly<{
     }>
   >;
 }>;
+
+const PROCESSING_STEP_MIN_MS = 1000;
+const PROCESSING_COMPLETE_HOLD_MS = 1000;
+
+function getProcessingStepIndex(status: ProcessingStatus) {
+  const failedIndex = status.steps.findIndex((step) => step.state === "failed");
+
+  if (failedIndex >= 0) {
+    return failedIndex;
+  }
+
+  const activeIndex = status.steps.findIndex((step) => step.state === "active");
+
+  if (activeIndex >= 0) {
+    return activeIndex;
+  }
+
+  const completeIndex = status.steps.reduce(
+    (latest, step, index) => (step.state === "complete" ? index : latest),
+    -1
+  );
+
+  return Math.max(0, completeIndex);
+}
+
+function isStepComplete(status: ProcessingStatus, index: number) {
+  return status.steps[index]?.state === "complete";
+}
+
+function getPacedProcessingStatus(
+  target: ProcessingStatus,
+  stepIndex: number,
+  terminal = false
+): ProcessingStatus {
+  return {
+    ...target,
+    status: terminal ? target.status : target.status === "failed" ? "failed" : "preparing",
+    steps: target.steps.map((step, index) => {
+      if (index < stepIndex) {
+        return { ...step, state: "complete" as const };
+      }
+
+      if (index === stepIndex) {
+        if (target.status === "failed" && step.state === "failed") {
+          return { ...step, state: "failed" as const };
+        }
+
+        return {
+          ...step,
+          state: terminal && step.state === "complete" ? "complete" : "active"
+        };
+      }
+
+      return { ...step, state: "pending" as const };
+    })
+  };
+}
+
+function buildExampleProcessingStatus(planId: string): ProcessingStatus {
+  return {
+    planId,
+    queuePosition: 0,
+    status: "preparing",
+    steps: [
+      { id: "assessment", state: "complete" },
+      { id: "score", state: "complete" },
+      { id: "payment", state: "complete" },
+      { id: "formulation", state: "active" },
+      { id: "safety", state: "pending" },
+      { id: "results", state: "pending" }
+    ]
+  };
+}
+
+function buildExampleQueuedStatus(planId: string): ProcessingStatus {
+  return {
+    planId,
+    queuePosition: 0,
+    status: "ready",
+    steps: [
+      { id: "assessment", state: "complete" },
+      { id: "score", state: "complete" },
+      { id: "payment", state: "complete" },
+      { id: "formulation", state: "complete" },
+      { id: "safety", state: "pending" },
+      { id: "results", state: "pending" }
+    ]
+  };
+}
 
 type PlanTier = Readonly<{
   cta: string;
@@ -1575,7 +1597,7 @@ function useCompactAssessment() {
 function getPlanContent(locale: Locale): PlanContent {
   if (locale === "th") {
     return {
-      back: "กลับไปที่บรีฟ",
+      back: "กลับไปที่แบบประเมิน",
       badge: "แนะนำ",
       eyebrow: "เลือกแผนบรีฟ",
       subtitle:
@@ -1621,7 +1643,7 @@ function getPlanContent(locale: Locale): PlanContent {
   }
 
   return {
-    back: "Back to brief",
+    back: "Back to assessment",
     badge: "Recommended",
     eyebrow: "Choose your brief",
     subtitle:
@@ -1682,6 +1704,8 @@ export function AssessmentFlow({
   const [questionIndex, setQuestionIndex] = useState(0);
   const [processingStatus, setProcessingStatus] =
     useState<ProcessingStatus | null>(null);
+  const [displayedProcessingStatus, setDisplayedProcessingStatus] =
+    useState<ProcessingStatus | null>(null);
   const [processingError, setProcessingError] = useState("");
   const [capturedStatus, setCapturedStatus] =
     useState<ProcessingStatus | null>(null);
@@ -1689,7 +1713,7 @@ export function AssessmentFlow({
   const [showPlans, setShowPlans] = useState(false);
   const [showExampleExit, setShowExampleExit] = useState(false);
   const [processingMode, setProcessingMode] =
-    useState<"formulation" | "score">("formulation");
+    useState<"example" | "formulation" | "score">("formulation");
   const [healthScore, setHealthScore] = useState<HealthScoreResult | null>(
     null
   );
@@ -1698,8 +1722,13 @@ export function AssessmentFlow({
   const [includeExampleReassessment, setIncludeExampleReassessment] =
     useState(true);
   const [exampleLoading, setExampleLoading] = useState(false);
-  const [reviewReassessmentError, setReviewReassessmentError] = useState("");
+  const [exampleRequest, setExampleRequest] = useState<{
+    email: string;
+    planId: string;
+    requestId: string;
+  } | null>(null);
   const captureInFlight = useRef<Promise<ProcessingStatus | null> | null>(null);
+  const displayedStepStartedAt = useRef(0);
   const pollFailureCount = useRef(0);
   const isCompact = useCompactAssessment();
 
@@ -1711,7 +1740,6 @@ export function AssessmentFlow({
   const reassessmentAlreadyOptedIn = validateLeadEmail(
     answers.reassessmentEmail
   ).ok;
-  const previewTags = buildPreviewTags(copy, answers);
   const progressLabel = canGenerate
     ? copy.progress.complete
     : copy.progress.status(completed, requiredTotal);
@@ -1723,41 +1751,40 @@ export function AssessmentFlow({
           continue: "ต่อไป",
           currentStep: "ขั้นตอนปัจจุบัน",
           infoLabel: "ทำไมคำถามนี้สำคัญ",
-          notesHint: "เพิ่มได้ถ้ามีรายละเอียดสำคัญ เช่น ความไวต่อส่วนผสม ข้อจำกัด หรือสิ่งที่อยากหลีกเลี่ยง",
-          notesLabel: "มีอะไรเพิ่มเติมที่เราควรรู้ไหม?",
-          optionalSection: "เพิ่มความแม่นยำ",
-          requiredSection: "คำถามพื้นฐาน",
+          optionalSection: "ความแม่นยำ",
+          requiredSection: "พื้นฐาน",
           processingError: "ไม่สามารถเริ่มการประมวลผลได้ โปรดลองอีกครั้ง",
           processingQueue: (count: number) =>
             count > 0
               ? `มี ${count} คนอยู่ในคิวก่อนคุณ`
               : "กำลังจัดเตรียมสูตรของคุณ",
           processingSteps: {
-            sent: "ส่งความต้องการเพื่อประมวลผลแล้ว",
-            preparing: "กำลังเตรียมสูตรของคุณ",
-            ready: "สูตรพร้อมแล้ว"
+            assessment: "ทำแบบประเมินเสร็จแล้ว",
+            score: "กำลังเตรียม HealthScore",
+            payment: "กำลังประมวลผลการชำระเงิน",
+            formulation: "กำลังเตรียมสูตร",
+            safety: "กำลังปรับสูตรให้เหมาะสม",
+            results: "เสร็จสมบูรณ์"
           },
           processingSubtitle:
             "เราได้รับคำตอบของคุณแล้ว และกำลังจัดคิวเพื่อสร้างสูตรอาหารเสริม",
           processingTitle: "กำลังประมวลผลแบบประเมินของคุณ",
-          scoreProcessingQueue: "กำลังคำนวณคะแนนสุขภาพของคุณ",
+          scoreProcessingQueue: "กำลังเตรียมคะแนนสุขภาพของคุณ",
           scoreProcessingSteps: {
-            assessment: "บันทึกแบบประเมินแล้ว",
-            score: "กำลังคำนวณ HealthScore",
-            gate: "แสดงตัวเลือกตัวอย่างหรือแผน",
-            plan: "เลือกแผน",
-            payment: "ชำระเงิน",
-            formulation: "เตรียมสูตรฉบับเต็ม",
-            safety: "ตรวจสอบความเหมาะสม",
-            results: "แสดงสูตรส่วนบุคคล"
+            assessment: "ทำแบบประเมินเสร็จแล้ว",
+            score: "กำลังเตรียม HealthScore",
+            payment: "กำลังประมวลผลการชำระเงิน",
+            formulation: "กำลังเตรียมสูตร",
+            safety: "กำลังปรับสูตรให้เหมาะสม",
+            results: "เสร็จสมบูรณ์"
           },
           scoreProcessingSubtitle:
             "เรากำลังประเมินภาพรวมสุขภาพจากคำตอบของคุณก่อนแสดงตัวเลือกแผน",
-          scoreProcessingTitle: "กำลังคำนวณ HealthScore ของคุณ",
+          scoreProcessingTitle: "กำลังเตรียม HealthScore ของคุณ",
           scoreGate: {
             emailButton: "ส่งแผนฟรี 3 ข้อ + HealthScore",
             emailDescription:
-              "เราจะส่งแผนโภชนาการฟรี 3 ข้อที่ครอบคลุมพื้นฐานสำคัญ เพื่อช่วยเริ่มต้นเส้นทาง wellness ของคุณ",
+              "ใส่อีเมลของคุณ แล้วเราจะส่งแผนโภชนาการฟรี 3 ข้อที่ครอบคลุมพื้นฐานสำคัญ เพื่อช่วยเริ่มต้นเส้นทาง wellness ของคุณ",
             emailDivider: "หรือรับแผนโภชนาการฟรี 3 ข้อทางอีเมล",
             emailError: "กรุณาใส่อีเมลที่ถูกต้อง",
             emailPlaceholder: "your@email.com",
@@ -1777,9 +1804,33 @@ export function AssessmentFlow({
           },
           exampleExit: {
             body:
-              "เรากำลังจัดเตรียมสูตรฉบับเต็มและจะส่งอีเมลตัวอย่างแบบสั้นให้คุณ เมื่อส่งแล้วระบบจะบันทึกสถานะการจัดส่งไว้",
-            title: "ตัวอย่างของคุณกำลังถูกจัดเตรียม"
+              "เรากำลังเตรียมสูตรฉบับเต็มอยู่เบื้องหลัง และจะส่งตัวอย่างแผนโภชนาการ 3 ข้อแบบสั้นไปยังอีเมลของคุณ",
+            chatBody:
+              "เลือกช่องทางที่สะดวกเพื่อคุยต่อกับ AI advisor เฉพาะทาง WhatsApp สามารถเปิดพร้อม plan ได้ และ Telegram ทำได้เมื่อใช้ลิงก์ bot ส่วน LINE อาจต้องส่ง plan ที่แสดงอยู่ด้านล่าง หากยังไม่ได้ตั้งค่า LIFF deep link",
+            chatButton: "เปิดแชต",
+            chatPlanLabel: "แผน",
+            chatQrAlt: "QR code สำหรับเชื่อมต่อ MattaNutra AI advisor",
+            chatTitle:
+              "คุยกับ AI advisor ระหว่างรอตัวอย่างของคุณ",
+            emailPrefix: "เราจะส่งไปที่",
+            testimonialTitle: "ลูกค้าใช้ MattaNutra เพื่อเปลี่ยนข้อมูลสุขภาพให้เป็นขั้นตอนที่ทำได้จริง",
+            title: "ตัวอย่างของคุณกำลังถูกจัดเตรียม",
+            upsellBody:
+              "แผนแบบชำระเงินจะปลดล็อกสูตรโภชนาการฉบับเต็ม แนวทางปริมาณ และคู่มือค้นหาผลิตภัณฑ์ แทนที่จะได้รับเพียงตัวอย่างสั้นทางอีเมล",
+            upsellTitle: "อยากดูสูตรฉบับเต็มทันทีไหม?"
           },
+          exampleProcessingQueue: "กำลังเตรียมอีเมลตัวอย่างของคุณ",
+          exampleProcessingSteps: {
+            assessment: "ทำแบบประเมินเสร็จแล้ว",
+            score: "กำลังเตรียม HealthScore",
+            payment: "กำลังประมวลผลการชำระเงิน",
+            formulation: "กำลังส่งคำขอสูตร",
+            safety: "กำลังปรับสูตรให้เหมาะสม",
+            results: "เสร็จสมบูรณ์"
+          },
+          exampleProcessingSubtitle:
+            "เรากำลังเตรียมสูตรฉบับเต็มก่อนคัดส่วนสำคัญเป็นตัวอย่างทางอีเมล",
+          exampleProcessingTitle: "กำลังเตรียมตัวอย่างของคุณ",
           retry: "ลองอีกครั้ง",
           statusLabels: {
             active: "ตอนนี้",
@@ -1787,26 +1838,10 @@ export function AssessmentFlow({
             failed: "ไม่สำเร็จ",
             pending: "รอดำเนินการ"
           },
-          reviewDescription:
-            "ตรวจสอบสรุปเบื้องต้น แล้วสร้างบรีฟสูตรอาหารเสริมของคุณ",
-          reviewQuestion: "ตรวจสอบบรีฟของคุณ",
-          reviewReassessment: {
-            button: "บันทึกอีเมลสำหรับประเมินซ้ำ",
-            description:
-              "คะแนนของคุณเปลี่ยนได้เมื่อสุขภาพเปลี่ยน เลือกรับการประเมินซ้ำฟรีใน 60 วัน แล้วเราจะแสดงให้เห็นว่าคะแนนเปลี่ยนไปเท่าไร และอะไรเป็นตัวขับเคลื่อน",
-            error: "กรุณาใส่อีเมลที่ถูกต้อง",
-            placeholder: "your@email.com",
-            saved: "บันทึกอีเมลสำหรับประเมินซ้ำแล้ว",
-            title: "ช่วยให้ HealthScore ของคุณดีขึ้นต่อเนื่อง"
-          },
-          reviewSafety:
-            "อาหารเสริมเป็นผลิตภัณฑ์เพื่อสุขภาพ ไม่ใช่การวินิจฉัย การรักษา หรือคำแนะนำให้หยุดยา",
-          reviewTitle: "ตรวจสอบและสร้างบรีฟ",
           section: (current: number, total: number) =>
             `ส่วนที่ ${current} จาก ${total}`,
           sectionHint: "ตอบคำถามในส่วนนี้เพื่อไปต่อ",
           skipOptional: "ข้ามขั้นตอนเสริม",
-          summaryTitle: "สรุปบรีฟของคุณ",
           step: (current: number, total: number) =>
             `คำถามที่ ${current} จาก ${total}`,
           validation: "ตอบคำถามจำเป็นเพื่อไปต่อ",
@@ -1819,42 +1854,40 @@ export function AssessmentFlow({
           continue: "Continue",
           currentStep: "Current step",
           infoLabel: "Why this matters",
-          notesHint:
-            "Add anything useful, such as sensitivities, constraints, products you already use, or ingredients you want to avoid.",
-          notesLabel: "Anything else we should know?",
-          optionalSection: "Optional precision",
-          requiredSection: "Basic questions",
+          optionalSection: "Precision",
+          requiredSection: "Foundation",
           processingError: "We could not start processing. Please try again.",
           processingQueue: (count: number) =>
             count > 0
               ? `${count} ${count === 1 ? "person is" : "people are"} queued ahead of you`
               : "Your formulation is being prepared",
           processingSteps: {
-            sent: "Preferences sent for processing",
-            preparing: "Preparing your formulation",
-            ready: "Formulation ready"
+            assessment: "Assessment complete",
+            score: "Preparing your HealthScore",
+            payment: "Processing Payment",
+            formulation: "Preparing Formulation",
+            safety: "Refining Formulation",
+            results: "Complete"
           },
           processingSubtitle:
             "We have received your preferences and queued them for formulation.",
           processingTitle: "Processing your assessment",
-          scoreProcessingQueue: "Calculating your HealthScore",
+          scoreProcessingQueue: "Preparing your HealthScore",
           scoreProcessingSteps: {
-            assessment: "Assessment saved",
-            score: "Calculating your HealthScore",
-            gate: "Show example or plan options",
-            plan: "Select a plan",
-            payment: "Payment",
-            formulation: "Prepare the full formulation",
-            safety: "Run suitability checks",
-            results: "Show your personalised formulation"
+            assessment: "Assessment complete",
+            score: "Preparing your HealthScore",
+            payment: "Processing Payment",
+            formulation: "Preparing Formulation",
+            safety: "Refining Formulation",
+            results: "Complete"
           },
           scoreProcessingSubtitle:
             "We are scoring your main wellness domains before showing the plan options.",
-          scoreProcessingTitle: "Calculating your HealthScore",
+          scoreProcessingTitle: "Preparing your HealthScore",
           scoreGate: {
             emailButton: "Send My Free 3-Point Plan + HealthScore",
             emailDescription:
-              "We'll send you a free 3-point nutrition plan covering the basic essentials to help you on your wellness journey.",
+              "Enter your email address and we'll send you a free 3-point nutrition plan covering the essentials to help you on your wellness journey.",
             emailDivider: "or get a free 3-point nutrition plan by email",
             emailError: "Enter a valid email address",
             emailPlaceholder: "your@email.com",
@@ -1874,9 +1907,33 @@ export function AssessmentFlow({
           },
           exampleExit: {
             body:
-              "We are preparing the full formulation and sending your short example email. The delivery result will be logged for traceability.",
-            title: "Your example is being prepared"
+              "We are preparing the full formulation in the background and sending a focused 3-point nutrition example to your inbox.",
+            chatBody:
+              "Choose your preferred channel to continue with the specialist AI advisor. WhatsApp can open with your plan attached, and Telegram can do the same when it uses a bot link. LINE may need you to send the plan shown below unless a LIFF deep link is configured.",
+            chatButton: "Open chat",
+            chatPlanLabel: "Plan",
+            chatQrAlt: "QR code to connect with the MattaNutra AI advisor",
+            chatTitle: "Chat with the AI advisor while you wait",
+            emailPrefix: "We will send it to",
+            testimonialTitle:
+              "People use MattaNutra to turn wellness data into practical next steps",
+            title: "Your example is being prepared",
+            upsellBody:
+              "A paid plan unlocks the full nutritional formulation, dose guidance, and product search guide instead of the short email example.",
+            upsellTitle: "Want the full formulation now?"
           },
+          exampleProcessingQueue: "Preparing your email example",
+          exampleProcessingSteps: {
+            assessment: "Assessment complete",
+            score: "Preparing your HealthScore",
+            payment: "Processing Payment",
+            formulation: "Requesting Formulation",
+            safety: "Refining Formulation",
+            results: "Complete"
+          },
+          exampleProcessingSubtitle:
+            "We are preparing the full formulation first, then selecting the key points for your email example.",
+          exampleProcessingTitle: "Preparing your example",
           retry: "Try again",
           statusLabels: {
             active: "Now",
@@ -1884,26 +1941,10 @@ export function AssessmentFlow({
             failed: "Failed",
             pending: "Pending"
           },
-          reviewDescription:
-            "Review your draft profile, then generate the formulation brief.",
-          reviewQuestion: "Review your brief",
-          reviewReassessment: {
-            button: "Save reassessment email",
-            description:
-              "Your score changes as your health changes. Opt in for a free 60-day reassessment — we'll show you exactly how much your score has moved and what's driving it.",
-            error: "Enter a valid email address",
-            placeholder: "your@email.com",
-            saved: "Reassessment email saved",
-            title: "Keep your HealthScore improving"
-          },
-          reviewSafety:
-            "Supplements are optional wellness products, not diagnosis, treatment, or advice to stop medication.",
-          reviewTitle: "Review and generate",
           section: (current: number, total: number) =>
             `Section ${current} of ${total}`,
           sectionHint: "Complete the required questions in this section to continue.",
           skipOptional: "Skip optional",
-          summaryTitle: "Your brief overview",
           step: (current: number, total: number) =>
             `Question ${current} of ${total}`,
           validation: "Answer the required questions to continue",
@@ -2602,83 +2643,20 @@ export function AssessmentFlow({
         }
       ],
       title: copy.conditions.title
-    },
-    {
-      description: ui.reviewDescription,
-      id: "review",
-      questions: [
-        {
-          content: (
-            <>
-              <div className="rounded-lg bg-background p-4">
-                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#20343A]">
-                  {ui.summaryTitle}
-                </h3>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {previewTags.length > 0 ? (
-                    previewTags.map((tag, index) => (
-                      <span
-                        key={`${tag}-${index}`}
-                        className="rounded-full bg-[#3A7BD5]/10 px-3 py-1 text-xs font-semibold text-[#20343A]"
-                      >
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      {copy.progress.start}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <label className="mt-5 block">
-                <span className="text-sm font-semibold text-[#20343A]">
-                  {ui.notesLabel}
-                </span>
-                <span className="mt-1 block text-sm leading-6 text-muted-foreground">
-                  {ui.notesHint}
-                </span>
-                <textarea
-                  value={answers.notes}
-                  rows={5}
-                  className="mt-3 block w-full resize-y rounded-md border border-foreground/10 bg-white px-4 py-3 text-sm leading-6 text-[#20343A] outline-none transition focus:border-[#1FA77A] focus:ring-2 focus:ring-[#1FA77A]/15"
-                  onChange={(event) =>
-                    setAnswers((current) => ({
-                      ...current,
-                      notes: event.target.value
-                    }))
-                  }
-                />
-              </label>
-
-              <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                {ui.reviewSafety}
-              </p>
-            </>
-          ),
-          id: "review",
-          isAnswered: canGenerate,
-          label: ui.reviewQuestion,
-          required: true
-        }
-      ],
-      title: ui.reviewTitle
     }
   ];
 
-  function fillRandomDefaultsAndReview() {
+  function fillRandomDefaultsAndFinalStep() {
     setAnswers(buildRandomDevAnswers());
     setProcessingError("");
     setExampleError("");
-    setReviewReassessmentError("");
     setShowPlans(false);
     setShowExampleExit(false);
     setProcessingStatus(null);
     setCapturedStatus(null);
+    setExampleRequest(null);
     captureInFlight.current = null;
-    const reviewIndex = sections.findIndex((section) => section.id === "review");
-    setSectionIndex(reviewIndex >= 0 ? reviewIndex : sections.length - 1);
+    setSectionIndex(sections.length - 1);
     setQuestionIndex(0);
     window.scrollTo({ behavior: "smooth", top: 0 });
   }
@@ -2698,8 +2676,11 @@ export function AssessmentFlow({
   const currentStepComplete =
     currentSection.optional ||
     requiredQuestions.every((question) => !question.required || question.isAnswered);
-  const isReview = currentSection.id === "review";
-  const canMoveForward = isReview ? canGenerate : currentStepComplete;
+  const isFinalSection = sectionIndex === sections.length - 1;
+  const isFinalStep =
+    isFinalSection &&
+    (!isCompact || currentQuestionIndex >= currentSection.questions.length - 1);
+  const canMoveForward = isFinalStep ? canGenerate : currentStepComplete;
   const flowStepTotal = isCompact
     ? sections.reduce((total, section) => total + section.questions.length, 0)
     : sections.length;
@@ -2712,10 +2693,6 @@ export function AssessmentFlow({
     : sectionIndex + 1;
 
   function sectionIsComplete(section: AssessmentSection) {
-    if (section.id === "review") {
-      return canGenerate;
-    }
-
     if (section.optional) {
       return section.questions.some((question) => question.isAnswered);
     }
@@ -2728,7 +2705,6 @@ export function AssessmentFlow({
   function goBack() {
     setProcessingError("");
     setExampleError("");
-    setReviewReassessmentError("");
 
     if (isCompact && currentQuestionIndex > 0) {
       setQuestionIndex(currentQuestionIndex - 1);
@@ -2751,34 +2727,11 @@ export function AssessmentFlow({
     setShowPlans(false);
     setShowExampleExit(false);
     setProcessingStatus(null);
+    setExampleRequest(null);
   }
 
   function goNext() {
     if (!canMoveForward) {
-      return;
-    }
-
-    if (isReview) {
-      let nextAnswers = answers;
-      const emailInput = answers.reassessmentEmail.trim();
-
-      if (emailInput) {
-        const emailValidation = validateLeadEmail(emailInput);
-
-        if (!emailValidation.ok) {
-          setReviewReassessmentError(ui.reviewReassessment.error);
-          return;
-        }
-
-        const email = normalizeLeadEmail(emailValidation.email);
-        nextAnswers = { ...answers, reassessmentEmail: email };
-        setAnswers(nextAnswers);
-        setExampleEmail(email);
-      } else {
-        setReviewReassessmentError("");
-      }
-
-      void prepareHealthScoreGate(nextAnswers);
       return;
     }
 
@@ -2787,11 +2740,21 @@ export function AssessmentFlow({
       return;
     }
 
+    if (isFinalStep) {
+      void prepareHealthScoreGate(answers);
+      return;
+    }
+
     setSectionIndex(Math.min(sectionIndex + 1, sections.length - 1));
     setQuestionIndex(0);
   }
 
   function skipOptionalSection() {
+    if (isFinalStep) {
+      void prepareHealthScoreGate(answers);
+      return;
+    }
+
     setSectionIndex(Math.min(sectionIndex + 1, sections.length - 1));
     setQuestionIndex(0);
   }
@@ -2800,8 +2763,15 @@ export function AssessmentFlow({
     setSelectedPlan(planId);
     setShowPlans(false);
     setShowExampleExit(false);
+    setExampleRequest(null);
     setProcessingMode("formulation");
     void startProcessing(planId);
+  }
+
+  function showProcessingStatus(status: ProcessingStatus) {
+    displayedStepStartedAt.current = Date.now();
+    setDisplayedProcessingStatus(getPacedProcessingStatus(status, 0));
+    setProcessingStatus(status);
   }
 
   async function prepareHealthScoreGate(answerPayload = answers) {
@@ -2809,16 +2779,15 @@ export function AssessmentFlow({
     setExampleError("");
     setShowPlans(false);
     setShowExampleExit(false);
+    setExampleRequest(null);
     setProcessingMode("score");
-    setProcessingStatus({
+    showProcessingStatus({
       planId: "",
       queuePosition: 0,
       status: "preparing",
       steps: [
         { id: "assessment", state: "complete" },
         { id: "score", state: "active" },
-        { id: "gate", state: "pending" },
-        { id: "plan", state: "pending" },
         { id: "payment", state: "pending" },
         { id: "formulation", state: "pending" },
         { id: "safety", state: "pending" },
@@ -2845,8 +2814,6 @@ export function AssessmentFlow({
         steps: [
           { id: "assessment", state: "complete" },
           { id: "score", state: "complete" },
-          { id: "gate", state: "active" },
-          { id: "plan", state: "pending" },
           { id: "payment", state: "pending" },
           { id: "formulation", state: "pending" },
           { id: "safety", state: "pending" },
@@ -2854,9 +2821,6 @@ export function AssessmentFlow({
         ]
       });
 
-      await new Promise((resolve) => window.setTimeout(resolve, 650));
-      setProcessingStatus(null);
-      setShowPlans(true);
     } catch {
       setProcessingStatus(null);
       setProcessingError(ui.processingError);
@@ -2924,14 +2888,17 @@ export function AssessmentFlow({
     setProcessingError("");
     pollFailureCount.current = 0;
     setProcessingMode("formulation");
-    setProcessingStatus({
+    showProcessingStatus({
       planId: "",
       queuePosition: 0,
       status: "queued",
       steps: [
-        { id: "sent", state: "active" },
-        { id: "preparing", state: "pending" },
-        { id: "ready", state: "pending" }
+        { id: "assessment", state: "complete" },
+        { id: "score", state: "complete" },
+        { id: "payment", state: "active" },
+        { id: "formulation", state: "pending" },
+        { id: "safety", state: "pending" },
+        { id: "results", state: "pending" }
       ]
     });
 
@@ -3018,10 +2985,24 @@ export function AssessmentFlow({
         throw new Error("Unable to request example brief");
       }
 
+      const result = (await response.json()) as {
+        planId?: string;
+        requestId?: string;
+      };
+      const planId = result.planId ?? captured.planId;
+      const requestId = result.requestId ?? "";
+
+      if (!requestId) {
+        throw new Error("Example request did not return a request id");
+      }
+
+      setExampleRequest({ email, planId, requestId });
+      setProcessingMode("example");
       setShowPlans(false);
-      setShowExampleExit(true);
-      setProcessingStatus(null);
+      setShowExampleExit(false);
+      showProcessingStatus(buildExampleProcessingStatus(planId));
       window.scrollTo({ behavior: "smooth", top: 0 });
+      setProcessingStatus(buildExampleQueuedStatus(planId));
     } catch {
       setExampleError(ui.processingError);
     } finally {
@@ -3030,30 +3011,120 @@ export function AssessmentFlow({
   }
 
   useEffect(() => {
+    if (!processingStatus) {
+      displayedStepStartedAt.current = 0;
+      setDisplayedProcessingStatus(null);
+      return;
+    }
+
+    if (processingStatus.status === "failed") {
+      displayedStepStartedAt.current = Date.now();
+      setDisplayedProcessingStatus(processingStatus);
+      return;
+    }
+
+    if (!displayedProcessingStatus) {
+      displayedStepStartedAt.current = Date.now();
+      setDisplayedProcessingStatus(getPacedProcessingStatus(processingStatus, 0));
+      return;
+    }
+
+    const displayedStepIndex = getProcessingStepIndex(displayedProcessingStatus);
+    const targetStepIndex = getProcessingStepIndex(processingStatus);
+    const elapsed = Date.now() - displayedStepStartedAt.current;
+    const wait = Math.max(0, PROCESSING_STEP_MIN_MS - elapsed);
+
+    if (targetStepIndex > displayedStepIndex) {
+      const timeout = window.setTimeout(() => {
+        displayedStepStartedAt.current = Date.now();
+        setDisplayedProcessingStatus(
+          getPacedProcessingStatus(processingStatus, displayedStepIndex + 1)
+        );
+      }, wait);
+
+      return () => window.clearTimeout(timeout);
+    }
+
+    const targetStepComplete = isStepComplete(
+      processingStatus,
+      displayedStepIndex
+    );
+    const displayedStepComplete = isStepComplete(
+      displayedProcessingStatus,
+      displayedStepIndex
+    );
+    const targetReadyAtDisplayedStep =
+      processingStatus.status === "ready" &&
+      targetStepIndex === displayedStepIndex &&
+      targetStepComplete;
+
+    if (targetReadyAtDisplayedStep && !displayedStepComplete) {
+      const timeout = window.setTimeout(() => {
+        setDisplayedProcessingStatus(
+          getPacedProcessingStatus(processingStatus, displayedStepIndex, true)
+        );
+      }, wait);
+
+      return () => window.clearTimeout(timeout);
+    }
+  }, [displayedProcessingStatus, processingStatus]);
+
+  useEffect(() => {
+    if (!displayedProcessingStatus || displayedProcessingStatus.status !== "ready") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      if (processingMode === "score") {
+        setProcessingStatus(null);
+        setShowPlans(true);
+        return;
+      }
+
+      if (processingMode === "example") {
+        setProcessingStatus(null);
+        setShowExampleExit(true);
+        return;
+      }
+
+      if (displayedProcessingStatus.planId) {
+        router.push(
+          `/${locale}/assessment/results?plan=${displayedProcessingStatus.planId}`
+        );
+      }
+    }, PROCESSING_COMPLETE_HOLD_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [displayedProcessingStatus, locale, processingMode, router]);
+
+  useEffect(() => {
     if (!processingStatus?.planId) {
       return;
     }
 
-    const planId = processingStatus.planId;
-
     if (processingStatus.status === "ready") {
-      const timeout = window.setTimeout(() => {
-        router.push(`/${locale}/assessment/results?plan=${planId}`);
-      }, 1200);
-
-      return () => window.clearTimeout(timeout);
+      return;
     }
 
     if (processingStatus.status === "failed") {
       return;
     }
 
+    const planId = processingStatus.planId;
     let cancelled = false;
 
     async function pollStatus() {
       try {
+        if (processingMode === "example" && !exampleRequest?.requestId) {
+          return;
+        }
+
+        const url =
+          processingMode === "example"
+            ? `/api/assessment/${encodeURIComponent(planId)}/example?requestId=${encodeURIComponent(exampleRequest?.requestId ?? "")}`
+            : `/api/assessment/${encodeURIComponent(planId)}`;
         const response = await fetch(
-          `/api/assessment/${encodeURIComponent(planId)}`,
+          url,
           {
             cache: "no-store"
           }
@@ -3090,56 +3161,72 @@ export function AssessmentFlow({
       window.clearInterval(interval);
     };
   }, [
+    exampleRequest?.requestId,
     locale,
+    processingMode,
     processingStatus?.planId,
     processingStatus?.status,
-    router,
     ui.processingError
   ]);
+
+  const visibleProcessingStatus =
+    displayedProcessingStatus ?? processingStatus;
 
   return (
     <>
       <div className="mx-auto w-full max-w-6xl px-6 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-10 sm:px-8 sm:pb-16 lg:pt-14">
-        {processingStatus ? (
+        {visibleProcessingStatus ? (
           <ProcessingPanel
             error={
-              processingStatus.status === "failed"
+              visibleProcessingStatus.status === "failed"
                 ? ui.processingError
                 : processingError
             }
             onRetry={() =>
               processingMode === "score"
                 ? void prepareHealthScoreGate()
-                : void startProcessing()
+                : processingMode === "example"
+                  ? void requestExampleBrief()
+                  : void startProcessing()
             }
             queueLabel={
               processingMode === "score"
                 ? ui.scoreProcessingQueue
-                : ui.processingQueue(processingStatus.queuePosition)
+                : processingMode === "example"
+                  ? ui.exampleProcessingQueue
+                  : ui.processingQueue(visibleProcessingStatus.queuePosition)
             }
             retryLabel={ui.retry}
-            status={processingStatus}
+            status={visibleProcessingStatus}
             statusLabels={ui.statusLabels}
             stepLabels={
               processingMode === "score"
                 ? ui.scoreProcessingSteps
-                : ui.processingSteps
+                : processingMode === "example"
+                  ? ui.exampleProcessingSteps
+                  : ui.processingSteps
             }
             subtitle={
               processingMode === "score"
                 ? ui.scoreProcessingSubtitle
-                : ui.processingSubtitle
+                : processingMode === "example"
+                  ? ui.exampleProcessingSubtitle
+                  : ui.processingSubtitle
             }
             title={
               processingMode === "score"
                 ? ui.scoreProcessingTitle
-                : ui.processingTitle
+                : processingMode === "example"
+                  ? ui.exampleProcessingTitle
+                  : ui.processingTitle
             }
           />
         ) : showExampleExit ? (
           <ExampleExitPanel
-            body={ui.exampleExit.body}
-            title={ui.exampleExit.title}
+            content={ui.exampleExit}
+            email={exampleRequest?.email ?? exampleEmail}
+            locale={locale}
+            planId={exampleRequest?.planId ?? capturedStatus?.planId ?? ""}
           />
         ) : showPlans ? (
           <PlanSelectionPanel
@@ -3217,9 +3304,9 @@ export function AssessmentFlow({
                     <button
                       type="button"
                       className="mt-6 inline-flex items-center justify-center rounded-md border border-[#3A7BD5]/25 bg-white/85 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#245f9f] shadow-sm backdrop-blur-sm transition hover:bg-white"
-                      onClick={fillRandomDefaultsAndReview}
+                      onClick={fillRandomDefaultsAndFinalStep}
                     >
-                      Dev: random defaults to review
+                      Dev: random defaults to final step
                     </button>
                   ) : null}
                 </div>
@@ -3227,15 +3314,11 @@ export function AssessmentFlow({
             ) : null}
 
             <div>
-              <SectionProgress
-                progress={progress}
-                progressLabel={progressLabel}
-              />
               <SectionCard
                 done={sectionIsComplete(currentSection)}
                 number={sectionIndex + 1}
                 sectionLabel={
-                  currentSection.optional || currentSection.id === "review"
+                  currentSection.optional
                     ? ui.optionalSection
                     : ui.requiredSection
                 }
@@ -3261,54 +3344,6 @@ export function AssessmentFlow({
                 ))}
               </SectionCard>
 
-              {isReview ? (
-                <section className="mt-6 rounded-lg bg-[#F3F8FF] px-5 py-8 ring-1 ring-[#3A7BD5]/10 sm:px-6 lg:px-8">
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8">
-                    <div className="lg:col-span-7">
-                      <h3 className="max-w-xl text-2xl font-semibold tracking-tight text-balance text-[#20343A] sm:text-3xl">
-                        <HighlightedHealthScoreTitle
-                          title={ui.reviewReassessment.title}
-                        />
-                      </h3>
-                      <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                        {ui.reviewReassessment.description}
-                      </p>
-                    </div>
-                    <div className="w-full max-w-md lg:col-span-5 lg:pt-1">
-                      <div className="flex flex-col gap-3">
-                        <label
-                          htmlFor="review-reassessment-email"
-                          className="sr-only"
-                        >
-                          {ui.reviewReassessment.placeholder}
-                        </label>
-                        <input
-                          id="review-reassessment-email"
-                          name="review-reassessment-email"
-                          type="email"
-                          value={answers.reassessmentEmail}
-                          placeholder={ui.reviewReassessment.placeholder}
-                          autoComplete="email"
-                          className="min-w-0 rounded-md bg-white px-3.5 py-2.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 transition placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#1FA77A] sm:text-sm/6"
-                          onChange={(event) => {
-                            setReviewReassessmentError("");
-                            setAnswers((current) => ({
-                              ...current,
-                              reassessmentEmail: event.target.value
-                            }));
-                          }}
-                        />
-                      </div>
-                      {reviewReassessmentError ? (
-                        <p className="mt-3 text-sm font-medium text-red-600">
-                          {reviewReassessmentError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-
               {!canMoveForward ? (
                 <p className="mt-3 text-sm font-medium text-muted-foreground">
                   {ui.validation}
@@ -3319,6 +3354,13 @@ export function AssessmentFlow({
                   {processingError}
                 </p>
               ) : null}
+
+              <SectionProgress
+                className="mt-5"
+                framed={true}
+                progress={progress}
+                progressLabel={progressLabel}
+              />
 
               <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <button
@@ -3331,7 +3373,7 @@ export function AssessmentFlow({
                 </button>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  {currentSection.optional ? (
+                  {currentSection.optional && !isFinalStep ? (
                     <button
                       type="button"
                       className="rounded-md px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground transition hover:text-[#20343A]"
@@ -3347,8 +3389,8 @@ export function AssessmentFlow({
                     className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1FA77A] px-6 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-sm transition enabled:hover:bg-[#188a65] disabled:cursor-not-allowed disabled:bg-foreground/15 disabled:text-muted-foreground"
                     onClick={goNext}
                   >
-                    {isReview ? copy.fixedAction.generate : ui.continue}
-                    {isReview ? (
+                    {isFinalStep ? copy.fixedAction.generate : ui.continue}
+                    {isFinalStep ? (
                       <BeakerIcon aria-hidden={true} className="size-5" />
                     ) : null}
                   </button>
@@ -3372,6 +3414,8 @@ type SectionCardProps = Readonly<{
 }>;
 
 type SectionProgressProps = Readonly<{
+  className?: string;
+  framed?: boolean;
   progress: number;
   progressLabel: string;
 }>;
@@ -3459,7 +3503,7 @@ function PlanSelectionPanel({
           {content.eyebrow}
         </p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl">
-          <HighlightedHealthScoreTitle title={scoreContent.title} />
+          <HighlightedBrandText text={scoreContent.title} />
         </h1>
       </div>
       <p className="mx-auto mt-6 max-w-2xl text-center text-lg font-medium text-pretty text-gray-600 sm:text-xl/8">
@@ -3647,14 +3691,21 @@ function PlanSelectionPanel({
   );
 }
 
-function HighlightedHealthScoreTitle({ title }: Readonly<{ title: string }>) {
-  const parts = title.split(/(HealthScore)/i);
+function HighlightedBrandText({ text }: Readonly<{ text: string }>) {
+  const parts = text.split(/(HealthScore|MattaNutra)/i);
 
   return (
     <>
       {parts.map((part, index) =>
         part.toLowerCase() === "healthscore" ? (
           <span key={`${part}-${index}`} className="text-[#1FA77A]">
+            {part}
+          </span>
+        ) : part.toLowerCase() === "mattanutra" ? (
+          <span
+            key={`${part}-${index}`}
+            className="font-semibold text-[#3A7BD5]"
+          >
             {part}
           </span>
         ) : (
@@ -3822,8 +3873,8 @@ function HealthScorePanel({
     <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-[#F7FAFD] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-7">
       <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#3A7BD5]">
-            {labels.score}
+          <p className="text-xs font-semibold tracking-[0.08em] text-[#3A7BD5]">
+            <HighlightedBrandText text={labels.score} />
           </p>
           <div className="mt-3 flex items-end gap-3">
             <span className="text-6xl font-semibold tracking-normal text-[#20343A]">
@@ -3903,25 +3954,221 @@ function HealthScorePanel({
   );
 }
 
+function getExampleTestimonial(locale: Locale) {
+  return locale === "th"
+    ? {
+        meta: "ออกกำลังกาย 4 วันต่อสัปดาห์",
+        name: "เมย์",
+        quote:
+          "ชอบที่ MattaNutra ผูกคำแนะนำกับการนอน อาหาร และการฟื้นตัวจริง ไม่ใช่แค่รายการอาหารเสริม ทำให้รู้ว่าควรเริ่มตรงไหนก่อน"
+      }
+    : {
+        meta: "Trains 4 days a week",
+        name: "May",
+        quote:
+          "MattaNutra connected the guidance to my sleep, food, and recovery, not just a supplement list. It made the next steps feel practical instead of generic."
+      };
+}
+
 function ExampleExitPanel({
-  body,
-  title
+  content,
+  email,
+  locale,
+  planId
 }: Readonly<{
-  body: string;
-  title: string;
+  content: {
+    body: string;
+    chatBody: string;
+    chatButton: string;
+    chatPlanLabel: string;
+    chatQrAlt: string;
+    chatTitle: string;
+    emailPrefix: string;
+    testimonialTitle: string;
+    title: string;
+    upsellBody: string;
+    upsellTitle: string;
+  };
+  email: string;
+  locale: Locale;
+  planId: string;
 }>) {
+  const testimonial = getExampleTestimonial(locale);
+
   return (
-    <section className="mx-auto max-w-3xl rounded-lg bg-white p-8 text-center ring-1 ring-foreground/10 sm:p-10">
-      <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#1FA77A]/10">
-        <CheckIcon aria-hidden={true} className="size-7 text-[#1FA77A]" />
-      </div>
-      <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
-        {title}
-      </h1>
-      <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-muted-foreground">
-        {body}
-      </p>
-    </section>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <section className="overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
+        <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="p-8 text-center sm:p-10 lg:text-left">
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#1FA77A]/10 lg:mx-0">
+              <CheckIcon aria-hidden={true} className="size-7 text-[#1FA77A]" />
+            </div>
+            <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
+              {content.title}
+            </h1>
+            <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
+              {content.body}
+            </p>
+            {email ? (
+              <p className="mt-5 inline-flex max-w-full rounded-md bg-[#1FA77A]/10 px-3 py-2 text-sm font-semibold text-[#126b4f]">
+                <span className="truncate">
+                  {content.emailPrefix} {email}
+                </span>
+              </p>
+            ) : null}
+          </div>
+          <div className="relative min-h-72 bg-[#EAF5FF]">
+            <Image
+              alt=""
+              fill
+              sizes="(min-width: 1024px) 480px, 100vw"
+              src="/mainphoto.png"
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-linear-to-br from-[#EAF5FF]/15 via-transparent to-[#20343A]/20" />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg bg-[#EAF5FF] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8">
+        <p className="text-sm font-semibold tracking-[0.04em] text-[#3A7BD5]">
+          <HighlightedBrandText text="MattaNutra" />
+        </p>
+        <h2 className="mt-3 text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
+          {content.upsellTitle}
+        </h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
+          {content.upsellBody}
+        </p>
+      </section>
+
+      <section className="isolate overflow-hidden rounded-lg bg-white px-6 ring-1 ring-foreground/10 lg:px-8">
+        <div className="relative mx-auto max-w-2xl py-16 sm:py-20 lg:max-w-4xl">
+          <div className="absolute left-1/2 top-0 -z-10 h-[32rem] w-[64rem] -translate-x-1/2 bg-[radial-gradient(50%_100%_at_top,#DDF7EC,white)] opacity-40 lg:left-36" />
+          <div className="absolute inset-y-0 right-1/2 -z-10 mr-12 w-[150vw] origin-bottom-left skew-x-[-30deg] bg-white shadow-xl shadow-[#3A7BD5]/10 ring-1 ring-[#EAF5FF] sm:mr-20 md:mr-0 lg:right-full lg:-mr-36 lg:origin-center" />
+          <figure className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-6 gap-y-8 sm:grid-cols-[5rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-x-10">
+            <div className="relative col-start-2 row-start-1 lg:row-start-2">
+              <svg
+                fill="none"
+                viewBox="0 0 162 128"
+                aria-hidden={true}
+                className="absolute -top-12 left-0 -z-10 h-32 stroke-[#20343A]/10"
+              >
+                <path
+                  d="M65.5697 118.507L65.8918 118.89C68.9503 116.314 71.367 113.253 73.1386 109.71C74.9162 106.155 75.8027 102.28 75.8027 98.0919C75.8027 94.237 75.16 90.6155 73.8708 87.2314C72.5851 83.8565 70.8137 80.9533 68.553 78.5292C66.4529 76.1079 63.9476 74.2482 61.0407 72.9536C58.2795 71.4949 55.276 70.767 52.0386 70.767C48.9935 70.767 46.4686 71.1668 44.4872 71.9924L44.4799 71.9955L44.4726 71.9988C42.7101 72.7999 41.1035 73.6831 39.6544 74.6492C38.2407 75.5916 36.8279 76.455 35.4159 77.2394L35.4047 77.2457L35.3938 77.2525C34.2318 77.9787 32.6713 78.3634 30.6736 78.3634C29.0405 78.3634 27.5131 77.2868 26.1274 74.8257C24.7483 72.2185 24.0519 69.2166 24.0519 65.8071C24.0519 60.0311 25.3782 54.4081 28.0373 48.9335C30.703 43.4454 34.3114 38.345 38.8667 33.6325C43.5812 28.761 49.0045 24.5159 55.1389 20.8979C60.1667 18.0071 65.4966 15.6179 71.1291 13.7305C73.8626 12.8145 75.8027 10.2968 75.8027 7.38572C75.8027 3.6497 72.6341 0.62247 68.8814 1.1527C61.1635 2.2432 53.7398 4.41426 46.6119 7.66522C37.5369 11.6459 29.5729 17.0612 22.7236 23.9105C16.0322 30.6019 10.618 38.4859 6.47981 47.558L6.47976 47.558L6.47682 47.5647C2.4901 56.6544 0.5 66.6148 0.5 77.4391C0.5 84.2996 1.61702 90.7679 3.85425 96.8404L3.8558 96.8445C6.08991 102.749 9.12394 108.02 12.959 112.654L12.959 112.654L12.9646 112.661C16.8027 117.138 21.2829 120.739 26.4034 123.459L26.4033 123.459L26.4144 123.465C31.5505 126.033 37.0873 127.316 43.0178 127.316C47.5035 127.316 51.6783 126.595 55.5376 125.148L55.5376 125.148L55.5477 125.144C59.5516 123.542 63.0052 121.456 65.9019 118.881L65.5697 118.507Z"
+                  id="example-testimonial-quote"
+                />
+                <use x={86} href="#example-testimonial-quote" />
+              </svg>
+              <p className="text-sm font-semibold leading-6 text-[#3A7BD5]">
+                <HighlightedBrandText text={content.testimonialTitle} />
+              </p>
+              <blockquote className="mt-5 text-xl/8 font-semibold text-[#20343A] sm:text-2xl/9">
+                <p>
+                  <HighlightedBrandText text={testimonial.quote} />
+                </p>
+              </blockquote>
+            </div>
+            <div className="col-start-1 row-start-1 w-16 sm:w-20 lg:row-span-4 lg:w-72">
+              <img
+                alt=""
+                src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=576&h=576&q=80"
+                className="aspect-square rounded-xl bg-[#EAF5FF] object-cover lg:rounded-3xl"
+              />
+            </div>
+            <figcaption className="col-start-2 row-start-2 text-base lg:row-start-3">
+              <div className="font-semibold text-[#20343A]">
+                {testimonial.name}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {testimonial.meta}
+              </div>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section className="rounded-lg bg-white p-6 ring-1 ring-foreground/10 sm:p-8">
+        <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
+              {content.chatTitle}
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
+              {content.chatBody}
+            </p>
+          </div>
+          {planId ? (
+            <div className="flex max-w-full flex-wrap items-center gap-2 text-xs lg:justify-end">
+              <span className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {content.chatPlanLabel}
+              </span>
+              <code className="max-w-full truncate rounded-md bg-background px-2.5 py-1.5 font-mono text-[11px] font-medium text-muted-foreground ring-1 ring-foreground/10">
+                {planId}
+              </code>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-7 grid gap-4 lg:grid-cols-3">
+          {buildChatChannels(planId).map((channel) => {
+            const qrUrl = `/api/qr?data=${encodeURIComponent(channel.url)}`;
+
+            return (
+              <article
+                key={channel.id}
+                className="rounded-lg border border-foreground/10 bg-white p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <Image
+                    alt={`${channel.name} logo`}
+                    height={32}
+                    src={channel.iconUrl}
+                    width={32}
+                    className="size-8"
+                  />
+                  <h3 className="text-base font-semibold text-[#20343A]">
+                    {channel.name}
+                  </h3>
+                </div>
+                <div
+                  className={cx(
+                    "mt-4 flex justify-center rounded-md p-4 ring-1",
+                    channel.qrPanelClasses
+                  )}
+                >
+                  <div className="rounded-lg bg-white p-2 shadow-sm ring-1 ring-foreground/10">
+                    {/* Dynamic API URLs with query strings are intentionally not sent through next/image. */}
+                    <img
+                      alt={`${content.chatQrAlt}: ${channel.name}`}
+                      className="size-36"
+                      height={144}
+                      src={qrUrl}
+                      width={144}
+                    />
+                  </div>
+                </div>
+                <a
+                  className={cx(
+                    "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] transition focus:outline-none focus:ring-2 focus:ring-offset-2",
+                    channel.buttonClasses
+                  )}
+                  href={channel.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {content.chatButton}
+                  <ArrowTopRightOnSquareIcon
+                    aria-hidden={true}
+                    className="size-4"
+                  />
+                </a>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -3945,13 +4192,13 @@ function ProcessingPanel({
         />
       </div>
       <h1 className="mt-6 text-center text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
-        {title}
+        <HighlightedBrandText text={title} />
       </h1>
       <p className="mx-auto mt-4 max-w-xl text-center text-base leading-7 text-muted-foreground">
         {subtitle}
       </p>
-      <p className="mt-6 rounded-md bg-background px-4 py-3 text-center text-sm font-semibold uppercase tracking-[0.08em] text-[#20343A]">
-        {queueLabel}
+      <p className="mt-6 rounded-md bg-background px-4 py-3 text-center text-sm font-semibold text-[#20343A]">
+        <HighlightedBrandText text={queueLabel} />
       </p>
 
       <div className="mt-8 flow-root">
@@ -4043,9 +4290,21 @@ function ProcessingPanel({
   );
 }
 
-function SectionProgress({ progress, progressLabel }: SectionProgressProps) {
+function SectionProgress({
+  className,
+  framed = false,
+  progress,
+  progressLabel
+}: SectionProgressProps) {
   return (
-    <div className="mb-3 px-1 py-1">
+    <div
+      className={cx(
+        framed
+          ? "rounded-lg border border-foreground/10 bg-white px-4 py-3 shadow-sm"
+          : "px-1 py-1",
+        className
+      )}
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {progressLabel}

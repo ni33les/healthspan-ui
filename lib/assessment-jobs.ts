@@ -2,6 +2,13 @@ import type { HealthScoreResult } from "@/lib/health-score";
 
 type AssessmentStatus = "failed" | "queued" | "preparing" | "ready";
 type StepState = "active" | "complete" | "failed" | "pending";
+type AssessmentStepId =
+  | "assessment"
+  | "score"
+  | "payment"
+  | "formulation"
+  | "safety"
+  | "results";
 
 export type AssessmentPlan = "precision" | "pro";
 
@@ -14,7 +21,7 @@ export type AssessmentSnapshot = {
   queuePosition: number;
   status: AssessmentStatus;
   steps: Array<{
-    id: "sent" | "preparing" | "ready";
+    id: AssessmentStepId;
     state: StepState;
   }>;
 };
@@ -44,20 +51,24 @@ export function normalizeAssessmentPlan(plan: unknown): AssessmentPlan {
 }
 
 export function buildAssessmentSteps(status: AssessmentStatus) {
+  const isReady = status === "ready";
+  const hasFailed = status === "failed";
+
   return [
-    { id: "sent", state: "complete" },
+    { id: "assessment", state: "complete" },
+    { id: "score", state: "complete" },
+    { id: "payment", state: "complete" },
     {
-      id: "preparing",
-      state:
-        status === "ready"
-          ? "complete"
-          : status === "failed"
-            ? "failed"
-            : "active"
+      id: "formulation",
+      state: isReady ? "complete" : hasFailed ? "failed" : "active"
     },
     {
-      id: "ready",
-      state: status === "ready" ? "complete" : "pending"
+      id: "safety",
+      state: isReady ? "complete" : "pending"
+    },
+    {
+      id: "results",
+      state: isReady ? "complete" : "pending"
     }
   ] satisfies AssessmentSnapshot["steps"];
 }

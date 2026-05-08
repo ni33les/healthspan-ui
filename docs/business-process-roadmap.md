@@ -17,18 +17,21 @@ MattaNutra can capture an anonymous wellness assessment, calculate a HealthScore
 
 The new commercial flow is now:
 
-1. Save the assessment before payment.
-2. Optionally capture an email for a free 60-day reassessment reminder.
-3. Calculate and show the HealthScore.
-4. Let the user either request a free email example or choose a paid plan.
-5. For the free path, prepare the full formulation but send only a limited email example.
-6. For the paid path, continue processing and show the full formulation page.
-7. For reassessment reminders, schedule a recurring 60-day action that emails the user, supports unsubscribe, and invites the user back with the previous plan prefilled.
+1. Complete the assessment.
+2. Optionally capture an email for a free 60-day reassessment reminder inside the health considerations section.
+3. Save the assessment before payment.
+4. Calculate and show the HealthScore.
+5. Let the user either request a free email example or choose a paid plan.
+6. For the free path, request the formulation as a low-priority background job, then continue to the upsell page while the email example is prepared.
+7. The upsell page shows email expectation copy, testimonials, and chat connection options tied to the plan where supported.
+8. For the paid path, continue processing and show the full formulation page.
+9. For reassessment reminders, schedule a recurring 60-day action that emails the user, supports unsubscribe, and invites the user back with the previous plan prefilled.
 
 | Business Area | Current State | Status |
 | --- | --- | --- |
 | Brand and website | MattaNutra branding, English and Thai pages, legal pages, footer, and navigation exist. | Done |
 | Anonymous assessment | Questionnaire captures profile, goals, lifestyle, preferences, and constraints. | Done |
+| Reassessment email capture | Optional reassessment email capture appears inside the health considerations section before HealthScore generation. | Done |
 | Assessment storage | Assessment answers are saved before payment or plan selection. | Done |
 | Questionnaire sanity check | Required fields exist, but formal impossible-value and high-risk handling is not complete. | In Progress |
 | HealthScore | HealthScore is calculated from assessment answers before the paywall. | Done |
@@ -36,6 +39,7 @@ The new commercial flow is now:
 | Free example capture | Email can be captured for a free example lead path. | Done |
 | Example formulation | The full formulation is queued and prepared for the example path. | Done |
 | Example email | A limited HTML email preview is rendered, sent when email delivery is configured, and audited with delivery status and delivery reference. | Done |
+| Example upsell page | After example processing, the user sees email expectation copy, testimonial proof, and LINE, Telegram, and WhatsApp connection options. | Done |
 | Plan selection | Customer can choose Precision or Pro before full formulation processing. | Done |
 | Returning reassessment | A returning plan link can prefill previous answers and create a new formulation version for the same plan. | Done |
 | Payment | Plan gate exists, but payment collection is not active. | Pending |
@@ -50,12 +54,18 @@ The new commercial flow is now:
 | Follow-up and retention | Recurring reassessment scheduling, email sending, audit logging, unsubscribe handling, and return-link prefill exist. Wider lifecycle messaging is not active. | In Progress |
 | Admin and reporting | Operational dashboard and funnel reporting are not active. | Pending |
 
+## Product UX TODOs
+
+- Add an overall progress bar to the processing page so users can see total journey progress, not just the active step list.
+- Include nutrition guidance in the formulation output and carry that nutrition context into subsequent advisor conversations.
+
 ## Target Customer Journey
 
 ```mermaid
 flowchart LR
   A["Visitor lands on MattaNutra"] --> B["Completes anonymous assessment"]
-  B --> C["Assessment is saved"]
+  B --> B1["Optional reassessment email captured"]
+  B1 --> C["Assessment is saved"]
   C --> C1["Schedule reassessment if email supplied"]
   C1 --> D["Questionnaire sanity check"]
   D -->|Pass| E["HealthScore is calculated"]
@@ -64,9 +74,10 @@ flowchart LR
   F --> D
   E --> H["HealthScore gate"]
   H -->|Free example| I["Capture email"]
-  I --> J["Queue full formulation"]
-  J --> K["Render and send limited example email"]
-  K --> L["Show exit screen"]
+  I --> J["Show example processing"]
+  J --> K["Queue full formulation"]
+  K --> L["Render and send limited example email"]
+  L --> L1["Show upsell and chat options"]
   H -->|Paid plan| M["Select Precision or Pro"]
   M --> N["Payment"]
   N -->|Paid| O["Prepare full formulation"]
@@ -92,7 +103,7 @@ flowchart LR
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class A,B,C,C1,E,H,I,J,K,L,M,O,R,T,Z0,ZA,ZAA,ZB done;
+  class A,B,B1,C,C1,E,H,I,J,K,L,L1,M,O,R,T,Z0,ZA,ZAA,ZB done;
   class D,F,Q,S,U,V,X,Z progress;
   class G,N,P,W,Y pending;
 ```
@@ -102,18 +113,20 @@ flowchart LR
 ```mermaid
 flowchart TB
   G1["1. Establish trust"] --> G2["2. Capture assessment"]
-  G2 --> G3["3. Save assessment"]
+  G2 --> G2A["3. Optional reassessment email"]
+  G2A --> G3["4. Save assessment"]
   G3 --> G3A["Schedule reassessment if requested"]
-  G3A --> G4["4. Sanity check"]
-  G4 -->|Pass| G5["5. Calculate HealthScore"]
+  G3A --> G4["5. Sanity check"]
+  G4 -->|Pass| G5["6. Calculate HealthScore"]
   G4 -->|Fixable| G6["Ask for correction"]
   G4 -->|High-risk| G7["Human review"]
   G6 --> G4
-  G5 --> G8["6. Show HealthScore gate"]
+  G5 --> G8["7. Show HealthScore gate"]
   G8 -->|Example| G9["Capture email"]
-  G9 --> G10["Queue full formulation"]
-  G10 --> G11["Render and send limited example email"]
-  G11 --> G12["Exit and nurture"]
+  G9 --> G10["Show example processing"]
+  G10 --> G11["Queue full formulation"]
+  G11 --> G12["Render and send limited example email"]
+  G12 --> G12A["Upsell page with testimonials and chat"]
   G8 -->|Paid| G13["Select plan"]
   G13 --> G14["Payment"]
   G14 -->|Paid| G15["Generate formulation"]
@@ -138,8 +151,8 @@ flowchart TB
   classDef progress fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef pending fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px;
 
-  class G1,G2,G3,G3A,G5,G8,G9,G10,G11,G13,G15,G18,G20,G25A,G26,G27 done;
-  class G4,G6,G12,G17,G19,G21,G22,G24,G25 progress;
+  class G1,G2,G2A,G3,G3A,G5,G8,G9,G10,G11,G12,G12A,G13,G15,G18,G20,G25A,G26,G27 done;
+  class G4,G6,G17,G19,G21,G22,G24,G25 progress;
   class G7,G14,G16,G23 pending;
 ```
 
@@ -149,7 +162,7 @@ flowchart TB
 
 Purpose: collect enough anonymous information to personalise the formulation and calculate a useful HealthScore.
 
-Current state: built and working.
+Current state: built and working. The separate review step has been removed; once the final questionnaire section is complete, the user generates their HealthScore directly.
 
 The assessment captures:
 
@@ -190,14 +203,17 @@ Current state: built. Email capture, example formulation queueing, limited HTML 
 Target process:
 
 1. User enters email on the HealthScore gate.
-2. User sees an exit screen.
-3. Full formulation is prepared in the background.
-4. A limited example email is rendered from the full formulation.
-5. The email is sent through the configured email delivery account.
-6. The send result is audited with delivery status, recipient, email type, and delivery reference when available.
-7. If the user opted into reassessment reminders, the example email includes an unsubscribe link.
+2. User sees the shared processing page while the free formulation request is queued.
+3. The request is stored as a low-priority background job.
+4. The user lands on an upsell page explaining that the example is being prepared and should arrive by email.
+5. The background worker prepares the full formulation, then renders and sends only the limited example.
+6. The upsell page shows testimonial proof and invites the user to connect through LINE, Telegram, or WhatsApp with the plan attached where the channel supports it.
+7. The send result is audited with delivery status, recipient, email type, and delivery reference when available.
+8. If the user opted into reassessment reminders, the example email includes an unsubscribe link.
 
 The user receives only a limited example, even though the full formulation is processed.
+
+Queue priority: Pro paid jobs run first, then Precision paid jobs, then reassessment jobs, then free example formulation and email jobs.
 
 ### 4. Plan and Payment
 
