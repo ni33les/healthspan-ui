@@ -245,10 +245,6 @@ function slugify(value: string, fallback: string) {
   return slug || fallback;
 }
 
-function localizedFallback(value: string): LocalizedText {
-  return { en: value, th: value };
-}
-
 function readLocalizedText(
   record: Record<string, unknown>,
   key: string,
@@ -258,7 +254,10 @@ function readLocalizedText(
   const value = record[key];
 
   if (typeof value === "string" && value.trim()) {
-    return localizedFallback(value.trim());
+    errors.push(
+      `supplementBreakdown[${index}].${key} must be an object with en and th strings, not a plain string`
+    );
+    return { en: "", th: "" };
   }
 
   if (!isRecord(value)) {
@@ -292,28 +291,9 @@ function readLocalizedText(
   return { en, th };
 }
 
-function fallbackIngredientFromText(text: string, index: number) {
-  const supplement = text.trim() || `Item ${index + 1}`;
-
-  return {
-    category: "Review",
-    dailyDose: {
-      en: "Review label and clinician guidance",
-      th: "ตรวจสอบฉลากและคำแนะนำจากผู้เชี่ยวชาญ"
-    },
-    id: slugify(supplement, `review-item-${index + 1}`),
-    rationale: {
-      en: "Included for review because the analysis returned limited structured detail.",
-      th: "รวมไว้เพื่อให้ตรวจสอบเพิ่มเติม เนื่องจากผลวิเคราะห์มีรายละเอียดเชิงโครงสร้างจำกัด"
-    },
-    status: "review" as FormulationStatus,
-    supplement: localizedFallback(supplement)
-  } satisfies FormulationIngredient;
-}
-
 function textFromLocalizedCandidate(value: unknown) {
   if (typeof value === "string") {
-    return value.trim();
+    return "";
   }
 
   if (!isRecord(value)) {
@@ -363,14 +343,7 @@ function validateFormulation(value: unknown) {
 
   rawItems.forEach((item, index) => {
     if (typeof item === "string") {
-      const fallback = fallbackIngredientFromText(item, index);
-
-      if (seenIds.has(fallback.id)) {
-        fallback.id = `${fallback.id}-${index + 1}`;
-      }
-
-      seenIds.add(fallback.id);
-      supplementBreakdown.push(fallback);
+      errors.push(`supplementBreakdown[${index}] must be an object`);
       return;
     }
 

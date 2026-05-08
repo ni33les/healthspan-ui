@@ -11,7 +11,6 @@ import {
   type FormulationResult,
   type RecommendedProduct
 } from "@/lib/formulation-types";
-import { computeHealthScore } from "@/lib/health-score";
 import { getSql } from "@/lib/db";
 
 export type StoredAssessmentStatus =
@@ -294,6 +293,10 @@ export async function persistAssessmentSubmission({
     throw new Error("Assessment plan ID must be a UUID");
   }
 
+  if (!snapshot.healthScore) {
+    throw new Error("Assessment snapshot must include backend HealthScore");
+  }
+
   await ensureAssessmentSchema();
 
   await sql`
@@ -318,12 +321,7 @@ export async function persistAssessmentSubmission({
       ${status},
       ${sql.json(toJsonValue(answers))},
       ${sql.json(toJsonValue(buildAnswerSummary(answers)))},
-      ${sql.json(
-        toJsonValue(
-          snapshot.healthScore ??
-            computeHealthScore(answers, normalizeLocale(locale))
-        )
-      )},
+      ${sql.json(toJsonValue(snapshot.healthScore))},
       ${snapshot.queuePosition},
       ${selectedPlan ? sql`now()` : null},
       ${status === "queued" || status === "preparing" || status === "ready"

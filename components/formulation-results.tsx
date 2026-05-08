@@ -51,7 +51,6 @@ type CopyLabels = Record<
   | "context"
   | "coveragePrefix"
   | "coverageSuffix"
-  | "emptyPlan"
   | "error"
   | "formula"
   | "formulaHint"
@@ -90,7 +89,6 @@ const copy = {
     context: "Assessment summary",
     coveragePrefix: "Covers",
     coverageSuffix: "of the recommended supplements",
-    emptyPlan: "Demo plan",
     error:
       "The formulation could not be loaded. Please refresh the page and try again.",
     formula: "Supplement breakdown",
@@ -134,7 +132,6 @@ const copy = {
     context: "สรุปแบบประเมิน",
     coveragePrefix: "ครอบคลุม",
     coverageSuffix: "ของรายการอาหารเสริมที่แนะนำ",
-    emptyPlan: "แผนตัวอย่าง",
     error: "ไม่สามารถโหลดสูตรได้ กรุณารีเฟรชหน้าและลองอีกครั้ง",
     formula: "รายการอาหารเสริม",
     formulaHint:
@@ -218,7 +215,7 @@ function getLocalizedText(value: LocalizedText, locale: Locale) {
 
 export function FormulationResults({ locale, planId }: FormulationResultsProps) {
   const labels = copy[locale];
-  const effectivePlanId = planId || "demo";
+  const effectivePlanId = planId;
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [result, setResult] = useState<FormulationResult | null>(null);
 
@@ -445,7 +442,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
             {labels.generated}: {formattedDate}
           </p>
           <p className="mt-1">
-            {labels.plan}: {effectiveResultPlanId || labels.emptyPlan}
+            {labels.plan}: {effectiveResultPlanId}
           </p>
         </div>
       </div>
