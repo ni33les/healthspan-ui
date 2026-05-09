@@ -16,6 +16,7 @@ import {
   kickJobsWorker,
   scheduleReassessmentAction
 } from "@/lib/job-queue";
+import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
 import { isLocale } from "@/lib/i18n";
 
 export const runtime = "nodejs";
@@ -47,6 +48,27 @@ async function buildHealthScore(answers: unknown, locale: unknown) {
     console.warn("Unable to analyze HealthScore advice", error);
     return healthScore;
   }
+}
+
+function healthScoreBpmFields(snapshot: { healthScore?: ReturnType<typeof computeHealthScore> }) {
+  const lowestDomain = snapshot.healthScore?.domains
+    .slice()
+    .sort((a, b) => a.score - b.score)[0];
+
+  return {
+    healthScore: snapshot.healthScore?.score,
+    lowestDomain: lowestDomain?.id,
+    metrics: {
+      domainScores: snapshot.healthScore?.domains.reduce<Record<string, number>>(
+        (scores, domain) => {
+          scores[domain.id] = domain.score;
+          return scores;
+        },
+        {}
+      )
+    },
+    scoreBand: snapshot.healthScore?.band
+  };
 }
 
 type AssessmentStatusRouteProps = Readonly<{
@@ -122,6 +144,7 @@ export async function PATCH(
   }
 
   const intent = body.intent === "capture" ? "capture" : "process";
+  const bpm = bpmContextFromBody(body);
 
   if (intent === "process" && !isAssessmentPlan(body.plan)) {
     return NextResponse.json(
@@ -157,6 +180,21 @@ export async function PATCH(
       status: intent === "capture" ? "captured" : "queued"
     });
 
+    await writeBpmEvent({
+      actorType: "visitor",
+      attribution: bpm.attribution,
+      eventName:
+        intent === "capture"
+          ? "assessment_recaptured"
+          : "assessment_process_requested",
+      eventType: "funnel",
+      locale: body.locale,
+      planId: snapshot.planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      selectedPlan,
+      ...healthScoreBpmFields(snapshot)
+    });
+
     const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
 
     if (reassessmentEmail) {
@@ -166,6 +204,16 @@ export async function PATCH(
         planId: snapshot.planId
       });
       void kickCronWorker();
+      await writeBpmEvent({
+        actorType: "visitor",
+        attribution: bpm.attribution,
+        email: reassessmentEmail,
+        eventName: "reassessment_opted_in",
+        eventType: "reassessment",
+        locale: body.locale,
+        planId: snapshot.planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null
+      });
     }
 
     if (intent === "capture") {
@@ -182,6 +230,18 @@ export async function PATCH(
       throw new Error("Assessment plan selection is missing");
     }
 
+    await writeBpmEvent({
+      actorType: "visitor",
+      attribution: bpm.attribution,
+      eventName: "plan_selected",
+      eventType: "plan",
+      locale: body.locale,
+      planId: snapshot.planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      selectedPlan,
+      ...healthScoreBpmFields(snapshot)
+    });
+
     const jobId = await enqueueFormulationJob({
       answers: body.answers,
       locale: body.locale,
@@ -194,6 +254,18 @@ export async function PATCH(
     }
 
     void kickJobsWorker();
+    await writeBpmEvent({
+      actorType: "system",
+      attribution: bpm.attribution,
+      eventName: "formulation_requested",
+      eventType: "formulation",
+      jobId,
+      locale: body.locale,
+      planId: snapshot.planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      selectedPlan,
+      ...healthScoreBpmFields(snapshot)
+    });
 
     const storedSnapshot = await getStoredAssessmentSnapshot(snapshot.planId);
 
@@ -204,6 +276,21 @@ export async function PATCH(
     });
   } catch (error) {
     console.error("Unable to persist assessment plan selection", error);
+    await writeBpmEvent({
+      actorType: "system",
+      attribution: bpm.attribution,
+      errorCode: "assessment_plan_selection_failed",
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Unable to persist assessment plan selection",
+      eventName: "assessment_api_error",
+      eventType: "error",
+      locale: body.locale,
+      planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      severity: "high"
+    });
 
     return NextResponse.json(
       { message: "Unable to start assessment processing" },

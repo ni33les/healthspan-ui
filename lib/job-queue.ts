@@ -13,6 +13,7 @@ import { validateLeadEmail } from "@/lib/email-validation";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
 import type { FormulationBlueprint } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
+import { writeBpmEvent } from "@/lib/bpm";
 import {
   buildReassessmentEmailHtml,
   buildReassessmentEmailSubject
@@ -1510,6 +1511,19 @@ async function failJob(
     level: "critical",
     planId: job.plan_id
   });
+  await writeBpmEvent({
+    actorType: "worker",
+    errorCode: "job_failed",
+    errorMessage: message,
+    eventName: "worker_job_failed",
+    eventType: "error",
+    jobId: job.id,
+    planId: job.plan_id,
+    properties: {
+      jobType: job.job_type
+    },
+    severity: "critical"
+  });
 }
 
 async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
@@ -1673,6 +1687,23 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
     level: "medium",
     planId: job.plan_id
   });
+  await writeBpmEvent({
+    actorType: "worker",
+    eventName: "formulation_ready",
+    eventType: "formulation",
+    jobId: job.id,
+    locale,
+    metrics: {
+      attempts: analysis.attempts
+    },
+    planId: job.plan_id,
+    properties: {
+      model: analysis.model,
+      promptVersion: analysis.promptVersion,
+      responseId: analysis.responseId
+    },
+    selectedPlan: plan
+  });
 }
 
 async function completeExampleFormulationJob(
@@ -1814,6 +1845,24 @@ async function completeExampleFormulationJob(
     planId: job.plan_id,
     requestId
   });
+  await writeBpmEvent({
+    actorType: "worker",
+    eventName: "free_example_formulation_ready",
+    eventType: "formulation",
+    exampleRequestId: requestId,
+    jobId: job.id,
+    locale,
+    metrics: {
+      attempts: analysis.attempts
+    },
+    planId: job.plan_id,
+    properties: {
+      model: analysis.model,
+      promptVersion: analysis.promptVersion,
+      responseId: analysis.responseId
+    },
+    selectedPlan: plan
+  });
 }
 
 async function completeExampleEmailJob(sql: postgres.Sql, job: ClaimedJob) {
@@ -1950,6 +1999,20 @@ async function completeExampleEmailJob(sql: postgres.Sql, job: ClaimedJob) {
         now()
       )
     `;
+  });
+  await writeBpmEvent({
+    actorType: "worker",
+    email: emailValidation.email,
+    eventName: delivery.sent ? "free_email_sent" : "free_email_rendered",
+    eventType: "email",
+    exampleRequestId: requestId,
+    jobId: job.id,
+    locale,
+    planId: job.plan_id,
+    properties: {
+      messageId: delivery.messageId,
+      reason: delivery.reason
+    }
   });
 }
 
@@ -2096,6 +2159,23 @@ async function completeReassessmentJob(
         now()
       )
     `;
+  });
+  await writeBpmEvent({
+    actorType: "worker",
+    cronId,
+    email: emailValidation.email,
+    eventName: delivery.sent
+      ? "reassessment_email_sent"
+      : "reassessment_email_rendered",
+    eventType: "reassessment",
+    jobId: job.id,
+    locale,
+    planId: job.plan_id,
+    properties: {
+      messageId: delivery.messageId,
+      reason: delivery.reason,
+      recurrenceDays
+    }
   });
 }
 

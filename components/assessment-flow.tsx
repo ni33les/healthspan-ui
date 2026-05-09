@@ -16,6 +16,7 @@ import {
 } from "@heroicons/react/20/solid";
 import { HighlightedBrandText } from "@/components/highlighted-brand-text";
 import { buildChatChannels } from "@/lib/chat-links";
+import { getBpmPayload, trackBpmEvent } from "@/lib/bpm-client";
 import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { BlogTestimonial } from "@/lib/blog";
 import type {
@@ -1344,6 +1345,27 @@ function buildExampleQueuedStatus(planId: string): ProcessingStatus {
   };
 }
 
+function healthScoreBpmFields(healthScore: HealthScoreResult | null | undefined) {
+  const lowestDomain = healthScore?.domains
+    .slice()
+    .sort((a, b) => a.score - b.score)[0];
+
+  return {
+    healthScore: healthScore?.score,
+    lowestDomain: lowestDomain?.id,
+    metrics: {
+      domainScores: healthScore?.domains.reduce<Record<string, number>>(
+        (scores, domain) => {
+          scores[domain.id] = domain.score;
+          return scores;
+        },
+        {}
+      )
+    },
+    scoreBand: healthScore?.band
+  };
+}
+
 type PlanTier = Readonly<{
   cta: string;
   description: string;
@@ -1651,6 +1673,9 @@ export function AssessmentFlow({
   const captureInFlight = useRef<Promise<ProcessingStatus | null> | null>(null);
   const displayedStepStartedAt = useRef(0);
   const pollFailureCount = useRef(0);
+  const assessmentStartedTracked = useRef(false);
+  const planGateTracked = useRef(false);
+  const exampleExitTracked = useRef(false);
   const isCompact = useCompactAssessment();
 
   const clearProcessingStatus = useCallback(() => {
@@ -1670,6 +1695,54 @@ export function AssessmentFlow({
   const progressLabel = canGenerate
     ? copy.progress.complete
     : copy.progress.status(completed, requiredTotal);
+
+  useEffect(() => {
+    if (assessmentStartedTracked.current || completed <= 0) {
+      return;
+    }
+
+    assessmentStartedTracked.current = true;
+    trackBpmEvent("assessment_started", {
+      eventType: "funnel",
+      locale,
+      properties: {
+        completedRequired: completed,
+        returningPlan,
+        returningPlanId: returningPlanId || undefined
+      }
+    });
+  }, [completed, locale, returningPlan, returningPlanId]);
+
+  useEffect(() => {
+    if (!showPlans || planGateTracked.current) {
+      return;
+    }
+
+    planGateTracked.current = true;
+    trackBpmEvent("plan_gate_viewed", {
+      eventType: "funnel",
+      locale,
+      properties: {
+        returningPlan,
+        returningPlanId: returningPlanId || undefined
+      },
+      ...healthScoreBpmFields(healthScore)
+    });
+  }, [healthScore, locale, returningPlan, returningPlanId, showPlans]);
+
+  useEffect(() => {
+    if (!showExampleExit || exampleExitTracked.current) {
+      return;
+    }
+
+    exampleExitTracked.current = true;
+    trackBpmEvent("free_example_exit_viewed", {
+      eventType: "email",
+      exampleRequestId: exampleRequest?.requestId,
+      locale,
+      planId: exampleRequest?.planId
+    });
+  }, [exampleRequest?.planId, exampleRequest?.requestId, locale, showExampleExit]);
   const ui =
     locale === "th"
       ? {
@@ -2692,6 +2765,15 @@ export function AssessmentFlow({
     setShowExampleExit(false);
     setExampleRequest(null);
     setProcessingMode("formulation");
+    trackBpmEvent("plan_selected_clicked", {
+      eventType: "plan",
+      locale,
+      properties: {
+        plan: planId
+      },
+      selectedPlan: planId,
+      ...healthScoreBpmFields(healthScore)
+    });
     void startProcessing(planId);
   }
 
@@ -2742,6 +2824,14 @@ export function AssessmentFlow({
 
     showProcessingStatus(scoreStatus);
     window.scrollTo({ behavior: "smooth", top: 0 });
+    trackBpmEvent("assessment_submitted", {
+      eventType: "funnel",
+      locale,
+      properties: {
+        completedRequired: completed,
+        requiredTotal
+      }
+    });
 
     try {
       const captured = await captureAssessment(true, answerPayload);
@@ -2756,6 +2846,12 @@ export function AssessmentFlow({
       }
 
       setHealthScore(captured.healthScore);
+      trackBpmEvent("healthscore_viewed", {
+        eventType: "funnel",
+        locale,
+        planId: captured.planId,
+        ...healthScoreBpmFields(captured.healthScore)
+      });
       setProcessingStatus({
         ...captured,
         healthScore: captured.healthScore,
@@ -2797,6 +2893,7 @@ export function AssessmentFlow({
               {
                 body: JSON.stringify({
                   answers: answerPayload,
+                  bpm: getBpmPayload(),
                   intent: "capture",
                   locale
                 }),
@@ -2810,6 +2907,7 @@ export function AssessmentFlow({
           : await fetch("/api/assessment", {
               body: JSON.stringify({
                 answers: answerPayload,
+                bpm: getBpmPayload(),
                 intent: "capture",
                 locale
               }),
@@ -2862,7 +2960,12 @@ export function AssessmentFlow({
         : capturedStatus ?? (await captureAssessment());
       const response = captured?.planId
         ? await fetch(`/api/assessment/${encodeURIComponent(captured.planId)}`, {
-            body: JSON.stringify({ answers, locale, plan: planId }),
+            body: JSON.stringify({
+              answers,
+              bpm: getBpmPayload(),
+              locale,
+              plan: planId
+            }),
             cache: "no-store",
             headers: {
               "content-type": "application/json"
@@ -2872,6 +2975,7 @@ export function AssessmentFlow({
         : await fetch("/api/assessment", {
             body: JSON.stringify({
               answers,
+              bpm: getBpmPayload(),
               intent: "process",
               locale,
               plan: planId
@@ -2908,6 +3012,17 @@ export function AssessmentFlow({
 
     setExampleLoading(true);
     setExampleError("");
+    trackBpmEvent("free_email_requested_clicked", {
+      email,
+      eventType: "email",
+      locale,
+      planId: capturedStatus?.planId,
+      properties: {
+        includeReassessment:
+          includeExampleReassessment && !reassessmentAlreadyOptedIn
+      },
+      ...healthScoreBpmFields(healthScore)
+    });
 
     try {
       const captured = capturedStatus?.planId
@@ -2922,6 +3037,7 @@ export function AssessmentFlow({
           `/api/assessment/${encodeURIComponent(captured.planId)}/example`,
           {
             body: JSON.stringify({
+              bpm: getBpmPayload(),
               email,
               includeReassessment:
                 includeExampleReassessment && !reassessmentAlreadyOptedIn,

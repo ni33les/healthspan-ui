@@ -4,6 +4,7 @@ import {
   isUuid
 } from "@/lib/assessment-store";
 import { validateLeadEmail } from "@/lib/email-validation";
+import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
 import {
   getExampleBriefStatus,
   kickCronWorker,
@@ -106,6 +107,7 @@ export async function GET(request: Request, { params }: ExampleRouteProps) {
 export async function POST(request: Request, { params }: ExampleRouteProps) {
   const { planId } = await params;
   let body: {
+    bpm?: unknown;
     email?: unknown;
     includeReassessment?: unknown;
     locale?: unknown;
@@ -120,6 +122,7 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
   } catch {
     body = {};
   }
+  const bpm = bpmContextFromBody(body);
 
   if (!isUuid(planId)) {
     return NextResponse.json(
@@ -150,6 +153,17 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
   const emailValidation = validateLeadEmail(body.email);
 
   if (!emailValidation.ok) {
+    await writeBpmEvent({
+      actorType: "visitor",
+      attribution: bpm.attribution,
+      eventName: "free_email_invalid",
+      eventType: "email",
+      locale: body.locale,
+      planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      severity: "low"
+    });
+
     return NextResponse.json(
       { message: "Valid email address is required" },
       {
@@ -208,9 +222,33 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
         planId
       });
       void kickCronWorker();
+      await writeBpmEvent({
+        actorType: "visitor",
+        attribution: bpm.attribution,
+        email: emailValidation.email,
+        eventName: "reassessment_opted_in",
+        eventType: "reassessment",
+        locale: body.locale,
+        planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null
+      });
     }
 
     void kickJobsWorker();
+    await writeBpmEvent({
+      actorType: "visitor",
+      attribution: bpm.attribution,
+      email: emailValidation.email,
+      eventName: "free_email_requested",
+      eventType: "email",
+      exampleRequestId: result.requestId,
+      locale: body.locale,
+      planId,
+      properties: {
+        includeReassessment: body.includeReassessment !== false
+      },
+      ray: typeof bpm.ray === "string" ? bpm.ray : null
+    });
 
     return NextResponse.json(
       {
@@ -226,6 +264,22 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
     );
   } catch (error) {
     console.error("Unable to request example formulation", error);
+    await writeBpmEvent({
+      actorType: "system",
+      attribution: bpm.attribution,
+      email: emailValidation.email,
+      errorCode: "example_request_failed",
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Unable to request example formulation",
+      eventName: "free_email_request_error",
+      eventType: "error",
+      locale: body.locale,
+      planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      severity: "medium"
+    });
 
     return NextResponse.json(
       { message: "Unable to request example formulation" },

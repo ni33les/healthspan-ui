@@ -69,12 +69,20 @@ function BlogAssessmentCta({
           <div className="mt-10 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-x-6">
             <Link
               href={href}
+              data-bpm-event="blog_assessment_cta_clicked"
+              data-bpm-label={primaryLabel}
+              data-bpm-target={href}
+              data-bpm-type="funnel"
               className="rounded-md bg-[#1FA77A] px-5 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-sm transition hover:bg-[#188a65] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]"
             >
               {primaryLabel}
             </Link>
             <Link
               href={secondaryHref}
+              data-bpm-event="blog_home_cta_clicked"
+              data-bpm-label={secondaryLabel}
+              data-bpm-target={secondaryHref}
+              data-bpm-type="content"
               className="text-sm/6 font-semibold text-gray-900 transition hover:text-[#3A7BD5]"
             >
               {secondaryLabel} <span aria-hidden="true">→</span>

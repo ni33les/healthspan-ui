@@ -315,18 +315,32 @@ Business questions:
 - Which channel should be prioritised first?
 - Should Pro include human review or escalation?
 
+### 6. Define the Safety Review Promise
+
+When the AI suggests a supplement or dose that fails a hard safety check, MattaNutra should pause that item and route it to human review. The business needs a clear operating promise for what happens next: who reviews it, what decisions they can make, how quickly the client is informed, and what language is used when a recommendation is rejected or revised.
+
+Operationally, this should be handled as a human-review job. The business dashboard can then show a pending supplement-review queue, while the underlying safety review record keeps the supplement name, proposed dose, reason for the flag, and reviewer decision. Where appropriate, the reviewer should be able to map an accepted item to an approved supplement or product whitelist entry before the client is informed.
+
+Business questions:
+
+- Who is allowed to accept, reject, or revise a flagged supplement?
+- What response time should customers expect when a plan needs review?
+- Should safety review be included in Precision, Pro, or only triggered for edge cases?
+- What client-facing message should be used when a supplement is removed for safety?
+
 ## Recommended Next Business Sequence
 
 1. Finalise the HealthScore conversion message.
 2. Define the free preview content boundary.
 3. Activate payment for Precision and Pro.
 4. Define safety stop rules and customer-facing safety messages.
-5. Create the first trusted product recommendation standard.
-6. Make one chat channel work end-to-end.
-7. Define the Pro service promise.
-8. Build the first follow-up sequence after free preview.
-9. Build a repeatable blog, testimonial, and social distribution cadence.
-10. Add funnel reporting so the team can see where customers drop.
+5. Define the human review decision workflow for flagged supplements and doses.
+6. Create the first trusted product recommendation standard.
+7. Make one chat channel work end-to-end.
+8. Define the Pro service promise.
+9. Build the first follow-up sequence after free preview.
+10. Build a repeatable blog, testimonial, and social distribution cadence.
+11. Add funnel reporting so the team can see where customers drop.
 
 ## One-Line Business Process
 

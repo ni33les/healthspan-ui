@@ -55,7 +55,13 @@ export function BlogSection({
                 </time>
               </div>
               <h3 className="mt-3 text-lg/6 font-semibold text-white">
-                <a href={post.href}>
+                <a
+                  href={post.href}
+                  data-bpm-event="blog_card_clicked"
+                  data-bpm-label={post.title}
+                  data-bpm-target={post.href}
+                  data-bpm-type="content"
+                >
                   <span className="absolute inset-0" />
                   {post.title}
                 </a>

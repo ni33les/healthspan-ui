@@ -18,6 +18,10 @@ export function TitleBar({
       <div className="mx-auto flex h-18 w-full max-w-6xl items-center justify-between gap-4 px-6 sm:px-8">
         <a
           href={`/${currentLocale}`}
+          data-bpm-event="site_logo_clicked"
+          data-bpm-label="MattaNutra"
+          data-bpm-target={`/${currentLocale}`}
+          data-bpm-type="traffic"
           aria-label={
             currentLocale === "th" ? `${title} หน้าแรก` : `${title} home`
           }

@@ -17,6 +17,7 @@ import {
   kickJobsWorker,
   scheduleReassessmentAction
 } from "@/lib/job-queue";
+import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
 import { isLocale } from "@/lib/i18n";
 
 export const runtime = "nodejs";
@@ -50,6 +51,27 @@ async function buildHealthScore(answers: unknown, locale: unknown) {
   }
 }
 
+function healthScoreBpmFields(snapshot: { healthScore?: ReturnType<typeof computeHealthScore> }) {
+  const lowestDomain = snapshot.healthScore?.domains
+    .slice()
+    .sort((a, b) => a.score - b.score)[0];
+
+  return {
+    healthScore: snapshot.healthScore?.score,
+    lowestDomain: lowestDomain?.id,
+    metrics: {
+      domainScores: snapshot.healthScore?.domains.reduce<Record<string, number>>(
+        (scores, domain) => {
+          scores[domain.id] = domain.score;
+          return scores;
+        },
+        {}
+      )
+    },
+    scoreBand: snapshot.healthScore?.band
+  };
+}
+
 export async function POST(request: Request) {
   let body: {
     answers?: unknown;
@@ -70,6 +92,7 @@ export async function POST(request: Request) {
   }
 
   const intent = body.intent === "process" ? "process" : "capture";
+  const bpm = bpmContextFromBody(body);
   let selectedPlan: AssessmentPlan | null = null;
 
   if (intent === "process") {
@@ -102,6 +125,18 @@ export async function POST(request: Request) {
       status: intent === "capture" ? "captured" : snapshot.status
     });
 
+    await writeBpmEvent({
+      actorType: "visitor",
+      attribution: bpm.attribution,
+      eventName: intent === "capture" ? "assessment_captured" : "assessment_process_requested",
+      eventType: "funnel",
+      locale: body.locale,
+      planId: snapshot.planId,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      selectedPlan,
+      ...healthScoreBpmFields(snapshot)
+    });
+
     const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
 
     if (reassessmentEmail) {
@@ -111,9 +146,31 @@ export async function POST(request: Request) {
         planId: snapshot.planId
       });
       void kickCronWorker();
+      await writeBpmEvent({
+        actorType: "visitor",
+        attribution: bpm.attribution,
+        email: reassessmentEmail,
+        eventName: "reassessment_opted_in",
+        eventType: "reassessment",
+        locale: body.locale,
+        planId: snapshot.planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null
+      });
     }
 
     if (intent === "process" && selectedPlan) {
+      await writeBpmEvent({
+        actorType: "visitor",
+        attribution: bpm.attribution,
+        eventName: "plan_selected",
+        eventType: "plan",
+        locale: body.locale,
+        planId: snapshot.planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null,
+        selectedPlan,
+        ...healthScoreBpmFields(snapshot)
+      });
+
       const jobId = await enqueueFormulationJob({
         answers: body.answers,
         locale: body.locale,
@@ -126,11 +183,35 @@ export async function POST(request: Request) {
       }
 
       void kickJobsWorker();
+      await writeBpmEvent({
+        actorType: "system",
+        attribution: bpm.attribution,
+        eventName: "formulation_requested",
+        eventType: "formulation",
+        jobId,
+        locale: body.locale,
+        planId: snapshot.planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null,
+        selectedPlan,
+        ...healthScoreBpmFields(snapshot)
+      });
       responseSnapshot =
         (await getStoredAssessmentSnapshot(snapshot.planId)) ?? snapshot;
     }
   } catch (error) {
     console.error("Unable to persist assessment submission", error);
+    await writeBpmEvent({
+      actorType: "system",
+      attribution: bpm.attribution,
+      errorCode: "assessment_persist_failed",
+      errorMessage:
+        error instanceof Error ? error.message : "Unable to persist assessment",
+      eventName: "assessment_api_error",
+      eventType: "error",
+      locale: body.locale,
+      ray: typeof bpm.ray === "string" ? bpm.ray : null,
+      severity: "high"
+    });
 
     return NextResponse.json(
       { message: "Unable to save assessment" },

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { BpmTracker } from "@/components/bpm-tracker";
 import "../globals.css";
 import { getDictionary, isLocale } from "@/lib/i18n";
 
@@ -42,7 +43,10 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale}>
-      <body>{children}</body>
+      <body>
+        <BpmTracker locale={locale} />
+        {children}
+      </body>
     </html>
   );
 }

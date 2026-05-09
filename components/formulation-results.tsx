@@ -599,6 +599,10 @@ function ChatConnectPanel({
                     "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] transition focus:outline-none focus:ring-2 focus:ring-offset-2",
                     channel.buttonClasses
                   )}
+                  data-bpm-event="chat_channel_clicked"
+                  data-bpm-label={channel.name}
+                  data-bpm-target={channel.url}
+                  data-bpm-type="chat"
                   href={channel.url}
                   rel="noreferrer"
                   target="_blank"
@@ -779,6 +783,10 @@ function ProductsPanel({
 
               <a
                 className={getShopButtonClasses(product)}
+                data-bpm-event="marketplace_product_clicked"
+                data-bpm-label={product.name}
+                data-bpm-target={product.url}
+                data-bpm-type="affiliate"
                 href={product.url}
                 rel="noreferrer"
                 target="_blank"

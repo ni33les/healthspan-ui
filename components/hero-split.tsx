@@ -68,12 +68,20 @@ export function HeroSplit({
           <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
             <a
               href={ctaHref}
+              data-bpm-event="home_hero_assessment_clicked"
+              data-bpm-label={cta}
+              data-bpm-target={ctaHref}
+              data-bpm-type="funnel"
               className="rounded-md bg-[#1FA77A] px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-sm transition hover:bg-[#188a65] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]"
             >
               {cta}
             </a>
             <a
               href="#features"
+              data-bpm-event="home_features_anchor_clicked"
+              data-bpm-label={secondaryCta}
+              data-bpm-target="#features"
+              data-bpm-type="content"
               className="text-sm font-semibold leading-6 text-[#20343A]"
             >
               {secondaryCta} <span aria-hidden="true">-&gt;</span>

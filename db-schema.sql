@@ -694,6 +694,654 @@ create unique index if not exists cron_unsubscribe_token_idx
   on public.cron (unsubscribe_token)
   where unsubscribe_token is not null;
 
+create table if not exists public.bpm (
+  id uuid primary key,
+  ray uuid not null,
+  plan_id uuid null references public.assessments(plan_id) on delete set null,
+  job_id uuid null references public.jobs(id) on delete set null,
+  cron_id uuid null references public.cron(id) on delete set null,
+  example_request_id uuid null references public.assessment_example_requests(id) on delete set null,
+  event_name text not null,
+  event_type text not null default 'funnel',
+  event_status text not null default 'observed',
+  severity text not null default 'low',
+  actor_type text not null default 'visitor',
+  emitted_by text null,
+  locale text null,
+  selected_plan public.assessment_plan null,
+  email_hash text null,
+  ip_hash text null,
+  user_agent text null,
+  device_type text null,
+  browser text null,
+  os text null,
+  country_code text null,
+  path text null,
+  route text null,
+  referrer text null,
+  landing_page text null,
+  traffic_source text null,
+  source_channel text null,
+  source_detail text null,
+  source_url text null,
+  utm_source text null,
+  utm_medium text null,
+  utm_campaign text null,
+  utm_content text null,
+  utm_term text null,
+  campaign_id text null,
+  campaign_name text null,
+  promo_code text null,
+  affiliate_id text null,
+  affiliate_ref text null,
+  affiliate_sub_id text null,
+  affiliate_click_id text null,
+  ad_id text null,
+  click_id text null,
+  health_score integer null,
+  score_band text null,
+  lowest_domain text null,
+  value_amount numeric(14, 2) null,
+  value_currency text null,
+  error_code text null,
+  error_message text null,
+  safety_flags jsonb not null default '[]'::jsonb,
+  duration_ms integer null,
+  http_status integer null,
+  properties jsonb not null default '{}'::jsonb,
+  metrics jsonb not null default '{}'::jsonb,
+  occurred_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.bpm
+  add column if not exists ray uuid,
+  add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
+  add column if not exists job_id uuid null references public.jobs(id) on delete set null,
+  add column if not exists cron_id uuid null references public.cron(id) on delete set null,
+  add column if not exists example_request_id uuid null references public.assessment_example_requests(id) on delete set null,
+  add column if not exists event_name text,
+  add column if not exists event_type text default 'funnel',
+  add column if not exists event_status text default 'observed',
+  add column if not exists severity text default 'low',
+  add column if not exists actor_type text default 'visitor',
+  add column if not exists emitted_by text null,
+  add column if not exists locale text null,
+  add column if not exists selected_plan public.assessment_plan null,
+  add column if not exists email_hash text null,
+  add column if not exists ip_hash text null,
+  add column if not exists user_agent text null,
+  add column if not exists device_type text null,
+  add column if not exists browser text null,
+  add column if not exists os text null,
+  add column if not exists country_code text null,
+  add column if not exists path text null,
+  add column if not exists route text null,
+  add column if not exists referrer text null,
+  add column if not exists landing_page text null,
+  add column if not exists traffic_source text null,
+  add column if not exists source_channel text null,
+  add column if not exists source_detail text null,
+  add column if not exists source_url text null,
+  add column if not exists utm_source text null,
+  add column if not exists utm_medium text null,
+  add column if not exists utm_campaign text null,
+  add column if not exists utm_content text null,
+  add column if not exists utm_term text null,
+  add column if not exists campaign_id text null,
+  add column if not exists campaign_name text null,
+  add column if not exists promo_code text null,
+  add column if not exists affiliate_id text null,
+  add column if not exists affiliate_ref text null,
+  add column if not exists affiliate_sub_id text null,
+  add column if not exists affiliate_click_id text null,
+  add column if not exists ad_id text null,
+  add column if not exists click_id text null,
+  add column if not exists health_score integer null,
+  add column if not exists score_band text null,
+  add column if not exists lowest_domain text null,
+  add column if not exists value_amount numeric(14, 2) null,
+  add column if not exists value_currency text null,
+  add column if not exists error_code text null,
+  add column if not exists error_message text null,
+  add column if not exists safety_flags jsonb default '[]'::jsonb,
+  add column if not exists duration_ms integer null,
+  add column if not exists http_status integer null,
+  add column if not exists properties jsonb default '{}'::jsonb,
+  add column if not exists metrics jsonb default '{}'::jsonb,
+  add column if not exists occurred_at timestamptz default now(),
+  add column if not exists created_at timestamptz default now();
+
+update public.bpm
+set
+  ray = coalesce(ray, id),
+  event_name = coalesce(event_name, 'unknown'),
+  event_type = case
+    when event_type in (
+      'traffic',
+      'content',
+      'funnel',
+      'plan',
+      'payment',
+      'email',
+      'chat',
+      'formulation',
+      'reassessment',
+      'affiliate',
+      'safety',
+      'error',
+      'system'
+    ) then event_type
+    else 'funnel'
+  end,
+  event_status = coalesce(event_status, 'observed'),
+  severity = case
+    when severity in ('low', 'medium', 'high', 'critical') then severity
+    else 'low'
+  end,
+  actor_type = case
+    when actor_type in ('visitor', 'system', 'worker', 'admin', 'openclaw') then actor_type
+    else 'visitor'
+  end,
+  locale = case
+    when locale in ('en', 'th') then locale
+    else null
+  end,
+  health_score = case
+    when health_score between 0 and 100 then health_score
+    else null
+  end,
+  safety_flags = case
+    when jsonb_typeof(coalesce(safety_flags, '[]'::jsonb)) = 'array'
+      then coalesce(safety_flags, '[]'::jsonb)
+    else '[]'::jsonb
+  end,
+  properties = coalesce(properties, '{}'::jsonb),
+  metrics = coalesce(metrics, '{}'::jsonb),
+  occurred_at = coalesce(occurred_at, now()),
+  created_at = coalesce(created_at, now())
+where ray is null
+  or event_name is null
+  or event_type is null
+  or event_type not in (
+    'traffic',
+    'content',
+    'funnel',
+    'plan',
+    'payment',
+    'email',
+    'chat',
+    'formulation',
+    'reassessment',
+    'affiliate',
+    'safety',
+    'error',
+    'system'
+  )
+  or event_status is null
+  or severity is null
+  or severity not in ('low', 'medium', 'high', 'critical')
+  or actor_type is null
+  or actor_type not in ('visitor', 'system', 'worker', 'admin', 'openclaw')
+  or (locale is not null and locale not in ('en', 'th'))
+  or (health_score is not null and (health_score < 0 or health_score > 100))
+  or safety_flags is null
+  or jsonb_typeof(safety_flags) <> 'array'
+  or properties is null
+  or metrics is null
+  or occurred_at is null
+  or created_at is null;
+
+alter table public.bpm
+  alter column ray set not null,
+  alter column event_name set not null,
+  alter column event_type set default 'funnel',
+  alter column event_type set not null,
+  alter column event_status set default 'observed',
+  alter column event_status set not null,
+  alter column severity set default 'low',
+  alter column severity set not null,
+  alter column actor_type set default 'visitor',
+  alter column actor_type set not null,
+  alter column safety_flags set default '[]'::jsonb,
+  alter column safety_flags set not null,
+  alter column properties set default '{}'::jsonb,
+  alter column properties set not null,
+  alter column metrics set default '{}'::jsonb,
+  alter column metrics set not null,
+  alter column occurred_at set default now(),
+  alter column occurred_at set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.bpm'::regclass
+      and conname = 'bpm_locale_check'
+  ) then
+    alter table public.bpm
+      add constraint bpm_locale_check
+      check (locale is null or locale in ('en', 'th'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.bpm'::regclass
+      and conname = 'bpm_event_type_check'
+  ) then
+    alter table public.bpm
+      add constraint bpm_event_type_check
+      check (
+        event_type in (
+          'traffic',
+          'content',
+          'funnel',
+          'plan',
+          'payment',
+          'email',
+          'chat',
+          'formulation',
+          'reassessment',
+          'affiliate',
+          'safety',
+          'error',
+          'system'
+        )
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.bpm'::regclass
+      and conname = 'bpm_severity_check'
+  ) then
+    alter table public.bpm
+      add constraint bpm_severity_check
+      check (severity in ('low', 'medium', 'high', 'critical'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.bpm'::regclass
+      and conname = 'bpm_actor_type_check'
+  ) then
+    alter table public.bpm
+      add constraint bpm_actor_type_check
+      check (actor_type in ('visitor', 'system', 'worker', 'admin', 'openclaw'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.bpm'::regclass
+      and conname = 'bpm_health_score_check'
+  ) then
+    alter table public.bpm
+      add constraint bpm_health_score_check
+      check (health_score is null or (health_score >= 0 and health_score <= 100));
+  end if;
+end $$;
+
+comment on table public.bpm is
+  'Business process monitoring events for funnel, campaign, affiliate, sales, safety, and operational dashboards.';
+comment on column public.bpm.ray is
+  'Anonymous journey/session UUID tying one visitor interaction ray through multiple funnel stages.';
+comment on column public.bpm.email_hash is
+  'Hash of email where available. Never store raw email here.';
+comment on column public.bpm.properties is
+  'Flexible event-specific payload for dashboard slices that do not justify first-class columns yet.';
+comment on column public.bpm.metrics is
+  'Flexible numeric metrics such as counts, timings, scores, or model usage details.';
+
+create index if not exists bpm_occurred_idx
+  on public.bpm (occurred_at desc);
+
+create index if not exists bpm_event_time_idx
+  on public.bpm (event_type, event_name, occurred_at desc);
+
+create index if not exists bpm_ray_idx
+  on public.bpm (ray, occurred_at desc);
+
+create index if not exists bpm_plan_idx
+  on public.bpm (plan_id, occurred_at desc)
+  where plan_id is not null;
+
+create index if not exists bpm_email_hash_idx
+  on public.bpm (email_hash, occurred_at desc)
+  where email_hash is not null;
+
+create index if not exists bpm_selected_plan_idx
+  on public.bpm (selected_plan, occurred_at desc)
+  where selected_plan is not null;
+
+create index if not exists bpm_source_idx
+  on public.bpm (traffic_source, source_channel, occurred_at desc)
+  where traffic_source is not null or source_channel is not null;
+
+create index if not exists bpm_campaign_idx
+  on public.bpm (utm_campaign, campaign_id, occurred_at desc)
+  where utm_campaign is not null or campaign_id is not null;
+
+create index if not exists bpm_affiliate_idx
+  on public.bpm (affiliate_id, affiliate_ref, occurred_at desc)
+  where affiliate_id is not null or affiliate_ref is not null;
+
+create index if not exists bpm_promo_idx
+  on public.bpm (promo_code, occurred_at desc)
+  where promo_code is not null;
+
+create index if not exists bpm_alerts_idx
+  on public.bpm (severity, event_type, occurred_at desc)
+  where severity in ('medium', 'high', 'critical')
+    or event_type in ('safety', 'error');
+
+create index if not exists bpm_properties_gin_idx
+  on public.bpm using gin (properties jsonb_path_ops);
+
+create index if not exists bpm_metrics_gin_idx
+  on public.bpm using gin (metrics jsonb_path_ops);
+
+create table if not exists public.safety_reviews (
+  id uuid primary key,
+  ray uuid null,
+  plan_id uuid null references public.assessments(plan_id) on delete cascade,
+  job_id uuid null references public.jobs(id) on delete set null,
+  bpm_event_id uuid null references public.bpm(id) on delete set null,
+  notification_job_id uuid null references public.jobs(id) on delete set null,
+  formulation_version integer null,
+  review_type text not null default 'ingredient_safety',
+  status text not null default 'open',
+  severity text not null default 'medium',
+  supplement_name text not null,
+  suggested_dose_value numeric(14, 4) null,
+  suggested_dose_unit text null,
+  suggested_frequency text null,
+  suggested_form text null,
+  suggested_timing text null,
+  limit_value numeric(14, 4) null,
+  limit_unit text null,
+  rule_code text null,
+  flag_reason text not null,
+  ai_suggestion jsonb not null default '{}'::jsonb,
+  safety_context jsonb not null default '{}'::jsonb,
+  reviewer_id text null,
+  reviewer_note text null,
+  client_message jsonb not null default '{}'::jsonb,
+  client_notification_status text not null default 'not_started',
+  opened_at timestamptz not null default now(),
+  reviewed_at timestamptz null,
+  client_informed_at timestamptz null,
+  closed_at timestamptz null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.safety_reviews
+  add column if not exists ray uuid null,
+  add column if not exists plan_id uuid null references public.assessments(plan_id) on delete cascade,
+  add column if not exists job_id uuid null references public.jobs(id) on delete set null,
+  add column if not exists bpm_event_id uuid null references public.bpm(id) on delete set null,
+  add column if not exists notification_job_id uuid null references public.jobs(id) on delete set null,
+  add column if not exists formulation_version integer null,
+  add column if not exists review_type text default 'ingredient_safety',
+  add column if not exists status text default 'open',
+  add column if not exists severity text default 'medium',
+  add column if not exists supplement_name text,
+  add column if not exists suggested_dose_value numeric(14, 4) null,
+  add column if not exists suggested_dose_unit text null,
+  add column if not exists suggested_frequency text null,
+  add column if not exists suggested_form text null,
+  add column if not exists suggested_timing text null,
+  add column if not exists limit_value numeric(14, 4) null,
+  add column if not exists limit_unit text null,
+  add column if not exists rule_code text null,
+  add column if not exists flag_reason text,
+  add column if not exists ai_suggestion jsonb default '{}'::jsonb,
+  add column if not exists safety_context jsonb default '{}'::jsonb,
+  add column if not exists reviewer_id text null,
+  add column if not exists reviewer_note text null,
+  add column if not exists client_message jsonb default '{}'::jsonb,
+  add column if not exists client_notification_status text default 'not_started',
+  add column if not exists opened_at timestamptz default now(),
+  add column if not exists reviewed_at timestamptz null,
+  add column if not exists client_informed_at timestamptz null,
+  add column if not exists closed_at timestamptz null,
+  add column if not exists updated_at timestamptz default now();
+
+update public.safety_reviews
+set
+  review_type = case
+    when review_type in (
+      'ingredient_safety',
+      'dose_limit',
+      'contraindication',
+      'medication_interaction',
+      'condition_stop',
+      'age_stop',
+      'pregnancy_breastfeeding',
+      'other'
+    ) then review_type
+    else 'ingredient_safety'
+  end,
+  status = case
+    when status in (
+      'open',
+      'in_review',
+      'accepted',
+      'rejected',
+      'revised',
+      'escalated',
+      'client_notification_queued',
+      'client_informed',
+      'closed'
+    ) then status
+    else 'open'
+  end,
+  severity = case
+    when severity in ('low', 'medium', 'high', 'critical') then severity
+    else 'medium'
+  end,
+  supplement_name = coalesce(supplement_name, 'Unknown supplement'),
+  flag_reason = coalesce(flag_reason, 'Safety review required.'),
+  ai_suggestion = coalesce(ai_suggestion, '{}'::jsonb),
+  safety_context = coalesce(safety_context, '{}'::jsonb),
+  client_message = coalesce(client_message, '{}'::jsonb),
+  client_notification_status = case
+    when client_notification_status in (
+      'not_started',
+      'not_required',
+      'queued',
+      'sent',
+      'failed'
+    ) then client_notification_status
+    else 'not_started'
+  end,
+  opened_at = coalesce(opened_at, now()),
+  updated_at = coalesce(updated_at, now())
+where review_type is null
+  or review_type not in (
+    'ingredient_safety',
+    'dose_limit',
+    'contraindication',
+    'medication_interaction',
+    'condition_stop',
+    'age_stop',
+    'pregnancy_breastfeeding',
+    'other'
+  )
+  or status is null
+  or status not in (
+    'open',
+    'in_review',
+    'accepted',
+    'rejected',
+    'revised',
+    'escalated',
+    'client_notification_queued',
+    'client_informed',
+    'closed'
+  )
+  or severity is null
+  or severity not in ('low', 'medium', 'high', 'critical')
+  or supplement_name is null
+  or flag_reason is null
+  or ai_suggestion is null
+  or safety_context is null
+  or client_message is null
+  or client_notification_status is null
+  or client_notification_status not in (
+    'not_started',
+    'not_required',
+    'queued',
+    'sent',
+    'failed'
+  )
+  or opened_at is null
+  or updated_at is null;
+
+alter table public.safety_reviews
+  alter column review_type set default 'ingredient_safety',
+  alter column review_type set not null,
+  alter column status set default 'open',
+  alter column status set not null,
+  alter column severity set default 'medium',
+  alter column severity set not null,
+  alter column supplement_name set not null,
+  alter column flag_reason set not null,
+  alter column ai_suggestion set default '{}'::jsonb,
+  alter column ai_suggestion set not null,
+  alter column safety_context set default '{}'::jsonb,
+  alter column safety_context set not null,
+  alter column client_message set default '{}'::jsonb,
+  alter column client_message set not null,
+  alter column client_notification_status set default 'not_started',
+  alter column client_notification_status set not null,
+  alter column opened_at set default now(),
+  alter column opened_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.safety_reviews'::regclass
+      and conname = 'safety_reviews_type_check'
+  ) then
+    alter table public.safety_reviews
+      add constraint safety_reviews_type_check
+      check (
+        review_type in (
+          'ingredient_safety',
+          'dose_limit',
+          'contraindication',
+          'medication_interaction',
+          'condition_stop',
+          'age_stop',
+          'pregnancy_breastfeeding',
+          'other'
+        )
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.safety_reviews'::regclass
+      and conname = 'safety_reviews_status_check'
+  ) then
+    alter table public.safety_reviews
+      add constraint safety_reviews_status_check
+      check (
+        status in (
+          'open',
+          'in_review',
+          'accepted',
+          'rejected',
+          'revised',
+          'escalated',
+          'client_notification_queued',
+          'client_informed',
+          'closed'
+        )
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.safety_reviews'::regclass
+      and conname = 'safety_reviews_severity_check'
+  ) then
+    alter table public.safety_reviews
+      add constraint safety_reviews_severity_check
+      check (severity in ('low', 'medium', 'high', 'critical'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.safety_reviews'::regclass
+      and conname = 'safety_reviews_client_notification_status_check'
+  ) then
+    alter table public.safety_reviews
+      add constraint safety_reviews_client_notification_status_check
+      check (
+        client_notification_status in (
+          'not_started',
+          'not_required',
+          'queued',
+          'sent',
+          'failed'
+        )
+      );
+  end if;
+end $$;
+
+comment on table public.safety_reviews is
+  'Operational human-review queue for supplement and dose safety flags raised during formulation checks.';
+comment on column public.safety_reviews.bpm_event_id is
+  'Optional BPM event showing the business/safety dashboard event that opened this review.';
+comment on column public.safety_reviews.ai_suggestion is
+  'The exact AI supplement suggestion payload that triggered the safety review.';
+comment on column public.safety_reviews.safety_context is
+  'Relevant assessment context, rule output, limits, medication flags, or stop-rule evidence.';
+comment on column public.safety_reviews.client_message is
+  'Draft or final client-facing message after the human decision, localized where needed.';
+
+create index if not exists safety_reviews_status_idx
+  on public.safety_reviews (status, severity, opened_at asc);
+
+create index if not exists safety_reviews_plan_idx
+  on public.safety_reviews (plan_id, opened_at desc)
+  where plan_id is not null;
+
+create index if not exists safety_reviews_job_idx
+  on public.safety_reviews (job_id, opened_at desc)
+  where job_id is not null;
+
+create index if not exists safety_reviews_ray_idx
+  on public.safety_reviews (ray, opened_at desc)
+  where ray is not null;
+
+create index if not exists safety_reviews_supplement_idx
+  on public.safety_reviews (lower(supplement_name), opened_at desc);
+
+create index if not exists safety_reviews_notification_idx
+  on public.safety_reviews (client_notification_status, opened_at asc);
+
+create index if not exists safety_reviews_ai_suggestion_gin_idx
+  on public.safety_reviews using gin (ai_suggestion jsonb_path_ops);
+
+create index if not exists safety_reviews_context_gin_idx
+  on public.safety_reviews using gin (safety_context jsonb_path_ops);
+
 create table if not exists public.testimonials (
   id uuid primary key,
   locale text not null default 'en',
@@ -1394,6 +2042,18 @@ begin
     execute 'alter table public.cron owner to mn';
   exception when others then
     raise notice 'Skipping cron owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.bpm owner to mn';
+  exception when others then
+    raise notice 'Skipping bpm owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.safety_reviews owner to mn';
+  exception when others then
+    raise notice 'Skipping safety_reviews owner change: %', sqlerrm;
   end;
 
   begin

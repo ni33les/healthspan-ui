@@ -128,10 +128,24 @@ export function SiteFooter({
           aria-label="Legal"
           className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]"
         >
-          <Link href={`/${locale}/terms`} className="transition hover:text-[#3A7BD5]">
+          <Link
+            href={`/${locale}/terms`}
+            data-bpm-event="footer_terms_clicked"
+            data-bpm-label={content.terms}
+            data-bpm-target={`/${locale}/terms`}
+            data-bpm-type="content"
+            className="transition hover:text-[#3A7BD5]"
+          >
             {content.terms}
           </Link>
-          <Link href={`/${locale}/privacy`} className="transition hover:text-[#3A7BD5]">
+          <Link
+            href={`/${locale}/privacy`}
+            data-bpm-event="footer_privacy_clicked"
+            data-bpm-label={content.privacy}
+            data-bpm-target={`/${locale}/privacy`}
+            data-bpm-type="content"
+            className="transition hover:text-[#3A7BD5]"
+          >
             {content.privacy}
           </Link>
         </nav>

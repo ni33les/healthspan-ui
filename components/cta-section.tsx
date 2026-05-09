@@ -42,6 +42,10 @@ export function CtaSection({ content, ctaHref }: CtaSectionProps) {
         <div className="mt-10 flex justify-center">
           <a
             href={ctaHref}
+            data-bpm-event="home_bottom_assessment_clicked"
+            data-bpm-label={content.button}
+            data-bpm-target={ctaHref}
+            data-bpm-type="funnel"
             className="inline-flex items-center gap-2 rounded-md bg-[#1FA77A] px-5 py-3 text-[15px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm hover:bg-[#188a65] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]"
           >
             {content.button}
