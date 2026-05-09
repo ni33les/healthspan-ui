@@ -11,6 +11,7 @@ import {
   BeakerIcon,
   ChartBarIcon,
   ChartPieIcon,
+  ChevronDownIcon,
   DocumentTextIcon,
   EnvelopeIcon,
   ExclamationTriangleIcon,
@@ -29,6 +30,12 @@ import type {
   AdminDashboardRateId,
   AdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import {
+  adminDashboardFilterEntries,
+  emptyAdminDashboardFilters,
+  hasAdminDashboardFilters,
+  type AdminDashboardFilters
+} from "@/lib/admin-dashboard-filters";
 import type {
   AdminFlowData,
   AdminFlowNodeId
@@ -60,7 +67,26 @@ type AdminContent = Readonly<{
   closeSidebar: string;
   dataUnavailable: string;
   emptyFlow: string;
+  filters: {
+    active: string;
+    affiliate: string;
+    apply: string;
+    campaign: string;
+    campaignId: string;
+    clear: string;
+    device: string;
+    emailHash: string;
+    locale: string;
+    medium: string;
+    planId: string;
+    promoCode: string;
+    ray: string;
+    selectedPlan: string;
+    source: string;
+    title: string;
+  };
   generated: string;
+  flowFormula: string;
   flowNodes: Record<AdminFlowNodeId, string>;
   flowMetrics: {
     dropped: string;
@@ -110,6 +136,26 @@ const content = {
     dataUnavailable:
       "Dashboard data is unavailable. Check the database connection and BPM table.",
     emptyFlow: "No flow events in this timeframe.",
+    filters: {
+      active: "Active filters",
+      affiliate: "Affiliate",
+      apply: "Apply filters",
+      campaign: "Campaign",
+      campaignId: "Campaign ID",
+      clear: "Clear",
+      device: "Device",
+      emailHash: "Email hash",
+      locale: "Locale",
+      medium: "Medium",
+      planId: "Plan ID",
+      promoCode: "Promo code",
+      ray: "Ray",
+      selectedPlan: "Plan",
+      source: "Source",
+      title: "Filters"
+    },
+    flowFormula:
+      "Formula: each box is the number of unique journeys that reached that stage. The up icon is visits, the down icon is drops. Each arrow is the number that moved to the next stage. The percentage in each box is next-step flow divided by stage count.",
     generated: "Generated",
     flowNodes: {
       assessmentStarted: "Started",
@@ -118,7 +164,7 @@ const content = {
       chatClicked: "Chat",
       dropoffAfterAssessment: "Dropped after assessment",
       dropoffAfterAssessmentStart: "Dropped after start",
-      dropoffAfterFormulation: "Dropped after formulation",
+      dropoffAfterFormulation: "Dropped after nutrition plan",
       dropoffAfterFreeEmailRequest: "Dropped after free request",
       dropoffAfterHealthScore: "Dropped after HealthScore",
       dropoffAfterLanding: "Dropped after landing",
@@ -127,7 +173,7 @@ const content = {
       dropoffAfterProPayment: "Dropped after Pro",
       dropoffAfterResults: "Dropped after results",
       dropoffAfterSubmission: "Dropped after submission",
-      formulationReady: "Formulation",
+      formulationReady: "Nutrition plan",
       freeEmailRequested: "Free email",
       freeEmailSent: "Email sent",
       healthscoreViewed: "HealthScore",
@@ -228,6 +274,26 @@ const content = {
     dataUnavailable:
       "ไม่สามารถโหลดข้อมูลแดชบอร์ดได้ กรุณาตรวจสอบการเชื่อมต่อฐานข้อมูลและตาราง BPM",
     emptyFlow: "ยังไม่มีข้อมูล Flow ในช่วงเวลานี้",
+    filters: {
+      active: "ตัวกรองที่ใช้",
+      affiliate: "Affiliate",
+      apply: "ใช้ตัวกรอง",
+      campaign: "Campaign",
+      campaignId: "Campaign ID",
+      clear: "ล้าง",
+      device: "อุปกรณ์",
+      emailHash: "Email hash",
+      locale: "ภาษา",
+      medium: "Medium",
+      planId: "Plan ID",
+      promoCode: "Promo code",
+      ray: "Ray",
+      selectedPlan: "แผน",
+      source: "Source",
+      title: "ตัวกรอง"
+    },
+    flowFormula:
+      "สูตรคำนวณ: แต่ละกล่องคือจำนวน journey ที่มาถึงขั้นตอนนั้น ไอคอนขึ้นคือจำนวนเข้าชม และไอคอนลงคือจำนวนที่หยุดในขั้นตอนนั้น แต่ละลูกศรคือจำนวนที่ไปต่อ และเปอร์เซ็นต์ในกล่องคือจำนวนที่ไปต่อหารด้วยจำนวนที่มาถึงขั้นตอนนั้น",
     generated: "สร้างเมื่อ",
     flowNodes: {
       assessmentStarted: "เริ่มทำ",
@@ -236,7 +302,7 @@ const content = {
       chatClicked: "แชต",
       dropoffAfterAssessment: "ออกหลังแบบประเมิน",
       dropoffAfterAssessmentStart: "ออกหลังเริ่มทำ",
-      dropoffAfterFormulation: "ออกหลังสูตรพร้อม",
+      dropoffAfterFormulation: "ออกหลังแผนโภชนาการ",
       dropoffAfterFreeEmailRequest: "ออกหลังขออีเมลฟรี",
       dropoffAfterHealthScore: "ออกหลัง HealthScore",
       dropoffAfterLanding: "ออกหลังหน้าแรก",
@@ -245,7 +311,7 @@ const content = {
       dropoffAfterProPayment: "ออกหลัง Pro",
       dropoffAfterResults: "ออกหลังผลลัพธ์",
       dropoffAfterSubmission: "ออกหลังส่งแบบประเมิน",
-      formulationReady: "สูตรพร้อม",
+      formulationReady: "แผนโภชนาการ",
       freeEmailRequested: "อีเมลฟรี",
       freeEmailSent: "ส่งอีเมลแล้ว",
       healthscoreViewed: "HealthScore",
@@ -363,13 +429,20 @@ function adminHref(
   locale: Locale,
   accessToken: string,
   range: AdminDashboardRange,
-  view: AdminDashboardView
+  view: AdminDashboardView,
+  filters?: AdminDashboardFilters
 ) {
   const params = new URLSearchParams({
     access_token: accessToken,
     range,
     view
   });
+
+  if (filters) {
+    adminDashboardFilterEntries(filters).forEach(([key, value]) => {
+      params.set(key, value);
+    });
+  }
 
   return `/${locale}/admin/dashboard?${params.toString()}`;
 }
@@ -399,6 +472,7 @@ function formatPercent(value: number, locale: Locale) {
 
 function SidebarContent({
   accessToken,
+  filters,
   labels,
   locale,
   onNavigate,
@@ -406,6 +480,7 @@ function SidebarContent({
   view
 }: Readonly<{
   accessToken: string;
+  filters: AdminDashboardFilters;
   labels: AdminContent;
   locale: Locale;
   onNavigate?: () => void;
@@ -415,7 +490,14 @@ function SidebarContent({
   return (
     <div className="flex grow flex-col gap-y-6 overflow-y-auto border-r border-gray-200 bg-white px-6 pb-4">
       <div className="flex h-20 shrink-0 items-center">
-        <HealthspanLogo />
+        <a
+          href={`/${locale}`}
+          onClick={onNavigate}
+          aria-label="MattaNutra home"
+          className="inline-flex rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A] focus-visible:ring-offset-2"
+        >
+          <HealthspanLogo />
+        </a>
       </div>
 
       <nav className="flex flex-1 flex-col">
@@ -425,7 +507,7 @@ function SidebarContent({
               {labels.navigation.map((item) => {
                 const current = item.view === view;
                 const href = item.view
-                  ? adminHref(locale, accessToken, range, item.view)
+                  ? adminHref(locale, accessToken, range, item.view, filters)
                   : item.href ?? "#";
 
                 return (
@@ -809,6 +891,10 @@ function mermaidNodeLabel({
     (total, edge) => total + edge.count,
     0
   );
+  const dropped = flowEdgesFrom(flowData, nodeId, "dropoff").reduce(
+    (total, edge) => total + edge.count,
+    0
+  );
   const ratio =
     reached > 0 && !mermaidTerminalNodes.has(nodeId)
       ? Math.min(100, (happy / reached) * 100)
@@ -816,7 +902,7 @@ function mermaidNodeLabel({
 
   const lines = [
     mermaidEscape(labels.flowNodes[nodeId]),
-    `<b>${mermaidCount(reached, locale)}</b>`
+    `<b>▲ ${mermaidCount(reached, locale)} <span style='display:inline-block;width:0.75rem'></span> ▼ ${mermaidCount(dropped, locale)}</b>`
   ];
 
   if (ratio !== null) {
@@ -871,10 +957,10 @@ function buildMermaidFlowDefinition(
 ) {
   const lines = [
     "flowchart TD",
-    "  classDef okay fill:#ECFDF5,stroke:#1FA77A,color:#14532D,stroke-width:2px;",
-    "  classDef needs_work fill:#FFFBEB,stroke:#F59E0B,color:#92400E,stroke-width:2px;",
-    "  classDef lossy fill:#FEF2F2,stroke:#EF4444,color:#991B1B,stroke-width:2px;",
-    "  classDef neutral fill:#F8FAFC,stroke:#CBD5E1,color:#334155,stroke-width:1px;"
+    "  classDef okay fill:#FFFFFF,stroke:#1FA77A,color:#111827,stroke-width:2px;",
+    "  classDef needs_work fill:#FFFFFF,stroke:#F59E0B,color:#111827,stroke-width:2px;",
+    "  classDef lossy fill:#FFFFFF,stroke:#EF4444,color:#111827,stroke-width:2px;",
+    "  classDef neutral fill:#FFFFFF,stroke:#CBD5E1,color:#111827,stroke-width:1px;"
   ];
 
   mermaidFlowNodes.forEach((nodeId) => {
@@ -1009,6 +1095,9 @@ function FlowChart({
       {hasEvents ? (
         <>
           <FlowLegend labels={labels} />
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-gray-600">
+            {labels.flowFormula}
+          </p>
           <MermaidFlow definition={mermaidDefinition} labels={labels} />
         </>
       ) : (
@@ -1057,12 +1146,14 @@ function AdminFlowView({
 function TimeframeSelector({
   accessToken,
   data,
+  filters,
   labels,
   locale,
   view
 }: Readonly<{
   accessToken: string;
   data: AdminDashboardData;
+  filters: AdminDashboardFilters;
   labels: AdminContent;
   locale: Locale;
   view: AdminDashboardView;
@@ -1072,7 +1163,7 @@ function TimeframeSelector({
       {rangeOrder.map((range) => (
         <a
           key={range}
-          href={adminHref(locale, accessToken, range, view)}
+          href={adminHref(locale, accessToken, range, view, filters)}
           aria-current={data.range === range ? "page" : undefined}
           className={classNames(
             data.range === range
@@ -1088,15 +1179,295 @@ function TimeframeSelector({
   );
 }
 
+function LocaleFilterSelector({
+  accessToken,
+  filters,
+  locale,
+  range,
+  view
+}: Readonly<{
+  accessToken: string;
+  filters: AdminDashboardFilters;
+  locale: Locale;
+  range: AdminDashboardRange;
+  view: AdminDashboardView;
+}>) {
+  const localeOptions = [
+    { label: "EN", value: "en" },
+    { label: "TH", value: "th" }
+  ];
+  const activeLocales =
+    filters.locale === "en"
+      ? new Set(["en"])
+      : filters.locale === "th"
+        ? new Set(["th"])
+        : filters.locale === "none"
+          ? new Set<string>()
+          : new Set(["en", "th"]);
+
+  function toggledLocaleFilter(value: string) {
+    const next = new Set(activeLocales);
+
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+
+    if (next.size === 2) {
+      return "";
+    }
+
+    if (next.size === 0) {
+      return "none";
+    }
+
+    return next.has("en") ? "en" : "th";
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      {localeOptions.map((option) => {
+        const active = activeLocales.has(option.value);
+
+        return (
+          <a
+            key={option.label}
+            href={adminHref(locale, accessToken, range, view, {
+              ...filters,
+              locale: toggledLocaleFilter(option.value)
+            })}
+            aria-current={active ? "page" : undefined}
+            className={classNames(
+              active
+                ? "bg-[#1FA77A] text-white"
+                : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50",
+              "rounded-full px-3 py-1.5 text-sm font-semibold transition"
+            )}
+          >
+            {option.label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterInput({
+  label,
+  name,
+  value
+}: Readonly<{
+  label: string;
+  name: keyof AdminDashboardFilters;
+  value: string;
+}>) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+        {label}
+      </span>
+      <input
+        type="text"
+        name={name}
+        defaultValue={value}
+        className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]"
+      />
+    </label>
+  );
+}
+
+function FilterSelect({
+  label,
+  name,
+  options,
+  value
+}: Readonly<{
+  label: string;
+  name: keyof AdminDashboardFilters;
+  options: Array<Readonly<{ label: string; value: string }>>;
+  value: string;
+}>) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+        {label}
+      </span>
+      <select
+        name={name}
+        defaultValue={value}
+        className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]"
+      >
+        {options.map((option) => (
+          <option key={option.value || "all"} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function AdminFilterPanel({
+  accessToken,
+  filters,
+  labels,
+  locale,
+  range,
+  view
+}: Readonly<{
+  accessToken: string;
+  filters: AdminDashboardFilters;
+  labels: AdminContent;
+  locale: Locale;
+  range: AdminDashboardRange;
+  view: AdminDashboardView;
+}>) {
+  const panelFilters = { ...filters, locale: "" };
+  const activeFilters = adminDashboardFilterEntries(panelFilters);
+  const hasPanelFilters = hasAdminDashboardFilters(panelFilters);
+  const clearHref = adminHref(locale, accessToken, range, view, {
+    ...emptyAdminDashboardFilters,
+    locale: filters.locale
+  });
+
+  return (
+    <details
+      className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-gray-200"
+      open={hasPanelFilters}
+    >
+      <summary className="group flex cursor-pointer list-none items-center gap-3 p-5 marker:hidden">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">
+            {labels.filters.title}
+          </span>
+          {hasPanelFilters ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold uppercase tracking-[0.14em] text-gray-400">
+                {labels.filters.active}
+              </span>
+              {activeFilters.map(([key, value]) => (
+                <span
+                  key={key}
+                  className="rounded-full bg-gray-50 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200"
+                >
+                  {labels.filters[key]}: {value}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <ChevronDownIcon
+          aria-hidden={true}
+          className="ml-auto size-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180"
+        />
+      </summary>
+
+      <form
+        action={`/${locale}/admin/dashboard`}
+        method="get"
+        className="border-t border-gray-100 p-5"
+      >
+        <input type="hidden" name="access_token" value={accessToken} />
+        <input type="hidden" name="range" value={range} />
+        <input type="hidden" name="view" value={view} />
+        <input type="hidden" name="locale" value={filters.locale} />
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <FilterInput
+            label={labels.filters.source}
+            name="source"
+            value={filters.source}
+          />
+          <FilterInput
+            label={labels.filters.medium}
+            name="medium"
+            value={filters.medium}
+          />
+          <FilterInput
+            label={labels.filters.campaign}
+            name="campaign"
+            value={filters.campaign}
+          />
+          <FilterInput
+            label={labels.filters.campaignId}
+            name="campaignId"
+            value={filters.campaignId}
+          />
+          <FilterInput
+            label={labels.filters.affiliate}
+            name="affiliate"
+            value={filters.affiliate}
+          />
+          <FilterInput
+            label={labels.filters.promoCode}
+            name="promoCode"
+            value={filters.promoCode}
+          />
+          <FilterSelect
+            label={labels.filters.selectedPlan}
+            name="selectedPlan"
+            value={filters.selectedPlan}
+            options={[
+              { label: "All", value: "" },
+              { label: "Precision", value: "precision" },
+              { label: "Pro", value: "pro" }
+            ]}
+          />
+          <FilterSelect
+            label={labels.filters.device}
+            name="device"
+            value={filters.device}
+            options={[
+              { label: "All", value: "" },
+              { label: "Mobile", value: "mobile" },
+              { label: "Tablet", value: "tablet" },
+              { label: "Desktop", value: "desktop" }
+            ]}
+          />
+          <FilterInput
+            label={labels.filters.planId}
+            name="planId"
+            value={filters.planId}
+          />
+          <FilterInput label={labels.filters.ray} name="ray" value={filters.ray} />
+          <FilterInput
+            label={labels.filters.emailHash}
+            name="emailHash"
+            value={filters.emailHash}
+          />
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            className="rounded-md bg-[#1FA77A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#188B66] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1FA77A]"
+          >
+            {labels.filters.apply}
+          </button>
+          <a
+            href={clearHref}
+            className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+          >
+            {labels.filters.clear}
+          </a>
+        </div>
+      </form>
+    </details>
+  );
+}
+
 export function AdminDashboard({
   accessToken,
   data,
+  filters,
   flowData,
   locale,
   view
 }: Readonly<{
   accessToken: string;
   data: AdminDashboardData;
+  filters: AdminDashboardFilters;
   flowData: AdminFlowData;
   locale: Locale;
   view: AdminDashboardView;
@@ -1117,6 +1488,7 @@ export function AdminDashboard({
           <aside className="relative flex h-full w-full max-w-xs">
             <SidebarContent
               accessToken={accessToken}
+              filters={filters}
               labels={labels}
               locale={locale}
               onNavigate={() => setSidebarOpen(false)}
@@ -1138,6 +1510,7 @@ export function AdminDashboard({
       <aside className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
         <SidebarContent
           accessToken={accessToken}
+          filters={filters}
           labels={labels}
           locale={locale}
           range={data.range}
@@ -1189,11 +1562,28 @@ export function AdminDashboard({
             <TimeframeSelector
               accessToken={accessToken}
               data={data}
+              filters={filters}
               labels={labels}
               locale={locale}
               view={view}
             />
+            <LocaleFilterSelector
+              accessToken={accessToken}
+              filters={filters}
+              locale={locale}
+              range={data.range}
+              view={view}
+            />
           </div>
+
+          <AdminFilterPanel
+            accessToken={accessToken}
+            filters={filters}
+            labels={labels}
+            locale={locale}
+            range={data.range}
+            view={view}
+          />
 
           {view === "flow" ? (
             <AdminFlowView flowData={flowData} labels={labels} locale={locale} />

@@ -5,16 +5,13 @@ import {
   getAdminDashboardData,
   normalizeAdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 
 export const dynamic = "force-dynamic";
 
 type AdminDashboardPageProps = Readonly<{
-  searchParams: Promise<{
-    access_token?: string | string[];
-    range?: string | string[];
-    view?: string | string[];
-  }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }>;
 
 function firstParam(value: string | string[] | undefined) {
@@ -28,20 +25,22 @@ export default async function AdminDashboardPage({
   const accessToken = firstParam(params.access_token);
   const range = normalizeAdminDashboardRange(params.range);
   const view = firstParam(params.view) === "flow" ? "flow" : "kpi";
+  const filters = normalizeAdminDashboardFilters(params);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
   }
 
   const [data, flowData] = await Promise.all([
-    getAdminDashboardData(range),
-    getAdminFlowData(range)
+    getAdminDashboardData(range, filters),
+    getAdminFlowData(range, filters)
   ]);
 
   return (
     <AdminDashboard
       accessToken={accessToken ?? ""}
       data={data}
+      filters={filters}
       flowData={flowData}
       locale="en"
       view={view}

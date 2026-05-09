@@ -6,6 +6,7 @@ import {
   getAdminDashboardData,
   normalizeAdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { isLocale, type Locale } from "@/lib/i18n";
 
@@ -23,11 +24,7 @@ type LocalizedAdminDashboardPageProps = Readonly<{
   params: Promise<{
     locale: string;
   }>;
-  searchParams: Promise<{
-    access_token?: string | string[];
-    range?: string | string[];
-    view?: string | string[];
-  }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }>;
 
 function firstParam(value: string | string[] | undefined) {
@@ -51,20 +48,22 @@ export default async function LocalizedAdminDashboardPage({
   const accessToken = firstParam(query.access_token);
   const range = normalizeAdminDashboardRange(query.range);
   const view = firstParam(query.view) === "flow" ? "flow" : "kpi";
+  const filters = normalizeAdminDashboardFilters(query);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
   }
 
   const [data, flowData] = await Promise.all([
-    getAdminDashboardData(range),
-    getAdminFlowData(range)
+    getAdminDashboardData(range, filters),
+    getAdminFlowData(range, filters)
   ]);
 
   return (
     <AdminDashboard
       accessToken={accessToken ?? ""}
       data={data}
+      filters={filters}
       flowData={flowData}
       locale={locale}
       view={view}
