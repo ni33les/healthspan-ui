@@ -11,6 +11,7 @@ import {
 } from "@/lib/assessment-store";
 import { computeHealthScore } from "@/lib/health-score";
 import { analyzeHealthScoreAdvice } from "@/lib/health-score-analysis";
+import { writeSkippedPaymentSuccessEvent } from "@/lib/payment-bpm";
 import {
   enqueueFormulationJob,
   kickCronWorker,
@@ -164,6 +165,15 @@ export async function POST(request: Request) {
         attribution: bpm.attribution,
         eventName: "plan_selected",
         eventType: "plan",
+        locale: body.locale,
+        planId: snapshot.planId,
+        ray: typeof bpm.ray === "string" ? bpm.ray : null,
+        selectedPlan,
+        ...healthScoreBpmFields(snapshot)
+      });
+
+      await writeSkippedPaymentSuccessEvent({
+        attribution: bpm.attribution,
         locale: body.locale,
         planId: snapshot.planId,
         ray: typeof bpm.ray === "string" ? bpm.ray : null,
