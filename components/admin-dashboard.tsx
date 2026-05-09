@@ -9,12 +9,12 @@ import {
 import {
   Bars3Icon,
   BeakerIcon,
-  ChartBarIcon,
   ChartPieIcon,
   ChevronDownIcon,
   DocumentTextIcon,
   EnvelopeIcon,
   ExclamationTriangleIcon,
+  FunnelIcon,
   HomeIcon,
   MegaphoneIcon,
   QueueListIcon,
@@ -86,7 +86,6 @@ type AdminContent = Readonly<{
     title: string;
   };
   generated: string;
-  flowFormula: string;
   flowNodes: Record<AdminFlowNodeId, string>;
   flowMetrics: {
     dropped: string;
@@ -154,8 +153,6 @@ const content = {
       source: "Source",
       title: "Filters"
     },
-    flowFormula:
-      "Formula: each box is the number of unique journeys that reached that stage. The up icon is visits, the down icon is drops. Each arrow is the number that moved to the next stage. The percentage in each box is next-step flow divided by stage count.",
     generated: "Generated",
     flowNodes: {
       assessmentStarted: "Started",
@@ -201,7 +198,7 @@ const content = {
       needsWork: "Needs work",
       okay: "Okay"
     },
-    flowTitle: "Sales flow",
+    flowTitle: "Sales Conversions",
     kpis: {
       free: {
         title: "Free conversions"
@@ -215,7 +212,7 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
-      { icon: ChartBarIcon, name: "Flow", view: "flow" },
+      { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "Campaigns" },
       { href: "#", icon: EnvelopeIcon, name: "Leads" },
       { href: "#", icon: ShieldCheckIcon, name: "Safety" },
@@ -231,7 +228,7 @@ const content = {
     ],
     queuesTitle: "Queues",
     pageTitles: {
-      flow: "Flow",
+      flow: "Sales Conversions",
       kpi: "Key Performance Indicators"
     },
     ranges: {
@@ -292,8 +289,6 @@ const content = {
       source: "Source",
       title: "ตัวกรอง"
     },
-    flowFormula:
-      "สูตรคำนวณ: แต่ละกล่องคือจำนวน journey ที่มาถึงขั้นตอนนั้น ไอคอนขึ้นคือจำนวนเข้าชม และไอคอนลงคือจำนวนที่หยุดในขั้นตอนนั้น แต่ละลูกศรคือจำนวนที่ไปต่อ และเปอร์เซ็นต์ในกล่องคือจำนวนที่ไปต่อหารด้วยจำนวนที่มาถึงขั้นตอนนั้น",
     generated: "สร้างเมื่อ",
     flowNodes: {
       assessmentStarted: "เริ่มทำ",
@@ -339,7 +334,7 @@ const content = {
       needsWork: "ควรปรับปรุง",
       okay: "ดี"
     },
-    flowTitle: "Sales flow",
+    flowTitle: "Sales Conversions",
     kpis: {
       free: {
         title: "คอนเวอร์ชันฟรี"
@@ -353,7 +348,7 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
-      { icon: ChartBarIcon, name: "Flow", view: "flow" },
+      { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "แคมเปญ" },
       { href: "#", icon: EnvelopeIcon, name: "ลีด" },
       { href: "#", icon: ShieldCheckIcon, name: "ความปลอดภัย" },
@@ -369,7 +364,7 @@ const content = {
     ],
     queuesTitle: "คิวงาน",
     pageTitles: {
-      flow: "Flow",
+      flow: "Sales Conversions",
       kpi: "Key Performance Indicators"
     },
     ranges: {
@@ -1051,7 +1046,7 @@ function MermaidFlow({
   }, [definition]);
 
   return (
-    <div className="mt-6 overflow-x-auto rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
+    <div className="mt-6 overflow-x-auto">
       {svg ? (
         <div
           aria-label={labels.flowTitle}
@@ -1060,7 +1055,7 @@ function MermaidFlow({
           role="img"
         />
       ) : (
-        <div className="flex min-h-96 items-center justify-center rounded-xl bg-white text-sm font-medium text-gray-500 ring-1 ring-gray-100">
+        <div className="flex min-h-96 items-center justify-center text-sm font-medium text-gray-500">
           {labels.flowTitle}
         </div>
       )}
@@ -1088,16 +1083,9 @@ function FlowChart({
 
   return (
     <section className="mt-8 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">
-        {labels.flowTitle}
-      </h2>
-
       {hasEvents ? (
         <>
           <FlowLegend labels={labels} />
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-gray-600">
-            {labels.flowFormula}
-          </p>
           <MermaidFlow definition={mermaidDefinition} labels={labels} />
         </>
       ) : (
@@ -1542,13 +1530,11 @@ export function AdminDashboard({
               <h1 className="text-3xl font-bold tracking-tight text-gray-900">
                 {labels.pageTitles[view]}
               </h1>
-              <p className="mt-1 text-xs text-gray-400">
-                {labels.generated}:{" "}
-                {formatGeneratedAt(
-                  view === "flow" ? flowData.generatedAt : data.generatedAt,
-                  locale
-                )}
-              </p>
+              {view === "kpi" ? (
+                <p className="mt-1 text-xs text-gray-400">
+                  {labels.generated}: {formatGeneratedAt(data.generatedAt, locale)}
+                </p>
+              ) : null}
             </div>
           </div>
 

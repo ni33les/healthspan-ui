@@ -1068,6 +1068,14 @@ create index if not exists bpm_email_hash_idx
   on public.bpm (email_hash, occurred_at desc)
   where email_hash is not null;
 
+create index if not exists bpm_locale_idx
+  on public.bpm (locale, occurred_at desc)
+  where locale is not null;
+
+create index if not exists bpm_device_idx
+  on public.bpm (lower(coalesce(device_type, '')), occurred_at desc)
+  where device_type is not null;
+
 create index if not exists bpm_selected_plan_idx
   on public.bpm (selected_plan, occurred_at desc)
   where selected_plan is not null;
@@ -1076,16 +1084,60 @@ create index if not exists bpm_source_idx
   on public.bpm (traffic_source, source_channel, occurred_at desc)
   where traffic_source is not null or source_channel is not null;
 
+create index if not exists bpm_utm_source_filter_idx
+  on public.bpm (lower(coalesce(utm_source, '')), occurred_at desc)
+  where utm_source is not null;
+
+create index if not exists bpm_traffic_source_filter_idx
+  on public.bpm (lower(coalesce(traffic_source, '')), occurred_at desc)
+  where traffic_source is not null;
+
+create index if not exists bpm_source_channel_filter_idx
+  on public.bpm (lower(coalesce(source_channel, '')), occurred_at desc)
+  where source_channel is not null;
+
+create index if not exists bpm_utm_medium_filter_idx
+  on public.bpm (lower(utm_medium), occurred_at desc)
+  where utm_medium is not null;
+
 create index if not exists bpm_campaign_idx
   on public.bpm (utm_campaign, campaign_id, occurred_at desc)
   where utm_campaign is not null or campaign_id is not null;
+
+create index if not exists bpm_utm_campaign_filter_idx
+  on public.bpm (lower(coalesce(utm_campaign, '')), occurred_at desc)
+  where utm_campaign is not null;
+
+create index if not exists bpm_campaign_name_filter_idx
+  on public.bpm (lower(coalesce(campaign_name, '')), occurred_at desc)
+  where campaign_name is not null;
+
+create index if not exists bpm_campaign_id_filter_idx
+  on public.bpm (lower(campaign_id), occurred_at desc)
+  where campaign_id is not null;
 
 create index if not exists bpm_affiliate_idx
   on public.bpm (affiliate_id, affiliate_ref, occurred_at desc)
   where affiliate_id is not null or affiliate_ref is not null;
 
+create index if not exists bpm_affiliate_id_filter_idx
+  on public.bpm (lower(coalesce(affiliate_id, '')), occurred_at desc)
+  where affiliate_id is not null;
+
+create index if not exists bpm_affiliate_ref_filter_idx
+  on public.bpm (lower(coalesce(affiliate_ref, '')), occurred_at desc)
+  where affiliate_ref is not null;
+
+create index if not exists bpm_affiliate_sub_id_filter_idx
+  on public.bpm (lower(coalesce(affiliate_sub_id, '')), occurred_at desc)
+  where affiliate_sub_id is not null;
+
 create index if not exists bpm_promo_idx
   on public.bpm (promo_code, occurred_at desc)
+  where promo_code is not null;
+
+create index if not exists bpm_promo_code_filter_idx
+  on public.bpm (lower(promo_code), occurred_at desc)
   where promo_code is not null;
 
 create index if not exists bpm_alerts_idx
