@@ -51,8 +51,11 @@ type CopyLabels = Record<
   | "context"
   | "coveragePrefix"
   | "coverageSuffix"
+  | "doseAdjustedBody"
   | "error"
   | "formula"
+  | "formulaEmptyBody"
+  | "formulaEmptyTitle"
   | "formulaHint"
   | "generated"
   | "goals"
@@ -68,6 +71,8 @@ type CopyLabels = Record<
   | "profile"
   | "region"
   | "safety"
+  | "safetyReviewBody"
+  | "safetyReviewTitle"
   | "shopLazada"
   | "shopShopee",
   string
@@ -89,9 +94,14 @@ const copy = {
     context: "Assessment summary",
     coveragePrefix: "Covers",
     coverageSuffix: "of the recommended supplements",
+    doseAdjustedBody:
+      "One or more doses were automatically reduced to stay within the configured MattaNutra safety ceiling.",
     error:
       "The formulation could not be loaded. Please refresh the page and try again.",
     formula: "Supplement breakdown",
+    formulaEmptyBody:
+      "Every supplement suggestion needs a safety review before we show it. The review queue has been notified.",
+    formulaEmptyTitle: "Safety review in progress",
     formulaHint:
       "Your suggested supplement stack, grouped by role, with practical daily dose guidance.",
     generated: "Generated",
@@ -111,6 +121,9 @@ const copy = {
     profile: "Profile",
     region: "Region",
     safety: "Safety notes",
+    safetyReviewBody:
+      "Some supplement suggestions need human review before they are shown. They have been hidden from this page and added to the review queue.",
+    safetyReviewTitle: "Safety review active",
     safetyNotes: [
       "These are optional wellness product suggestions, not medical advice.",
       "Review all labels for allergens, ingredients, and daily use instructions before purchase.",
@@ -132,8 +145,13 @@ const copy = {
     context: "สรุปแบบประเมิน",
     coveragePrefix: "ครอบคลุม",
     coverageSuffix: "ของรายการอาหารเสริมที่แนะนำ",
+    doseAdjustedBody:
+      "มีการลดขนาดรับประทานบางรายการให้อยู่ในเพดานความปลอดภัยของ MattaNutra โดยอัตโนมัติ",
     error: "ไม่สามารถโหลดสูตรได้ กรุณารีเฟรชหน้าและลองอีกครั้ง",
     formula: "รายการอาหารเสริม",
+    formulaEmptyBody:
+      "คำแนะนำอาหารเสริมทั้งหมดต้องผ่านการตรวจสอบด้านความปลอดภัยก่อนแสดง ทีมรีวิวได้รับรายการแล้ว",
+    formulaEmptyTitle: "กำลังตรวจสอบความปลอดภัย",
     formulaHint:
       "รายการอาหารเสริมที่แนะนำ จัดกลุ่มตามบทบาท พร้อมขนาดรับประทานต่อวันที่ใช้งานได้จริง",
     generated: "สร้างเมื่อ",
@@ -153,6 +171,9 @@ const copy = {
     profile: "โปรไฟล์",
     region: "ภูมิภาค",
     safety: "หมายเหตุด้านความปลอดภัย",
+    safetyReviewBody:
+      "คำแนะนำอาหารเสริมบางรายการต้องผ่านการตรวจสอบโดยทีมงานก่อนแสดง รายการเหล่านั้นถูกซ่อนไว้จากหน้านี้และส่งเข้าคิวรีวิวแล้ว",
+    safetyReviewTitle: "มีการตรวจสอบความปลอดภัย",
     safetyNotes: [
       "คำแนะนำเหล่านี้เป็นตัวเลือกผลิตภัณฑ์เพื่อสุขภาพ ไม่ใช่คำแนะนำทางการแพทย์",
       "ตรวจฉลากทั้งหมดเพื่อดูสารก่อแพ้ ส่วนผสม และวิธีใช้ต่อวันก่อนซื้อ",
@@ -295,8 +316,11 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
     );
   }
 
+  const visibleIngredients = result.supplementBreakdown.filter(
+    (ingredient) => ingredient.safety?.visibility !== "hidden"
+  );
   const ingredientById = new Map(
-    result.supplementBreakdown.map((ingredient) => [ingredient.id, ingredient])
+    visibleIngredients.map((ingredient) => [ingredient.id, ingredient])
   );
   const coverageCount = (product: RecommendedProduct) =>
     product.covers.filter((ingredientId) => ingredientById.has(ingredientId))
@@ -311,7 +335,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
     return a.priority - b.priority;
   });
   const totalRecommendedIngredients = Math.max(
-    result.supplementBreakdown.length,
+    visibleIngredients.length,
     1
   );
   const productCoveragePercentById = new Map(
@@ -356,7 +380,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
       }
     });
   });
-  result.supplementBreakdown.forEach((ingredient) => {
+  visibleIngredients.forEach((ingredient) => {
     if (!seenIngredientIds.has(ingredient.id)) {
       orderedIngredientIds.push(ingredient.id);
     }
@@ -447,6 +471,8 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
         </div>
       </div>
 
+      <SafetyReviewPanel labels={labels} result={result} />
+
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
         <FormulaPanel
           ingredients={orderedIngredients}
@@ -488,6 +514,52 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
 }
 
 type PanelLabels = (typeof copy)["en"];
+
+function SafetyReviewPanel({
+  labels,
+  result
+}: Readonly<{
+  labels: PanelLabels;
+  result: FormulationResult;
+}>) {
+  const summary = result.safetySummary;
+
+  if (
+    !summary ||
+    (summary.adjustedCount < 1 &&
+      summary.hiddenCount < 1 &&
+      summary.removedCount < 1)
+  ) {
+    return null;
+  }
+
+  const showReviewNotice = summary.hiddenCount > 0 || summary.removedCount > 0;
+  const messages = [
+    showReviewNotice ? labels.safetyReviewBody : null,
+    summary.adjustedCount > 0 ? labels.doseAdjustedBody : null
+  ].filter((message): message is string => Boolean(message));
+
+  return (
+    <div className="mt-8 rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
+      <div className="flex gap-3">
+        <ExclamationTriangleIcon
+          aria-hidden={true}
+          className="mt-0.5 size-5 flex-none text-amber-500"
+        />
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+            {labels.safetyReviewTitle}
+          </p>
+          <div className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">
+            {messages.map((message) => (
+              <p key={message}>{message}</p>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ContextItem({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
@@ -651,7 +723,20 @@ function FormulaPanel({
       </div>
 
       <div className="mt-6 space-y-3">
-        {ingredients.map((ingredient) => {
+        {ingredients.length < 1 ? (
+          <div className="rounded-lg border border-dashed border-foreground/15 bg-background/60 p-6 text-center">
+            <BeakerIcon
+              aria-hidden={true}
+              className="mx-auto size-7 text-[#3A7BD5]"
+            />
+            <h3 className="mt-4 text-base font-semibold text-[#20343A]">
+              {labels.formulaEmptyTitle}
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+              {labels.formulaEmptyBody}
+            </p>
+          </div>
+        ) : ingredients.map((ingredient) => {
           const productReferences =
             productReferencesByIngredientId.get(ingredient.id) ?? [];
           const supplement = getLocalizedText(ingredient.supplement, locale);

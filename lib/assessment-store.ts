@@ -56,6 +56,32 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function safetySummaryFromRecord(
+  value: unknown
+): FormulationResult["safetySummary"] | undefined {
+  const record = asRecord(value);
+  const adjustedCount = Number(record.adjustedCount);
+  const hiddenCount = Number(record.hiddenCount);
+  const removedCount = Number(record.removedCount);
+  const reviewCount = Number(record.reviewCount);
+
+  if (
+    !Number.isFinite(adjustedCount) ||
+    !Number.isFinite(hiddenCount) ||
+    !Number.isFinite(removedCount) ||
+    !Number.isFinite(reviewCount)
+  ) {
+    return undefined;
+  }
+
+  return {
+    adjustedCount: Math.max(0, Math.round(adjustedCount)),
+    hiddenCount: Math.max(0, Math.round(hiddenCount)),
+    removedCount: Math.max(0, Math.round(removedCount)),
+    reviewCount: Math.max(0, Math.round(reviewCount))
+  };
+}
+
 export function toJsonValue(value: unknown): postgres.JSONValue {
   if (value === undefined) {
     return {};
@@ -510,10 +536,7 @@ export async function getStoredFormulationResult(planId: string) {
   const supplementBreakdown = asArray<FormulationIngredient>(
     storedFormulation.supplementBreakdown ?? storedFormulation.formula
   );
-
-  if (supplementBreakdown.length < 1) {
-    return null;
-  }
+  const safetySummary = safetySummaryFromRecord(storedFormulation.safetySummary);
 
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
   const generatedAt =
@@ -531,6 +554,7 @@ export async function getStoredFormulationResult(planId: string) {
     planId,
     recommendations,
     schemaVersion: 1,
+    ...(safetySummary ? { safetySummary } : {}),
     supplementBreakdown
   } satisfies FormulationResult;
 }

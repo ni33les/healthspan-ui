@@ -30,6 +30,10 @@ import type {
   AdminDashboardRange
 } from "@/lib/admin-dashboard-data";
 import type {
+  AdminReviewJobRow,
+  AdminReviewQueueData
+} from "@/lib/admin-review-queue";
+import type {
   AdminSupplementRow,
   AdminSupplementsData,
   SupplementConfidence,
@@ -51,7 +55,7 @@ import type {
 } from "@/lib/admin-flow-data";
 import type { Locale } from "@/lib/i18n";
 
-type AdminDashboardView = "flow" | "kpi" | "supplements";
+type AdminDashboardView = "flow" | "kpi" | "reviews" | "supplements";
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 type AdminNavItem = Readonly<{
@@ -124,6 +128,22 @@ type AdminContent = Readonly<{
   ranges: Record<AdminDashboardRange, string>;
   rates: Record<AdminDashboardRateId, RateText>;
   ratesTitle: string;
+  reviewQueue: {
+    dismiss: string;
+    dismissError: string;
+    doseReduced: string;
+    empty: string;
+    maxDose: string;
+    newDose: string;
+    originalDose: string;
+    plan: string;
+    priority: string;
+    queued: string;
+    requiredFields: string;
+    reviewRequired: string;
+    total: string;
+    unknown: string;
+  };
   supplements: {
     allCategories: string;
     allStatuses: string;
@@ -256,7 +276,7 @@ const content = {
     nextBuckets: "Next 3 buckets",
     openSidebar: "Open sidebar",
     queues: [
-      { href: "#", icon: ExclamationTriangleIcon, name: "Human review" },
+      { icon: ExclamationTriangleIcon, name: "Human review", view: "reviews" },
       { href: "#", icon: QueueListIcon, name: "Jobs" },
       { href: "#", icon: ChartPieIcon, name: "Reports" }
     ],
@@ -264,6 +284,7 @@ const content = {
     pageTitles: {
       flow: "Sales Conversions",
       kpi: "Key Performance Indicators",
+      reviews: "Human Review",
       supplements: "Supplements"
     },
     ranges: {
@@ -293,6 +314,22 @@ const content = {
       }
     },
     ratesTitle: "Conversion rates",
+    reviewQueue: {
+      dismiss: "Dismiss",
+      dismissError: "Could not dismiss this review job.",
+      doseReduced: "Dose reduced",
+      empty: "No supplement review jobs are waiting.",
+      maxDose: "Max dose",
+      newDose: "New dose",
+      originalDose: "Original dose",
+      plan: "Plan",
+      priority: "Priority",
+      queued: "Queued",
+      requiredFields: "Required fields",
+      reviewRequired: "Review required",
+      total: "Total",
+      unknown: "Unknown supplement"
+    },
     supplements: {
       allCategories: "All categories",
       allStatuses: "All statuses",
@@ -433,7 +470,7 @@ const content = {
     nextBuckets: "คาดการณ์ 3 ช่วงถัดไป",
     openSidebar: "เปิดแถบเมนู",
     queues: [
-      { href: "#", icon: ExclamationTriangleIcon, name: "รีวิวโดยคน" },
+      { icon: ExclamationTriangleIcon, name: "รีวิวโดยคน", view: "reviews" },
       { href: "#", icon: QueueListIcon, name: "งานในคิว" },
       { href: "#", icon: ChartPieIcon, name: "รายงาน" }
     ],
@@ -441,6 +478,7 @@ const content = {
     pageTitles: {
       flow: "Sales Conversions",
       kpi: "Key Performance Indicators",
+      reviews: "รีวิวโดยคน",
       supplements: "อาหารเสริม"
     },
     ranges: {
@@ -470,6 +508,22 @@ const content = {
       }
     },
     ratesTitle: "อัตราคอนเวอร์ชัน",
+    reviewQueue: {
+      dismiss: "ปิดรายการ",
+      dismissError: "ไม่สามารถปิดงานรีวิวนี้ได้",
+      doseReduced: "ลดขนาดแล้ว",
+      empty: "ไม่มีงานรีวิวอาหารเสริมที่รอดำเนินการ",
+      maxDose: "ขนาดสูงสุด",
+      newDose: "ขนาดใหม่",
+      originalDose: "ขนาดเดิม",
+      plan: "แผน",
+      priority: "ความสำคัญ",
+      queued: "เข้าคิว",
+      requiredFields: "ข้อมูลที่ต้องมี",
+      reviewRequired: "ต้องรีวิว",
+      total: "ทั้งหมด",
+      unknown: "อาหารเสริมใหม่"
+    },
     supplements: {
       allCategories: "ทุกหมวดหมู่",
       allStatuses: "ทุกสถานะ",
@@ -657,21 +711,39 @@ function SidebarContent({
               {labels.queuesTitle}
             </div>
             <ul role="list" className="-mx-2 mt-2 space-y-1">
-              {labels.queues.map((item) => (
-                <li key={item.name}>
-                  <a
-                    href={item.href}
-                    onClick={onNavigate}
-                    className="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold text-gray-700 hover:bg-gray-50 hover:text-[#126B4F]"
-                  >
-                    <item.icon
-                      aria-hidden={true}
-                      className="size-6 shrink-0 text-gray-400 group-hover:text-[#1FA77A]"
-                    />
-                    {item.name}
-                  </a>
-                </li>
-              ))}
+              {labels.queues.map((item) => {
+                const current = item.view === view;
+                const href = item.view
+                  ? adminHref(locale, accessToken, range, item.view, filters)
+                  : item.href ?? "#";
+
+                return (
+                  <li key={item.name}>
+                    <a
+                      href={href}
+                      onClick={onNavigate}
+                      aria-current={current ? "page" : undefined}
+                      className={classNames(
+                        current
+                          ? "bg-[#1FA77A]/10 text-[#126B4F]"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-[#126B4F]",
+                        "group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold"
+                      )}
+                    >
+                      <item.icon
+                        aria-hidden={true}
+                        className={classNames(
+                          current
+                            ? "text-[#1FA77A]"
+                            : "text-gray-400 group-hover:text-[#1FA77A]",
+                          "size-6 shrink-0"
+                        )}
+                      />
+                      {item.name}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           </li>
         </ul>
@@ -1488,6 +1560,182 @@ function SupplementDetailsModal({
   );
 }
 
+function reviewKindLabel(labels: AdminContent, row: AdminReviewJobRow) {
+  if (row.reviewKind === "dose_reduced") {
+    return labels.reviewQueue.doseReduced;
+  }
+
+  if (row.reviewKind === "unknown_supplement") {
+    return labels.reviewQueue.unknown;
+  }
+
+  return labels.reviewQueue.reviewRequired;
+}
+
+function canDismissReviewJob(row: AdminReviewJobRow) {
+  return row.reviewKind === "dose_reduced" || row.actionOptions.includes("dismiss");
+}
+
+function AdminReviewQueueView({
+  accessToken,
+  data,
+  labels,
+  locale
+}: Readonly<{
+  accessToken: string;
+  data: AdminReviewQueueData;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  const [queueData, setQueueData] = useState(data);
+  const [errorId, setErrorId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  async function dismissRow(row: AdminReviewJobRow) {
+    setSavingId(row.id);
+    setErrorId(null);
+
+    try {
+      const response = await fetch(`/api/admin/review-jobs/${row.id}`, {
+        body: JSON.stringify({
+          accessToken,
+          action: "dismiss"
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "PATCH"
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to dismiss review job");
+      }
+
+      const payload = (await response.json()) as {
+        data?: AdminReviewQueueData;
+      };
+
+      setQueueData(
+        payload.data ?? {
+          ...queueData,
+          rows: queueData.rows.filter((item) => item.id !== row.id)
+        }
+      );
+    } catch {
+      setErrorId(row.id);
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="mt-8 space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <FlowSummaryCard
+          label={labels.reviewQueue.total}
+          value={formatNumber(queueData.summary.total, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.reviewQueue.doseReduced}
+          value={formatNumber(queueData.summary.doseReduced, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.reviewQueue.unknown}
+          value={formatNumber(queueData.summary.unknown, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.reviewQueue.reviewRequired}
+          value={formatNumber(queueData.summary.reviewRequired, locale)}
+        />
+      </div>
+
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+        <div className="divide-y divide-gray-100">
+          {queueData.rows.map((row) => {
+            const canDismiss = canDismissReviewJob(row);
+
+            return (
+              <article key={row.id} className="px-5 py-4">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                        {reviewKindLabel(labels, row)}
+                      </span>
+                      <span className="rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
+                        {labels.reviewQueue.priority}: {row.priority}
+                      </span>
+                    </div>
+                    <h3 className="mt-3 text-base font-semibold text-gray-900">
+                      {row.supplementName}
+                    </h3>
+                    <div className="mt-3 grid gap-3 text-sm text-gray-600 sm:grid-cols-2 xl:grid-cols-4">
+                      <SupplementListMeta
+                        label={labels.reviewQueue.plan}
+                        value={row.planId ?? "—"}
+                      />
+                      <SupplementListMeta
+                        label={labels.reviewQueue.originalDose}
+                        value={row.originalDose ?? "—"}
+                      />
+                      <SupplementListMeta
+                        label={labels.reviewQueue.newDose}
+                        value={row.newDose ?? "—"}
+                      />
+                      <SupplementListMeta
+                        label={labels.reviewQueue.maxDose}
+                        value={
+                          row.maxAmount === null && !row.maxUnit
+                            ? "—"
+                            : `${row.maxAmount ?? "—"} ${row.maxUnit ?? ""}`.trim()
+                        }
+                      />
+                    </div>
+                    {row.requiredFields.length > 0 ? (
+                      <p className="mt-3 text-xs font-medium text-gray-500">
+                        {labels.reviewQueue.requiredFields}:{" "}
+                        {row.requiredFields.join(", ")}
+                      </p>
+                    ) : null}
+                    <p className="mt-3 text-xs text-gray-400">
+                      {labels.reviewQueue.queued}:{" "}
+                      {formatGeneratedAt(row.queuedAt, locale)}
+                    </p>
+                    {errorId === row.id ? (
+                      <p className="mt-3 text-sm font-medium text-red-600">
+                        {labels.reviewQueue.dismissError}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {canDismiss ? (
+                    <button
+                      className="rounded-md bg-white px-3.5 py-2.5 text-sm font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={savingId === row.id}
+                      onClick={() => {
+                        void dismissRow(row);
+                      }}
+                      type="button"
+                    >
+                      {savingId === row.id ? "..." : labels.reviewQueue.dismiss}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        {queueData.rows.length === 0 ? (
+          <div className="border-t border-gray-100 px-5 py-12 text-center text-sm font-medium text-gray-500">
+            {labels.reviewQueue.empty}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function FlowSummaryCard({
   label,
   value
@@ -2198,6 +2446,7 @@ export function AdminDashboard({
   filters,
   flowData,
   locale,
+  reviewQueueData,
   supplementsData,
   view
 }: Readonly<{
@@ -2206,6 +2455,7 @@ export function AdminDashboard({
   filters: AdminDashboardFilters;
   flowData: AdminFlowData;
   locale: Locale;
+  reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
   view: AdminDashboardView;
 }>) {
@@ -2214,6 +2464,8 @@ export function AdminDashboard({
   const databaseAvailable =
     view === "flow"
       ? flowData.databaseAvailable
+      : view === "reviews"
+        ? reviewQueueData.databaseAvailable
       : view === "supplements"
         ? supplementsData.databaseAvailable
         : data.databaseAvailable;
@@ -2299,7 +2551,7 @@ export function AdminDashboard({
             </div>
           ) : null}
 
-          {view !== "supplements" ? (
+          {view === "flow" || view === "kpi" ? (
             <>
               <div className="mt-6">
                 <TimeframeSelector
@@ -2332,6 +2584,13 @@ export function AdminDashboard({
 
           {view === "flow" ? (
             <AdminFlowView flowData={flowData} labels={labels} locale={locale} />
+          ) : view === "reviews" ? (
+            <AdminReviewQueueView
+              accessToken={accessToken}
+              data={reviewQueueData}
+              labels={labels}
+              locale={locale}
+            />
           ) : view === "supplements" ? (
             <AdminSupplementsView
               accessToken={accessToken}

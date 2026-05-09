@@ -43,6 +43,7 @@ export function buildExampleEmailHtml({
   unsubscribeToken?: string | null;
 }>) {
   const previewItems = formulation.supplementBreakdown
+    .filter((item) => item.safety?.visibility !== "hidden")
     .map((item, index) => ({
       item,
       rank: effectivenessRank(item, index)
@@ -58,6 +59,8 @@ export function buildExampleEmailHtml({
             "นี่คือตัวอย่างสั้นจากสูตรโภชนาการส่วนบุคคลของคุณ สูตรฉบับเต็มถูกจัดเตรียมแล้วเมื่อคุณเลือกแผน",
           plan: "แผน",
           preview: "ตัวอย่างสูตร",
+          previewUnavailable:
+            "คำแนะนำอาหารเสริมต้องผ่านการตรวจสอบด้านความปลอดภัยก่อนแสดง ทีมงานได้รับรายการแล้ว",
           score: "HealthScore ของคุณ",
           subject: "ตัวอย่างแผน MattaNutra ของคุณ",
           unsubscribe: "ยกเลิกอีเมลการประเมินซ้ำ"
@@ -68,6 +71,8 @@ export function buildExampleEmailHtml({
             "Here is a short example from your personalised nutritional formulation. The full formulation is prepared when you choose a plan.",
           plan: "Plan",
           preview: "Formula preview",
+          previewUnavailable:
+            "Your supplement suggestions need a safety review before we show them. The review queue has been notified.",
           score: "Your HealthScore",
           subject: "Your MattaNutra plan preview",
           unsubscribe: "Unsubscribe from reassessment emails"
@@ -77,21 +82,28 @@ export function buildExampleEmailHtml({
     ? buildUnsubscribeUrl(unsubscribeToken)
     : "";
 
-  const itemHtml = previewItems
-    .map((item) => {
-      const name = escapeHtml(localize(item.supplement, locale));
-      const dose = escapeHtml(localize(item.dailyDose, locale));
-      const rationale = escapeHtml(localize(item.rationale, locale));
+  const itemHtml =
+    previewItems.length > 0
+      ? previewItems
+          .map((item) => {
+            const name = escapeHtml(localize(item.supplement, locale));
+            const dose = escapeHtml(localize(item.dailyDose, locale));
+            const rationale = escapeHtml(localize(item.rationale, locale));
 
-      return `
+            return `
         <li style="margin:0 0 14px;padding:14px 16px;border:1px solid #d8e7df;border-radius:10px;background:#ffffff;">
           <strong style="display:block;color:#20343A;font-size:15px;">${name}</strong>
           <span style="display:block;margin-top:4px;color:#1FA77A;font-size:13px;font-weight:700;">${dose}</span>
           <span style="display:block;margin-top:8px;color:#5c6670;font-size:13px;line-height:1.5;">${rationale}</span>
         </li>
       `;
-    })
-    .join("");
+          })
+          .join("")
+      : `
+        <li style="margin:0 0 14px;padding:14px 16px;border:1px solid #d8e7df;border-radius:10px;background:#ffffff;color:#5c6670;font-size:13px;line-height:1.5;">
+          ${escapeHtml(labels.previewUnavailable)}
+        </li>
+      `;
 
   return `<!doctype html>
 <html lang="${locale}">

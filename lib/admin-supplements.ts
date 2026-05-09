@@ -283,8 +283,10 @@ export async function updateAdminSupplement(input: UpdateAdminSupplementInput) {
           where supplement_id = ${input.id}::uuid
         )
     `;
+  });
 
-    await transaction`
+  try {
+    await sql`
       insert into public.supplement_admin_audit (
         id,
         supplement_id,
@@ -298,11 +300,16 @@ export async function updateAdminSupplement(input: UpdateAdminSupplementInput) {
         ${input.id}::uuid,
         ${"updated"},
         ${input.actor ?? "admin_dashboard"},
-        ${transaction.json(rowFromDb(before))},
-        ${transaction.json(input)}
+        ${sql.json(rowFromDb(before))},
+        ${sql.json(input)}
       )
     `;
-  });
+  } catch (error) {
+    console.error("Unable to write supplement admin audit", {
+      error,
+      supplementId: input.id
+    });
+  }
 
   const data = await getAdminSupplementsData();
   const row = data.rows.find((item) => item.id === input.id);

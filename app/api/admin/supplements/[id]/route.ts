@@ -3,10 +3,12 @@ import { adminDashboardTokenAllowed } from "@/lib/admin-auth";
 import {
   isSupplementConfidence,
   isSupplementListStatus,
+  type SupplementConfidence,
+  type SupplementListStatus,
   updateAdminSupplement
 } from "@/lib/admin-supplements";
 import { isUuid } from "@/lib/assessment-store";
-import { isSupplementSafetyFlags } from "@/lib/supplement-safety-flags";
+import { normalizeSupplementSafetyFlags } from "@/lib/supplement-safety-flags";
 
 export const runtime = "nodejs";
 
@@ -34,6 +36,48 @@ function amountValue(value: unknown) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function normalizedKey(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replaceAll("-", "_")
+    : "";
+}
+
+function parseListStatus(value: unknown): SupplementListStatus | null {
+  const normalized = normalizedKey(value);
+
+  return isSupplementListStatus(normalized) ? normalized : null;
+}
+
+function parseConfidence(value: unknown): SupplementConfidence | null {
+  const normalized = normalizedKey(value);
+
+  return isSupplementConfidence(normalized) ? normalized : null;
+}
+
+function errorDetails(error: unknown) {
+  if (!(error instanceof Error)) {
+    return error;
+  }
+
+  const databaseError = error as Error & {
+    code?: string;
+    column_name?: string;
+    constraint_name?: string;
+    detail?: string;
+    table_name?: string;
+  };
+
+  return {
+    code: databaseError.code,
+    column: databaseError.column_name,
+    constraint: databaseError.constraint_name,
+    detail: databaseError.detail,
+    message: error.message,
+    name: error.name,
+    table: databaseError.table_name
+  };
 }
 
 export async function PATCH(
@@ -72,13 +116,25 @@ export async function PATCH(
     );
   }
 
-  if (
-    !isSupplementListStatus(body.listStatus) ||
-    !isSupplementConfidence(body.confidence) ||
-    !isSupplementSafetyFlags(body.safetyFlags)
-  ) {
+  const listStatus = parseListStatus(body.listStatus);
+  const confidence = parseConfidence(body.confidence);
+  const safetyFlags = normalizeSupplementSafetyFlags(body.safetyFlags);
+
+  if (!listStatus) {
     return NextResponse.json(
-      { message: "Invalid supplement status" },
+      { message: "Invalid supplement list status" },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        },
+        status: 400
+      }
+    );
+  }
+
+  if (!confidence) {
+    return NextResponse.json(
+      { message: "Invalid supplement confidence" },
       {
         headers: {
           "Cache-Control": "no-store"
@@ -91,12 +147,12 @@ export async function PATCH(
   try {
     const row = await updateAdminSupplement({
       actor: "admin_dashboard",
-      confidence: body.confidence,
+      confidence,
       id,
-      listStatus: body.listStatus,
+      listStatus,
       maxAmount: amountValue(body.maxAmount),
       maxUnit: textOrNull(body.maxUnit) ?? "",
-      safetyFlags: body.safetyFlags,
+      safetyFlags,
       safetyNotes: textOrNull(body.safetyNotes)
     });
 
@@ -109,7 +165,10 @@ export async function PATCH(
       }
     );
   } catch (error) {
-    console.error("Unable to update supplement", error);
+    console.error("Unable to update supplement", {
+      error: errorDetails(error),
+      supplementId: id
+    });
 
     return NextResponse.json(
       { message: "Unable to update supplement" },

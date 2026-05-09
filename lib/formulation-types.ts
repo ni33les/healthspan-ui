@@ -1,4 +1,9 @@
 export type FormulationStatus = "covered" | "add" | "review";
+export type FormulationSafetyAction =
+  | "dose_reduced"
+  | "human_review"
+  | "unknown_supplement";
+export type FormulationSafetyVisibility = "hidden" | "visible";
 
 export type LocalizedText =
   | string
@@ -13,6 +18,14 @@ export type FormulationIngredient = {
   effectivenessRank: number;
   id: string;
   rationale: LocalizedText;
+  safety?: {
+    action: FormulationSafetyAction;
+    message: LocalizedText;
+    originalDailyDose?: LocalizedText;
+    reviewId?: string;
+    reviewJobId?: string;
+    visibility: FormulationSafetyVisibility;
+  };
   status: FormulationStatus;
   supplement: LocalizedText;
 };
@@ -37,6 +50,12 @@ export type AssessmentSummary = {
 };
 
 export type FormulationBlueprint = {
+  safetySummary?: {
+    adjustedCount: number;
+    hiddenCount: number;
+    removedCount: number;
+    reviewCount: number;
+  };
   supplementBreakdown: FormulationIngredient[];
 };
 

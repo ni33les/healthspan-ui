@@ -105,8 +105,8 @@ function userPrompt({
             category:
               "Foundation | Foundation add-on | Add separately | Targeted | Review",
             dailyDose: {
-              en: "short English daily dose string",
-              th: "short Thai daily dose string"
+              en: "short English daily dose string, e.g. 200 mg/day",
+              th: "short Thai daily dose string, e.g. 200 mg/day"
             },
             effectivenessRank:
               "integer starting at 1; 1 is the most effective/highest-impact suggestion for this person",
@@ -131,6 +131,8 @@ function userPrompt({
         "Set effectivenessRank as a unique integer from 1 to the number of items, where 1 is the most effective/highest-impact supplement suggestion for this person's assessment.",
         "Order supplementBreakdown by effectivenessRank ascending.",
         "supplement, dailyDose, and rationale must each be localized objects with exactly en and th string values.",
+        "Keep dailyDose machine-readable: start with one numeric amount and one unit, using mg/day, mcg/day, g/day, or IU/day whenever possible.",
+        "Avoid capsule counts, serving sizes, proprietary-blend doses, vague ranges, or multiple units in dailyDose. If uncertain, use a conservative numeric dose and set status=review.",
         "Write the English fields for a consumer wellness audience, and the Thai fields as natural Thai, not transliterated English unless the ingredient name is normally used that way.",
         "Keep category and status as canonical English values for internal processing.",
         "Use status=review for anything that should be checked before use because of medication, pregnancy, breastfeeding, condition, or uncertainty.",

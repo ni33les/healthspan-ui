@@ -1187,6 +1187,14 @@ alter table public.supplements
   add column if not exists created_at timestamptz default now(),
   add column if not exists updated_at timestamptz default now();
 
+do $$
+begin
+  alter table public.supplements
+    drop constraint if exists supplements_source_status_check;
+  alter table public.supplements
+    drop constraint if exists supplements_list_status_check;
+end $$;
+
 update public.supplements
 set
   name = coalesce(name, normalized_name, id::text),
@@ -1255,13 +1263,9 @@ alter table public.supplements
 do $$
 begin
   alter table public.supplements
-    drop constraint if exists supplements_source_status_check;
-  alter table public.supplements
     add constraint supplements_source_status_check
     check (source_status in ('core', 'recommended_add'));
 
-  alter table public.supplements
-    drop constraint if exists supplements_list_status_check;
   alter table public.supplements
     add constraint supplements_list_status_check
     check (list_status in ('whitelisted', 'review_required', 'blacklisted', 'inactive'));
@@ -1307,6 +1311,16 @@ alter table public.supplement_safety_limits
   add column if not exists source_url text null,
   add column if not exists created_at timestamptz default now(),
   add column if not exists updated_at timestamptz default now();
+
+do $$
+begin
+  alter table public.supplement_safety_limits
+    drop constraint if exists supplement_safety_limits_confidence_check;
+  alter table public.supplement_safety_limits
+    drop constraint if exists supplement_safety_limits_version_check;
+  alter table public.supplement_safety_limits
+    drop constraint if exists supplement_safety_limits_safety_flags_check;
+end $$;
 
 create or replace function public.mattanutra_supplement_safety_flags(
   raw_flag text
@@ -1423,19 +1437,13 @@ alter table public.supplement_safety_limits
 do $$
 begin
   alter table public.supplement_safety_limits
-    drop constraint if exists supplement_safety_limits_confidence_check;
-  alter table public.supplement_safety_limits
     add constraint supplement_safety_limits_confidence_check
     check (confidence in ('high', 'moderate', 'low'));
 
   alter table public.supplement_safety_limits
-    drop constraint if exists supplement_safety_limits_version_check;
-  alter table public.supplement_safety_limits
     add constraint supplement_safety_limits_version_check
     check (version > 0);
 
-  alter table public.supplement_safety_limits
-    drop constraint if exists supplement_safety_limits_safety_flags_check;
   alter table public.supplement_safety_limits
     add constraint supplement_safety_limits_safety_flags_check
     check (
@@ -2769,4 +2777,23 @@ begin
   exception when others then
     raise notice 'Skipping blog_posts owner change: %', sqlerrm;
   end;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'mn') then
+    grant select, insert, update, delete
+      on public.supplements,
+         public.supplement_safety_limits,
+         public.supplement_aliases,
+         public.supplement_admin_audit,
+         public.safety_reviews
+      to mn;
+
+    grant execute
+      on function public.mattanutra_supplement_safety_flags(text)
+      to mn;
+  end if;
+exception when others then
+  raise notice 'Skipping supplement admin grants: %', sqlerrm;
 end $$;

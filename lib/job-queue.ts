@@ -11,6 +11,7 @@ import {
 } from "@/lib/example-email";
 import { validateLeadEmail } from "@/lib/email-validation";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
+import { applyFormulationSafety } from "@/lib/formulation-safety";
 import type { FormulationBlueprint } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { writeBpmEvent } from "@/lib/bpm";
@@ -29,7 +30,8 @@ type JobType =
   | "example_email"
   | "example_formulation"
   | "formulation"
-  | "reassessment";
+  | "reassessment"
+  | "supplement_review";
 type AuditLevel = "critical" | "high" | "low" | "medium";
 type StepState = "active" | "complete" | "failed" | "pending";
 
@@ -1419,6 +1421,7 @@ async function claimNextJob(sql: postgres.Sql) {
         select id
         from jobs
         where status = 'queued'
+          and job_type <> 'supplement_review'
         order by priority desc, queued_at asc
         for update skip locked
         limit 1
@@ -1572,7 +1575,21 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
     plan,
     planId: job.plan_id
   });
-
+  const safeFormulation = await applyFormulationSafety(sql, {
+    audit: async ({ eventType, level, payload }) =>
+      auditJobEvent(sql, {
+        eventPayload: payload,
+        eventType,
+        jobId: job.id,
+        level,
+        planId: job.plan_id
+      }),
+    formulation: analysis.formulation,
+    jobId: job.id,
+    locale,
+    plan,
+    planId: job.plan_id
+  });
   await sql.begin(async (transaction) => {
     const versionRows = await transaction<{ version: number }[]>`
       select greatest(
@@ -1602,7 +1619,7 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
       values (
         ${job.plan_id}::uuid,
         ${version},
-        ${transaction.json(toJsonValue(analysis.formulation))},
+        ${transaction.json(toJsonValue(safeFormulation))},
         ${`xai:${analysis.model}:${analysis.reasoningEffort}:${analysis.promptVersion}`},
         now(),
         now()
@@ -1669,7 +1686,8 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
             promptVersion: analysis.promptVersion,
             recommendationVersion: version,
             reasoningEffort: analysis.reasoningEffort,
-            responseId: analysis.responseId
+            responseId: analysis.responseId,
+            safetySummary: safeFormulation.safetySummary
           })
         )},
         now()
@@ -1680,6 +1698,7 @@ async function completeFormulationJob(sql: postgres.Sql, job: ClaimedJob) {
   await auditJobEvent(sql, {
     eventPayload: {
       attempts: analysis.attempts,
+      safetySummary: safeFormulation.safetySummary,
       model: analysis.model,
       promptVersion: analysis.promptVersion,
       reasoningEffort: analysis.reasoningEffort
@@ -1769,6 +1788,22 @@ async function completeExampleFormulationJob(
     plan,
     planId: job.plan_id
   });
+  const safeFormulation = await applyFormulationSafety(sql, {
+    audit: async ({ eventType, level, payload }) =>
+      auditJobEvent(sql, {
+        eventPayload: { ...payload, requestId },
+        eventType,
+        jobId: job.id,
+        level,
+        planId: job.plan_id
+      }),
+    formulation: analysis.formulation,
+    jobId: job.id,
+    locale,
+    plan,
+    planId: job.plan_id,
+    requestId
+  });
 
   await sql.begin(async (transaction) => {
     const versionRows = await transaction<{ version: number }[]>`
@@ -1790,7 +1825,7 @@ async function completeExampleFormulationJob(
       values (
         ${job.plan_id}::uuid,
         ${version},
-        ${transaction.json(toJsonValue(analysis.formulation))},
+        ${transaction.json(toJsonValue(safeFormulation))},
         ${`xai:${analysis.model}:${analysis.reasoningEffort}:${analysis.promptVersion}:example`},
         now(),
         now()
@@ -1837,7 +1872,8 @@ async function completeExampleFormulationJob(
             promptVersion: analysis.promptVersion,
             reasoningEffort: analysis.reasoningEffort,
             requestId,
-            responseId: analysis.responseId
+            responseId: analysis.responseId,
+            safetySummary: safeFormulation.safetySummary
           })
         )},
         now()
@@ -1857,7 +1893,8 @@ async function completeExampleFormulationJob(
     jobId: job.id,
     locale,
     metrics: {
-      attempts: analysis.attempts
+      attempts: analysis.attempts,
+      safetySummary: safeFormulation.safetySummary
     },
     planId: job.plan_id,
     properties: {

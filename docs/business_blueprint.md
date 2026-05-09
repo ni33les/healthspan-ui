@@ -14,7 +14,7 @@ MattaNutra earns trust through an anonymous wellness assessment and HealthScore,
 | Pro Plan | "I want ongoing support." | Recurring advisor relationship | Partial: offer exists, advisor handoff pending |
 | Product guidance | "What should I actually buy?" | Future affiliate revenue and customer convenience | Partial: results area exists, matching not live |
 | Blog and testimonials | "Can I learn and trust the brand?" | Marketing engine for paid, social, and organic traffic | Partial: platform live, cadence pending |
-| Admin analytics | "Where are users converting or dropping out?" | Tune marketing spend and the product funnel | Partial: KPI and Flow views live, operations views pending |
+| Admin analytics | "Where are users converting or dropping out?" | Tune marketing spend and the product funnel | Partial: KPI, Flow, Supplements, and Human Review views live |
 
 ## Current Funnel
 
@@ -61,6 +61,9 @@ flowchart TB
 - Recurring 60-day reassessment scheduling with unsubscribe.
 - Formulation jobs and worker queue.
 - Grok formulation generation with validation/retry pattern.
+- Supplement whitelist, blacklist, dose ceilings, safety flags, and admin editing.
+- Automated formulation safety check: blacklisted items are removed, over-limit doses are reduced, and uncertain/new items are hidden for review.
+- Human Review queue for supplement safety work items and dose-reduction notifications.
 - Formulation page renders stored backend data.
 - Blog and testimonial tables, pages, and protected admin APIs.
 - BPM tracking for funnel, campaign, affiliate, safety, error, email, chat, and formulation events.
@@ -72,11 +75,11 @@ flowchart TB
 | Gap | Why It Matters | Suggested Next Step |
 | --- | --- | --- |
 | Payment activation | Cannot test revenue conversion yet | Wire Precision/Pro checkout once account is ready |
-| Admin operations views | Sales analytics exist, but safety, jobs, content, and supplement operations still need interfaces | Add safety/job queues after the sales funnel view stabilises |
-| Supplement governance | AI output needs hard business rules around approved doses and exclusions | Build whitelist, blacklist, dose/frequency, and interaction tables |
+| Admin operations views | Sales analytics and supplement review basics exist, but stuck-job, error, and content operations still need interfaces | Add stuck-job, error, campaign, and content panels |
+| Supplement governance | Whitelist, blacklist, max dose, and safety review basics exist; frequency and interaction rules are not wired yet | Add frequency, condition, medication, pregnancy, and lab interaction checks |
 | Product matching | Affiliate revenue depends on trusted products | Start with curated whitelist before marketplace automation |
 | Chat handoff | Pro needs a convincing ongoing service experience | Make one channel excellent first, likely LINE |
-| Human safety review | Flagged suggestions need an operational decision process | Add `human_review` jobs and admin review screens |
+| Human safety review | Flagged suggestions can now enter the Human Review queue, but full accept/reject/revise workflows are not complete | Add reviewer actions, client notification states, and audit reporting |
 | Follow-up nurture | Free users need more than one email | Define post-preview sequence |
 
 ## Sales Funnel Paths
@@ -161,6 +164,7 @@ Current wired examples:
 | Plans | `plan_selected_clicked`, `plan_selected` |
 | Free email | `free_email_requested_clicked`, `free_email_requested`, `free_email_sent` |
 | Formulation | `formulation_requested`, `formulation_ready`, `free_example_formulation_ready` |
+| Safety | `formulation_safety_review_opened`, `formulation_safety_dose_reduced`, `formulation_safety_item_removed`, `formulation_safety_completed` |
 | Reassessment | `reassessment_opted_in`, `reassessment_email_sent` |
 | Chat and affiliate | `chat_channel_clicked`, `marketplace_product_clicked` |
 | Errors | `assessment_api_error`, `free_email_request_error`, `worker_job_failed` |
@@ -180,36 +184,39 @@ Remaining admin dashboard work:
 
 1. Campaign and affiliate comparison tables.
 2. Safety and error alert panels.
-3. Pending jobs and human-review queues.
+3. Human Review queue for supplement review jobs and dose-reduction notices.
 4. Ray drill-down for a single anonymous journey.
-5. Content, testimonial, supplement whitelist, blacklist, and interaction-rule management.
+5. Content, testimonial, interaction-rule, and advanced supplement decision management.
 6. Revenue and payment reporting after checkout is live.
 
 ## Supplement Governance
 
-This should be managed from the admin dashboard.
+This is managed from the admin dashboard for supplement list status, dose ceiling, confidence, and safety flags. The safety validator uses those tables when AI returns a formulation.
 
 ### Whitelist
 
-The whitelist is the approved supplement catalogue. It should define:
+The whitelist is the approved supplement catalogue. It currently defines:
 
 - supplement/ingredient name
-- form, such as capsule, powder, liquid
-- approved minimum dose
 - approved maximum dose
 - dose unit
-- frequency range
-- timing guidance
-- age/sex/pregnancy notes
+- confidence level
+- safety flags
 - evidence/source notes
-- whether it can be shown to users
-- whether it can be matched to products
+- whether it is whitelisted, review-required, blacklisted, or inactive
+
+Still needed:
+
+- form, frequency range, and timing guidance
+- condition, medication, age, sex, pregnancy, and lab rules
+- whether it can be product-matched
 
 ### Blacklist
 
-The blacklist blocks previously rejected supplements or unsafe dose patterns. It should define:
+The blacklist blocks supplements that must not be shown in automated formulations. It currently removes those items from the returned user-visible plan and logs the event.
 
-- supplement/ingredient name
+Still needed:
+
 - banned dose or dose range
 - banned frequency, where relevant
 - reason
@@ -219,7 +226,7 @@ The blacklist blocks previously rejected supplements or unsafe dose patterns. It
 
 ### Interaction Rules
 
-Interaction rules should flag risks based on:
+Interaction rules are not wired yet. They should flag risks based on:
 
 - existing medications
 - existing conditions
@@ -231,32 +238,32 @@ Interaction rules should flag risks based on:
 
 ### Human Review
 
-When a suggestion fails a hard safety check:
+Current safety decision flow:
 
 ```mermaid
 flowchart TB
-  A["AI suggests supplement and dose"] --> B["Validator checks whitelist, blacklist, dose, frequency, and interactions"]
-  B -->|Pass| C["Continue formulation"]
-  B -->|Fail or uncertain| D["BPM safety alert"]
-  D --> E["Human-review job"]
-  E --> F["Admin decision"]
-  F -->|Accept| G["Continue with item"]
-  F -->|Reject| H["Remove item"]
-  F -->|Revise| I["Change dose or substitute"]
-  G --> J["Client informed if needed"]
-  H --> J
-  I --> J
+  A["AI suggests supplement and dose"] --> B["Validator checks supplement table and dose ceiling"]
+  B -->|Whitelisted and dose OK| C["Show item in nutrition plan"]
+  B -->|Dose above ceiling| D["Reduce dose to ceiling"]
+  D --> E["Show reduced item"]
+  D --> F["Create dismissable admin notice"]
+  B -->|Blacklisted or inactive| G["Remove item"]
+  G --> H["Log safety event"]
+  B -->|Review-required| I["Hide item"]
+  B -->|Unknown supplement| I
+  I --> J["Create Human Review job"]
+  I --> K["Log BPM safety alert"]
+  J --> L["Admin later chooses whitelist, review, blacklist, or ignore"]
 
   classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
   classDef partial fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px;
   classDef todo fill:#ffffff,stroke:#94a3b8,color:#334155,stroke-width:1px;
 
-  class A,B,D partial;
-  class C done;
-  class E,F,G,H,I,J todo;
+  class A,B,C,D,E,F,G,H,I,J,K done;
+  class L partial;
 ```
 
-The job queue should carry the actionable work item: `job_type = 'human_review'`.
+The job queue carries supplement review work as `job_type = 'supplement_review'`. The worker does not process these automatically; they appear in the admin Human Review queue.
 
 The safety review record should carry the operational details: supplement, dose, rule, context, reviewer decision, and client notification state.
 
@@ -282,8 +289,8 @@ Best use:
 
 1. Campaign/affiliate reporting tables on top of the live BPM dashboard filters.
 2. Safety, error, and stuck-job panels in the admin dashboard.
-3. Supplement whitelist, blacklist, and interaction rules.
-4. Human-review jobs and admin review screens.
+3. Supplement interaction rules for medications, conditions, pregnancy, age, and labs.
+4. Full Human Review actions: whitelist, review-required, blacklist, ignore, revise dose, and client notification.
 5. Payment integration for Precision and Pro.
 6. Product matching against approved supplement/product whitelist.
 7. One excellent chat handoff, likely LINE first.
