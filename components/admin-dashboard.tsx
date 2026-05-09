@@ -18,7 +18,6 @@ import {
   HomeIcon,
   MegaphoneIcon,
   QueueListIcon,
-  ShieldCheckIcon,
   XMarkIcon
 } from "@heroicons/react/24/outline";
 import { HealthspanLogo } from "@/components/healthspan-logo";
@@ -30,6 +29,16 @@ import type {
   AdminDashboardRateId,
   AdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import type {
+  AdminSupplementRow,
+  AdminSupplementsData,
+  SupplementConfidence,
+  SupplementListStatus
+} from "@/lib/admin-supplements";
+import {
+  supplementSafetyFlags,
+  type SupplementSafetyFlag
+} from "@/lib/supplement-safety-flags";
 import {
   adminDashboardFilterEntries,
   emptyAdminDashboardFilters,
@@ -42,7 +51,7 @@ import type {
 } from "@/lib/admin-flow-data";
 import type { Locale } from "@/lib/i18n";
 
-type AdminDashboardView = "flow" | "kpi";
+type AdminDashboardView = "flow" | "kpi" | "supplements";
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 type AdminNavItem = Readonly<{
@@ -115,6 +124,32 @@ type AdminContent = Readonly<{
   ranges: Record<AdminDashboardRange, string>;
   rates: Record<AdminDashboardRateId, RateText>;
   ratesTitle: string;
+  supplements: {
+    allCategories: string;
+    allStatuses: string;
+    blacklisted: string;
+    category: string;
+    confidence: string;
+    close: string;
+    details: string;
+    dose: string;
+    empty: string;
+    inactive: string;
+    maxAmount: string;
+    maxUnit: string;
+    none: string;
+    reviewRequired: string;
+    safetyFlag: string;
+    safetyFlagOptions: Record<SupplementSafetyFlag, string>;
+    safetyNotes: string;
+    save: string;
+    search: string;
+    sourceStatus: string;
+    status: string;
+    total: string;
+    updateError: string;
+    whitelisted: string;
+  };
   title: string;
   trend: Record<AdminDashboardKpi["trend"], string>;
 }>;
@@ -215,8 +250,7 @@ const content = {
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "Campaigns" },
       { href: "#", icon: EnvelopeIcon, name: "Leads" },
-      { href: "#", icon: ShieldCheckIcon, name: "Safety" },
-      { href: "#", icon: BeakerIcon, name: "Supplements" },
+      { icon: BeakerIcon, name: "Supplements", view: "supplements" },
       { href: "#", icon: DocumentTextIcon, name: "Content" }
     ],
     nextBuckets: "Next 3 buckets",
@@ -229,7 +263,8 @@ const content = {
     queuesTitle: "Queues",
     pageTitles: {
       flow: "Sales Conversions",
-      kpi: "Key Performance Indicators"
+      kpi: "Key Performance Indicators",
+      supplements: "Supplements"
     },
     ranges: {
       all: "All",
@@ -258,6 +293,47 @@ const content = {
       }
     },
     ratesTitle: "Conversion rates",
+    supplements: {
+      allCategories: "All categories",
+      allStatuses: "All statuses",
+      blacklisted: "Blacklisted",
+      category: "Category",
+      confidence: "Confidence",
+      close: "Close",
+      details: "Details",
+      dose: "Max dose",
+      empty: "No supplements match these filters.",
+      inactive: "Inactive",
+      maxAmount: "Amount",
+      maxUnit: "Unit",
+      none: "None",
+      reviewRequired: "Review required",
+      safetyFlag: "Safety flags",
+      safetyFlagOptions: {
+        allergy_caution: "Allergy caution",
+        bleeding_risk: "Bleeding risk",
+        condition_caution: "Condition caution",
+        contamination_risk: "Contamination risk",
+        exclude_automated_use: "Exclude automated use",
+        general_caution: "General caution",
+        hormone_caution: "Hormone caution",
+        kidney_caution: "Kidney caution",
+        liver_caution: "Liver caution",
+        medication_interaction: "Medication interaction",
+        pregnancy_caution: "Pregnancy caution",
+        regulatory_risk: "Regulatory risk",
+        stimulant: "Stimulant",
+        upper_dose_risk: "Upper dose risk"
+      },
+      safetyNotes: "Safety notes",
+      save: "Save",
+      search: "Search supplements",
+      sourceStatus: "Source",
+      status: "Status",
+      total: "Total",
+      updateError: "Could not save this supplement.",
+      whitelisted: "Whitelisted"
+    },
     title: "KPI",
     trend: {
       down: "Down",
@@ -351,8 +427,7 @@ const content = {
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "แคมเปญ" },
       { href: "#", icon: EnvelopeIcon, name: "ลีด" },
-      { href: "#", icon: ShieldCheckIcon, name: "ความปลอดภัย" },
-      { href: "#", icon: BeakerIcon, name: "อาหารเสริม" },
+      { icon: BeakerIcon, name: "อาหารเสริม", view: "supplements" },
       { href: "#", icon: DocumentTextIcon, name: "คอนเทนต์" }
     ],
     nextBuckets: "คาดการณ์ 3 ช่วงถัดไป",
@@ -365,7 +440,8 @@ const content = {
     queuesTitle: "คิวงาน",
     pageTitles: {
       flow: "Sales Conversions",
-      kpi: "Key Performance Indicators"
+      kpi: "Key Performance Indicators",
+      supplements: "อาหารเสริม"
     },
     ranges: {
       all: "ทั้งหมด",
@@ -394,6 +470,47 @@ const content = {
       }
     },
     ratesTitle: "อัตราคอนเวอร์ชัน",
+    supplements: {
+      allCategories: "ทุกหมวดหมู่",
+      allStatuses: "ทุกสถานะ",
+      blacklisted: "บัญชีดำ",
+      category: "หมวดหมู่",
+      confidence: "ความมั่นใจ",
+      close: "ปิด",
+      details: "รายละเอียด",
+      dose: "ขนาดสูงสุด",
+      empty: "ไม่พบอาหารเสริมตามตัวกรองนี้",
+      inactive: "ปิดใช้",
+      maxAmount: "ปริมาณ",
+      maxUnit: "หน่วย",
+      none: "ไม่มี",
+      reviewRequired: "ต้องรีวิว",
+      safetyFlag: "ธงความปลอดภัย",
+      safetyFlagOptions: {
+        allergy_caution: "ข้อควรระวังเรื่องแพ้",
+        bleeding_risk: "ความเสี่ยงเลือดออก",
+        condition_caution: "ข้อควรระวังตามภาวะสุขภาพ",
+        contamination_risk: "ความเสี่ยงปนเปื้อน",
+        exclude_automated_use: "ห้ามใช้แบบอัตโนมัติ",
+        general_caution: "ข้อควรระวังทั่วไป",
+        hormone_caution: "ข้อควรระวังฮอร์โมน",
+        kidney_caution: "ข้อควรระวังไต",
+        liver_caution: "ข้อควรระวังตับ",
+        medication_interaction: "ปฏิกิริยากับยา",
+        pregnancy_caution: "ข้อควรระวังตั้งครรภ์",
+        regulatory_risk: "ความเสี่ยงด้านกฎระเบียบ",
+        stimulant: "สารกระตุ้น",
+        upper_dose_risk: "ความเสี่ยงขนาดสูง"
+      },
+      safetyNotes: "หมายเหตุความปลอดภัย",
+      save: "บันทึก",
+      search: "ค้นหาอาหารเสริม",
+      sourceStatus: "แหล่งข้อมูล",
+      status: "สถานะ",
+      total: "ทั้งหมด",
+      updateError: "ไม่สามารถบันทึกอาหารเสริมนี้ได้",
+      whitelisted: "อนุญาต"
+    },
     title: "KPI",
     trend: {
       down: "ลดลง",
@@ -738,6 +855,636 @@ function RateCard({
         {rate.forecast.map((value) => formatPercent(value, locale)).join(" / ")}
       </p>
     </section>
+  );
+}
+
+const supplementListStatuses: SupplementListStatus[] = [
+  "whitelisted",
+  "review_required",
+  "blacklisted",
+  "inactive"
+];
+
+const supplementConfidences: SupplementConfidence[] = [
+  "high",
+  "moderate",
+  "low"
+];
+
+function supplementStatusLabel(
+  labels: AdminContent,
+  status: SupplementListStatus
+) {
+  if (status === "whitelisted") {
+    return labels.supplements.whitelisted;
+  }
+
+  if (status === "blacklisted") {
+    return labels.supplements.blacklisted;
+  }
+
+  if (status === "inactive") {
+    return labels.supplements.inactive;
+  }
+
+  return labels.supplements.reviewRequired;
+}
+
+function supplementStatusClass(status: SupplementListStatus) {
+  if (status === "whitelisted") {
+    return "bg-[#ECFDF5] text-[#126B4F] ring-[#A7F3D0]";
+  }
+
+  if (status === "blacklisted") {
+    return "bg-red-50 text-red-700 ring-red-100";
+  }
+
+  if (status === "inactive") {
+    return "bg-gray-50 text-gray-700 ring-gray-200";
+  }
+
+  return "bg-amber-50 text-amber-800 ring-amber-200";
+}
+
+function sourceStatusLabel(status: AdminSupplementRow["sourceStatus"]) {
+  return status === "recommended_add" ? "Recommended add" : "Core";
+}
+
+function supplementSafetyFlagLabel(
+  labels: AdminContent,
+  flag: SupplementSafetyFlag
+) {
+  return labels.supplements.safetyFlagOptions[flag];
+}
+
+function formatSupplementSafetyFlags(
+  labels: AdminContent,
+  flags: SupplementSafetyFlag[]
+) {
+  return flags.length
+    ? flags.map((flag) => supplementSafetyFlagLabel(labels, flag)).join(", ")
+    : labels.supplements.none;
+}
+
+function toggleSupplementSafetyFlag(
+  flags: SupplementSafetyFlag[],
+  flag: SupplementSafetyFlag
+) {
+  return flags.includes(flag)
+    ? flags.filter((item) => item !== flag)
+    : [...flags, flag];
+}
+
+function AdminSupplementsView({
+  accessToken,
+  data,
+  labels,
+  locale
+}: Readonly<{
+  accessToken: string;
+  data: AdminSupplementsData;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  const [rows, setRows] = useState(data.rows);
+  const [category, setCategory] = useState("");
+  const [draft, setDraft] = useState<AdminSupplementRow | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const summary = rows.reduce(
+    (counts, row) => {
+      counts.total += 1;
+
+      if (row.listStatus === "whitelisted") {
+        counts.whitelisted += 1;
+      } else if (row.listStatus === "blacklisted") {
+        counts.blacklisted += 1;
+      } else if (row.listStatus === "inactive") {
+        counts.inactive += 1;
+      } else {
+        counts.reviewRequired += 1;
+      }
+
+      return counts;
+    },
+    {
+      blacklisted: 0,
+      inactive: 0,
+      reviewRequired: 0,
+      total: 0,
+      whitelisted: 0
+    }
+  );
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredRows = rows.filter((row) => {
+    const matchesSearch =
+      !normalizedSearch ||
+      row.name.toLowerCase().includes(normalizedSearch) ||
+      row.category.toLowerCase().includes(normalizedSearch) ||
+      row.safetyFlags.some((flag) =>
+        supplementSafetyFlagLabel(labels, flag)
+          .toLowerCase()
+          .includes(normalizedSearch)
+      );
+    const matchesCategory = !category || row.category === category;
+    const matchesStatus = !status || row.listStatus === status;
+
+    return matchesSearch && matchesCategory && matchesStatus;
+  });
+
+  function syncRow(row: AdminSupplementRow) {
+    setRows((currentRows) =>
+      currentRows.map((item) => (item.id === row.id ? row : item))
+    );
+    setDraft((currentDraft) =>
+      currentDraft?.id === row.id ? row : currentDraft
+    );
+  }
+
+  async function saveRow(row: AdminSupplementRow): Promise<boolean> {
+    setSavingId(row.id);
+    setErrorId(null);
+
+    try {
+      const response = await fetch(`/api/admin/supplements/${row.id}`, {
+        body: JSON.stringify({
+          accessToken,
+          confidence: row.confidence,
+          listStatus: row.listStatus,
+          maxAmount: row.maxAmount,
+          maxUnit: row.maxUnit,
+          safetyFlags: row.safetyFlags,
+          safetyNotes: row.safetyNotes
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "PATCH"
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save supplement");
+      }
+
+      const payload = (await response.json()) as { row?: AdminSupplementRow };
+
+      syncRow(payload.row ?? row);
+      return true;
+    } catch {
+      setErrorId(row.id);
+      return false;
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="mt-8 space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <FlowSummaryCard
+          label={labels.supplements.total}
+          value={formatNumber(summary.total, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.supplements.whitelisted}
+          value={formatNumber(summary.whitelisted, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.supplements.reviewRequired}
+          value={formatNumber(summary.reviewRequired, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.supplements.blacklisted}
+          value={formatNumber(summary.blacklisted, locale)}
+        />
+        <FlowSummaryCard
+          label={labels.supplements.inactive}
+          value={formatNumber(summary.inactive, locale)}
+        />
+      </div>
+
+      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_14rem_14rem]">
+          <input
+            aria-label={labels.supplements.search}
+            className="rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-[#1FA77A]"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={labels.supplements.search}
+            type="search"
+            value={search}
+          />
+          <select
+            aria-label={labels.supplements.category}
+            className="rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+            onChange={(event) => setCategory(event.target.value)}
+            value={category}
+          >
+            <option value="">{labels.supplements.allCategories}</option>
+            {data.categories.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={labels.supplements.status}
+            className="rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+            onChange={(event) => setStatus(event.target.value)}
+            value={status}
+          >
+            <option value="">{labels.supplements.allStatuses}</option>
+            {supplementListStatuses.map((item) => (
+              <option key={item} value={item}>
+                {supplementStatusLabel(labels, item)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+        <div className="divide-y divide-gray-100">
+          {filteredRows.map((row) => (
+            <button
+              key={row.id}
+              aria-label={`${labels.supplements.details}: ${row.name}`}
+              className="block w-full px-5 py-4 text-left transition hover:bg-gray-50 focus:outline-none focus-visible:bg-gray-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1FA77A]"
+              onClick={() => {
+                setDraft(row);
+                setErrorId(null);
+              }}
+              type="button"
+            >
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_12rem_10rem_8rem] lg:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={classNames(
+                        supplementStatusClass(row.listStatus),
+                        "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+                      )}
+                    >
+                      {supplementStatusLabel(labels, row.listStatus)}
+                    </span>
+                  </div>
+                  <h3 className="mt-3 truncate text-base font-semibold text-gray-900">
+                    {row.name}
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {sourceStatusLabel(row.sourceStatus)}
+                    {row.ingredientType ? ` · ${row.ingredientType}` : ""}
+                  </p>
+                  {row.primaryUseCase ? (
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-gray-600">
+                      {row.primaryUseCase}
+                    </p>
+                  ) : null}
+                </div>
+
+                <SupplementListMeta
+                  label={labels.supplements.category}
+                  value={row.category}
+                />
+                <SupplementListMeta
+                  label={labels.supplements.dose}
+                  value={formatSupplementDose(row, locale)}
+                />
+                <SupplementListMeta
+                  label={labels.supplements.safetyFlag}
+                  value={formatSupplementSafetyFlags(labels, row.safetyFlags)}
+                />
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {filteredRows.length === 0 ? (
+          <div className="border-t border-gray-100 px-5 py-12 text-center text-sm font-medium text-gray-500">
+            {labels.supplements.empty}
+          </div>
+        ) : null}
+      </div>
+
+      {draft ? (
+        <SupplementDetailsModal
+          draft={draft}
+          error={errorId === draft.id}
+          labels={labels}
+          locale={locale}
+          onChange={(patch) =>
+            setDraft((currentDraft) =>
+              currentDraft ? { ...currentDraft, ...patch } : currentDraft
+            )
+          }
+          onClose={() => {
+            if (savingId !== draft.id) {
+              setDraft(null);
+              setErrorId(null);
+            }
+          }}
+          onSave={() => {
+            void saveRow(draft).then((saved) => {
+              if (saved) {
+                setDraft(null);
+              }
+            });
+          }}
+          saving={savingId === draft.id}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function formatSupplementDose(row: AdminSupplementRow, locale: Locale) {
+  if (row.maxAmount === null && !row.maxUnit) {
+    return "—";
+  }
+
+  const amount =
+    row.maxAmount === null
+      ? "—"
+      : new Intl.NumberFormat(formatLocale(locale), {
+          maximumFractionDigits: 2
+        }).format(row.maxAmount);
+
+  return row.maxUnit ? `${amount} ${row.maxUnit}` : amount;
+}
+
+function SupplementListMeta({
+  label,
+  value
+}: Readonly<{
+  label: string;
+  value: string;
+}>) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+        {value || "—"}
+      </p>
+    </div>
+  );
+}
+
+function SupplementDetailsModal({
+  draft,
+  error,
+  labels,
+  locale,
+  onChange,
+  onClose,
+  onSave,
+  saving
+}: Readonly<{
+  draft: AdminSupplementRow;
+  error: boolean;
+  labels: AdminContent;
+  locale: Locale;
+  onChange: (patch: Partial<AdminSupplementRow>) => void;
+  onClose: () => void;
+  onSave: () => void;
+  saving: boolean;
+}>) {
+  const inputClass =
+    "rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]";
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <button
+        aria-label={labels.supplements.close}
+        className="fixed inset-0 cursor-default bg-gray-900/40"
+        onClick={onClose}
+        type="button"
+      />
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        <section
+          aria-modal={true}
+          className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-900/10"
+          role="dialog"
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={classNames(
+                    supplementStatusClass(draft.listStatus),
+                    "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+                  )}
+                >
+                  {supplementStatusLabel(labels, draft.listStatus)}
+                </span>
+              </div>
+              <h2 className="mt-3 text-xl font-semibold text-gray-900">
+                {draft.name}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {sourceStatusLabel(draft.sourceStatus)}
+                {draft.ingredientType ? ` · ${draft.ingredientType}` : ""}
+              </p>
+            </div>
+            <button
+              aria-label={labels.supplements.close}
+              className="rounded-md p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A]"
+              onClick={onClose}
+              type="button"
+            >
+              <XMarkIcon aria-hidden={true} className="size-5" />
+            </button>
+          </div>
+
+          <div className="max-h-[75vh] space-y-6 overflow-y-auto px-6 py-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+              <SupplementListMeta
+                label={labels.supplements.category}
+                value={draft.category}
+              />
+              <SupplementListMeta
+                label={labels.supplements.dose}
+                value={formatSupplementDose(draft, locale)}
+              />
+              <SupplementListMeta
+                label={labels.supplements.confidence}
+                value={draft.confidence}
+              />
+              <SupplementListMeta
+                label={labels.supplements.safetyFlag}
+                value={formatSupplementSafetyFlags(labels, draft.safetyFlags)}
+              />
+            </div>
+
+            {draft.primaryUseCase ? (
+              <div className="rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 ring-1 ring-gray-100">
+                {draft.primaryUseCase}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                {labels.supplements.status}
+                <select
+                  className={classNames(
+                    supplementStatusClass(draft.listStatus),
+                    "rounded-md px-3 py-2 text-sm font-semibold ring-1 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+                  )}
+                  onChange={(event) =>
+                    onChange({
+                      listStatus: event.target.value as SupplementListStatus
+                    })
+                  }
+                  value={draft.listStatus}
+                >
+                  {supplementListStatuses.map((item) => (
+                    <option key={item} value={item}>
+                      {supplementStatusLabel(labels, item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                {labels.supplements.confidence}
+                <select
+                  className={inputClass}
+                  onChange={(event) =>
+                    onChange({
+                      confidence: event.target.value as SupplementConfidence
+                    })
+                  }
+                  value={draft.confidence}
+                >
+                  {supplementConfidences.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                {labels.supplements.maxAmount}
+                <input
+                  className={inputClass}
+                  min="0"
+                  onChange={(event) =>
+                    onChange({
+                      maxAmount:
+                        event.target.value === ""
+                          ? null
+                          : Number(event.target.value)
+                    })
+                  }
+                  step="any"
+                  type="number"
+                  value={draft.maxAmount ?? ""}
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm font-medium text-gray-700">
+                {labels.supplements.maxUnit}
+                <input
+                  className={inputClass}
+                  onChange={(event) =>
+                    onChange({ maxUnit: event.target.value })
+                  }
+                  value={draft.maxUnit}
+                />
+              </label>
+            </div>
+
+            <div className="grid gap-2 text-sm font-medium text-gray-700">
+              {labels.supplements.safetyFlag}
+              <details className="rounded-xl bg-white ring-1 ring-gray-200">
+                <summary className="cursor-pointer list-none px-3 py-2 text-sm text-gray-900 outline-none marker:hidden">
+                  <span className="font-normal">
+                    {formatSupplementSafetyFlags(labels, draft.safetyFlags)}
+                  </span>
+                </summary>
+                <div className="grid gap-2 border-t border-gray-100 p-3 sm:grid-cols-2">
+                  <label className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    <input
+                      checked={draft.safetyFlags.length === 0}
+                      className="size-4 rounded border-gray-300 text-[#1FA77A] focus:ring-[#1FA77A]"
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          onChange({ safetyFlags: [] });
+                        }
+                      }}
+                      type="checkbox"
+                    />
+                    {labels.supplements.none}
+                  </label>
+                  {supplementSafetyFlags.map((flag) => (
+                    <label
+                      key={flag}
+                      className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      <input
+                        checked={draft.safetyFlags.includes(flag)}
+                        className="size-4 rounded border-gray-300 text-[#1FA77A] focus:ring-[#1FA77A]"
+                        onChange={() =>
+                          onChange({
+                            safetyFlags: toggleSupplementSafetyFlag(
+                              draft.safetyFlags,
+                              flag
+                            )
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      {supplementSafetyFlagLabel(labels, flag)}
+                    </label>
+                  ))}
+                </div>
+              </details>
+            </div>
+
+            <label className="grid gap-2 text-sm font-medium text-gray-700">
+              {labels.supplements.safetyNotes}
+              <textarea
+                className={classNames(inputClass, "min-h-32 resize-y")}
+                onChange={(event) =>
+                  onChange({ safetyNotes: event.target.value })
+                }
+                value={draft.safetyNotes ?? ""}
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 border-t border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            {error ? (
+              <p className="text-sm font-medium text-red-600">
+                {labels.supplements.updateError}
+              </p>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-3">
+              <button
+                className="rounded-md bg-white px-3.5 py-2.5 text-sm font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+                onClick={onClose}
+                type="button"
+              >
+                {labels.supplements.close}
+              </button>
+              <button
+                className="rounded-md bg-[#1FA77A] px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#188865] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={saving}
+                onClick={onSave}
+                type="button"
+              >
+                {saving ? "..." : labels.supplements.save}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -1451,6 +2198,7 @@ export function AdminDashboard({
   filters,
   flowData,
   locale,
+  supplementsData,
   view
 }: Readonly<{
   accessToken: string;
@@ -1458,10 +2206,17 @@ export function AdminDashboard({
   filters: AdminDashboardFilters;
   flowData: AdminFlowData;
   locale: Locale;
+  supplementsData: AdminSupplementsData;
   view: AdminDashboardView;
 }>) {
   const labels = content[locale];
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const databaseAvailable =
+    view === "flow"
+      ? flowData.databaseAvailable
+      : view === "supplements"
+        ? supplementsData.databaseAvailable
+        : data.databaseAvailable;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#20343A]">
@@ -1516,7 +2271,7 @@ export function AdminDashboard({
           <Bars3Icon aria-hidden={true} className="size-6" />
         </button>
         <div className="flex-1 text-sm/6 font-semibold text-gray-900">
-          {view === "flow" ? labels.flowTitle : labels.title}
+          {labels.pageTitles[view]}
         </div>
         <span className="inline-flex size-8 items-center justify-center rounded-full bg-[#1FA77A]/10 text-xs font-semibold text-[#126B4F] ring-1 ring-[#1FA77A]/20">
           MN
@@ -1538,41 +2293,52 @@ export function AdminDashboard({
             </div>
           </div>
 
-          {!(view === "flow" ? flowData.databaseAvailable : data.databaseAvailable) ? (
+          {!databaseAvailable ? (
             <div className="mt-6 rounded-md bg-amber-50 p-4 text-sm font-medium text-amber-800 ring-1 ring-amber-200">
               {labels.dataUnavailable}
             </div>
           ) : null}
 
-          <div className="mt-6">
-            <TimeframeSelector
-              accessToken={accessToken}
-              data={data}
-              filters={filters}
-              labels={labels}
-              locale={locale}
-              view={view}
-            />
-            <LocaleFilterSelector
-              accessToken={accessToken}
-              filters={filters}
-              locale={locale}
-              range={data.range}
-              view={view}
-            />
-          </div>
+          {view !== "supplements" ? (
+            <>
+              <div className="mt-6">
+                <TimeframeSelector
+                  accessToken={accessToken}
+                  data={data}
+                  filters={filters}
+                  labels={labels}
+                  locale={locale}
+                  view={view}
+                />
+                <LocaleFilterSelector
+                  accessToken={accessToken}
+                  filters={filters}
+                  locale={locale}
+                  range={data.range}
+                  view={view}
+                />
+              </div>
 
-          <AdminFilterPanel
-            accessToken={accessToken}
-            filters={filters}
-            labels={labels}
-            locale={locale}
-            range={data.range}
-            view={view}
-          />
+              <AdminFilterPanel
+                accessToken={accessToken}
+                filters={filters}
+                labels={labels}
+                locale={locale}
+                range={data.range}
+                view={view}
+              />
+            </>
+          ) : null}
 
           {view === "flow" ? (
             <AdminFlowView flowData={flowData} labels={labels} locale={locale} />
+          ) : view === "supplements" ? (
+            <AdminSupplementsView
+              accessToken={accessToken}
+              data={supplementsData}
+              labels={labels}
+              locale={locale}
+            />
           ) : (
             <>
               <div className="mt-8 grid grid-cols-1 gap-5 xl:grid-cols-3">

@@ -7,6 +7,7 @@ import {
 } from "@/lib/admin-dashboard-data";
 import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
+import { getAdminSupplementsData } from "@/lib/admin-supplements";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +25,19 @@ export default async function AdminDashboardPage({
   const params = await searchParams;
   const accessToken = firstParam(params.access_token);
   const range = normalizeAdminDashboardRange(params.range);
-  const view = firstParam(params.view) === "flow" ? "flow" : "kpi";
+  const rawView = firstParam(params.view);
+  const view =
+    rawView === "flow" || rawView === "supplements" ? rawView : "kpi";
   const filters = normalizeAdminDashboardFilters(params);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
   }
 
-  const [data, flowData] = await Promise.all([
+  const [data, flowData, supplementsData] = await Promise.all([
     getAdminDashboardData(range, filters),
-    getAdminFlowData(range, filters)
+    getAdminFlowData(range, filters),
+    getAdminSupplementsData()
   ]);
 
   return (
@@ -43,6 +47,7 @@ export default async function AdminDashboardPage({
       filters={filters}
       flowData={flowData}
       locale="en"
+      supplementsData={supplementsData}
       view={view}
     />
   );

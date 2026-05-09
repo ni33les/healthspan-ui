@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin-dashboard-data";
 import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
+import { getAdminSupplementsData } from "@/lib/admin-supplements";
 import { isLocale, type Locale } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
@@ -47,16 +48,19 @@ export default async function LocalizedAdminDashboardPage({
   const locale: Locale = rawLocale;
   const accessToken = firstParam(query.access_token);
   const range = normalizeAdminDashboardRange(query.range);
-  const view = firstParam(query.view) === "flow" ? "flow" : "kpi";
+  const rawView = firstParam(query.view);
+  const view =
+    rawView === "flow" || rawView === "supplements" ? rawView : "kpi";
   const filters = normalizeAdminDashboardFilters(query);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
   }
 
-  const [data, flowData] = await Promise.all([
+  const [data, flowData, supplementsData] = await Promise.all([
     getAdminDashboardData(range, filters),
-    getAdminFlowData(range, filters)
+    getAdminFlowData(range, filters),
+    getAdminSupplementsData()
   ]);
 
   return (
@@ -66,6 +70,7 @@ export default async function LocalizedAdminDashboardPage({
       filters={filters}
       flowData={flowData}
       locale={locale}
+      supplementsData={supplementsData}
       view={view}
     />
   );
