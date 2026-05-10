@@ -345,6 +345,8 @@ export type ReserveNextTaskInput = Readonly<{
     type?: AgentType;
   }>;
   leaseSeconds?: unknown;
+  mustRequireCapability?: string | null;
+  taskTypes?: unknown;
 }>;
 
 export type CompleteTaskInput = Readonly<{
@@ -1156,6 +1158,9 @@ export async function reserveNextTask(
     await releaseExpiredReservationsInTransaction(tx);
 
     const leaseSeconds = normalizeLeaseSeconds(input.leaseSeconds);
+    const mustRequireCapability =
+      normalizeCapabilities([input.mustRequireCapability])[0] ?? null;
+    const taskTypes = normalizeCapabilities(input.taskTypes);
     const rows = await tx<TaskRow[]>`
       with candidate as (
         select tasks.*
@@ -1168,6 +1173,14 @@ export async function reserveNextTask(
           and (
             coalesce(cardinality(tasks.required_capabilities), 0) = 0
             or tasks.required_capabilities <@ ${agent.capabilities}::text[]
+          )
+          and (
+            ${mustRequireCapability}::text is null
+            or ${mustRequireCapability} = any(tasks.required_capabilities)
+          )
+          and (
+            ${taskTypes.length < 1}
+            or tasks.task_type = any(${taskTypes}::text[])
           )
           and not exists (
             select 1

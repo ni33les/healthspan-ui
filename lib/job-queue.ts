@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import { createHash, randomUUID } from "node:crypto";
 import { getSql } from "@/lib/db";
 import { isLocale, type Locale } from "@/lib/i18n";
 import {
@@ -25,6 +26,14 @@ import {
   isUuid,
   toJsonValue
 } from "@/lib/assessment-store";
+import {
+  completeTask,
+  createGoal,
+  createTask,
+  failTask,
+  reserveNextTask,
+  type ReservedTask
+} from "@/lib/task-service";
 
 type JobType =
   | "example_email"
@@ -43,6 +52,11 @@ type ClaimedJob = {
   payload: unknown;
 };
 
+type ClaimedTaskJob = Readonly<{
+  job: ClaimedJob;
+  reserved: ReservedTask;
+}>;
+
 const globalJobsWorker = globalThis as typeof globalThis & {
   mattanutraCronWorker?: Promise<{ queued: number }>;
   mattanutraJobsSchemaReadyV7?: Promise<void>;
@@ -56,6 +70,14 @@ const JOB_PRIORITIES = {
   pro: 30,
   reassessment: 10
 } as const;
+const JOB_WORKER_CAPABILITY = "legacy_job_worker";
+const JOB_WORKER_TASK_TYPES = [
+  "generate_formulation",
+  "generate_example_formulation",
+  "send_example_email",
+  "send_reassessment_email"
+] as const;
+const STALE_RUNNING_JOB_MINUTES = 70;
 
 function priorityForPlan(plan: AssessmentPlan) {
   if (plan === "pro") {
@@ -63,6 +85,23 @@ function priorityForPlan(plan: AssessmentPlan) {
   }
 
   return JOB_PRIORITIES.precision;
+}
+
+function deterministicUuid(seed: string) {
+  const bytes = Buffer.from(createHash("sha256").update(seed).digest().subarray(0, 16));
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = bytes.toString("hex");
+
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20)
+  ].join("-");
 }
 
 function payloadRecord(payload: unknown) {
@@ -75,6 +114,184 @@ function payloadText(payload: unknown, key: string) {
   const value = payloadRecord(payload)[key];
 
   return typeof value === "string" ? value : "";
+}
+
+function goalPriorityForJob(
+  jobType: JobType | string,
+  payload: Record<string, unknown>
+) {
+  if (jobType === "formulation") {
+    return normalizeAssessmentPlan(payload.plan) === "pro" ? 6 : 5;
+  }
+
+  if (jobType === "example_formulation" || jobType === "example_email") {
+    return 3;
+  }
+
+  if (jobType === "reassessment") {
+    return 3;
+  }
+
+  return 2;
+}
+
+function jobTaskConfig(input: Readonly<{
+  jobId: string;
+  jobType: JobType | string;
+  payload: Record<string, unknown>;
+  planId: string | null;
+}>) {
+  const requestId = payloadText(input.payload, "requestId");
+  const cronId = payloadText(input.payload, "cronId");
+  const fallbackSeed = `mattanutra:goal:legacy-job:${input.jobId}`;
+  const freeExampleSeed = isUuid(requestId)
+    ? `mattanutra:goal:free-example:${requestId}`
+    : fallbackSeed;
+  const reassessmentSeed = isUuid(cronId)
+    ? `mattanutra:goal:reassessment:${cronId}:${input.jobId}`
+    : fallbackSeed;
+
+  if (input.jobType === "formulation") {
+    const plan = normalizeAssessmentPlan(input.payload.plan);
+
+    return {
+      actorType: "ai" as const,
+      goalId: deterministicUuid(fallbackSeed),
+      goalTitle:
+        plan === "pro"
+          ? "Prepare Pro nutrition plan"
+          : "Prepare Precision nutrition plan",
+      priority: goalPriorityForJob(input.jobType, input.payload),
+      reasoningEffort: "medium" as const,
+      taskTitle: "Generate nutrition plan",
+      taskType: "generate_formulation"
+    };
+  }
+
+  if (input.jobType === "example_formulation") {
+    return {
+      actorType: "ai" as const,
+      goalId: deterministicUuid(freeExampleSeed),
+      goalTitle: "Prepare Free nutrition plan email",
+      priority: goalPriorityForJob(input.jobType, input.payload),
+      reasoningEffort: "medium" as const,
+      taskTitle: "Generate Free nutrition plan",
+      taskType: "generate_example_formulation"
+    };
+  }
+
+  if (input.jobType === "example_email") {
+    return {
+      actorType: "deterministic" as const,
+      goalId: deterministicUuid(freeExampleSeed),
+      goalTitle: "Prepare Free nutrition plan email",
+      priority: goalPriorityForJob(input.jobType, input.payload),
+      reasoningEffort: "none" as const,
+      taskTitle: "Send Free nutrition plan email",
+      taskType: "send_example_email"
+    };
+  }
+
+  if (input.jobType === "reassessment") {
+    return {
+      actorType: "deterministic" as const,
+      goalId: deterministicUuid(reassessmentSeed),
+      goalTitle: "Send 60-day reassessment invite",
+      priority: goalPriorityForJob(input.jobType, input.payload),
+      reasoningEffort: "none" as const,
+      taskTitle: "Send reassessment email",
+      taskType: "send_reassessment_email"
+    };
+  }
+
+  return null;
+}
+
+async function ensureTaskForJob(
+  sql: postgres.Sql,
+  input: Readonly<{
+    jobId: string;
+    jobType: JobType | string;
+    payload?: Record<string, unknown>;
+    planId: string | null;
+  }>
+) {
+  const payload = input.payload ?? {};
+  const config = jobTaskConfig({
+    jobId: input.jobId,
+    jobType: input.jobType,
+    payload,
+    planId: input.planId
+  });
+
+  if (!config) {
+    return;
+  }
+
+  try {
+    const goal = await createGoal({
+      context: {
+        jobId: input.jobId,
+        jobType: input.jobType,
+        source: "job_queue"
+      },
+      id: config.goalId,
+      planId: input.planId,
+      priority: config.priority,
+      source: "job_queue",
+      title: config.goalTitle,
+      type: "goal"
+    });
+
+    await createTask({
+      actorType: config.actorType,
+      goalId: goal.id,
+      idempotencyKey: `legacy-job:${input.jobId}`,
+      initialComment: {
+        authorName: "MattaNutra worker",
+        authorType: "system",
+        body: `Legacy ${input.jobType} job queued for task-backed processing.`,
+        commentType: "instruction",
+        metadata: {
+          jobId: input.jobId,
+          jobType: input.jobType
+        },
+        visibility: "worker"
+      },
+      legacyJobId: input.jobId,
+      maxAttempts: 3,
+      payload: {
+        jobId: input.jobId,
+        jobType: input.jobType,
+        planId: input.planId,
+        source: "job_queue",
+        ...payload
+      },
+      planId: input.planId,
+      reasoningEffort: config.reasoningEffort,
+      requiredCapabilities: [JOB_WORKER_CAPABILITY],
+      taskType: config.taskType,
+      title: config.taskTitle
+    });
+  } catch (error) {
+    console.warn("Unable to create task-backed job work", {
+      error,
+      jobId: input.jobId,
+      jobType: input.jobType,
+      planId: input.planId
+    });
+
+    await auditJobEvent(sql, {
+      eventPayload: {
+        error: error instanceof Error ? error.message : "Unknown task bridge error",
+        jobType: input.jobType
+      },
+      eventType: "job_task_bridge_failed",
+      jobId: input.jobId,
+      level: "medium",
+      planId: input.planId
+    });
+  }
 }
 
 function newUnsubscribeToken() {
@@ -567,7 +784,16 @@ export async function enqueueFormulationJob({
   `;
 
   if (existing[0]) {
-    return existing[0].id as string;
+    const existingJobId = existing[0].id as string;
+
+    await ensureTaskForJob(sql, {
+      jobId: existingJobId,
+      jobType: "formulation",
+      payload: { answers, locale, plan },
+      planId
+    });
+
+    return existingJobId;
   }
 
   const jobId = crypto.randomUUID();
@@ -618,6 +844,13 @@ export async function enqueueFormulationJob({
     where plan_id = ${planId}::uuid
   `;
 
+  await ensureTaskForJob(sql, {
+    jobId,
+    jobType: "formulation",
+    payload: { answers, locale, plan },
+    planId
+  });
+
   return jobId;
 }
 
@@ -643,7 +876,16 @@ async function enqueueExampleFormulationJob(
   `;
 
   if (existing[0]) {
-    return existing[0].id as string;
+    const existingJobId = existing[0].id as string;
+
+    await ensureTaskForJob(sql, {
+      jobId: existingJobId,
+      jobType: "example_formulation",
+      payload: { priorityClass: "free_example", requestId },
+      planId
+    });
+
+    return existingJobId;
   }
 
   const jobId = crypto.randomUUID();
@@ -691,6 +933,13 @@ async function enqueueExampleFormulationJob(
     planId
   });
 
+  await ensureTaskForJob(sql, {
+    jobId,
+    jobType: "example_formulation",
+    payload: { priorityClass: "free_example", requestId },
+    planId
+  });
+
   return jobId;
 }
 
@@ -716,7 +965,16 @@ async function enqueueExampleEmailJob(
   `;
 
   if (existing[0]) {
-    return existing[0].id as string;
+    const existingJobId = existing[0].id as string;
+
+    await ensureTaskForJob(sql, {
+      jobId: existingJobId,
+      jobType: "example_email",
+      payload: { priorityClass: "free_example", requestId },
+      planId
+    });
+
+    return existingJobId;
   }
 
   const jobId = crypto.randomUUID();
@@ -761,6 +1019,13 @@ async function enqueueExampleEmailJob(
     eventType: "example_email_job_enqueued",
     jobId,
     level: "low",
+    planId
+  });
+
+  await ensureTaskForJob(sql, {
+    jobId,
+    jobType: "example_email",
+    payload: { priorityClass: "free_example", requestId },
     planId
   });
 
@@ -1246,7 +1511,16 @@ async function enqueueReassessmentEmailJob(
   `;
 
   if (existing[0]) {
-    return existing[0].id as string;
+    const existingJobId = existing[0].id as string;
+
+    await ensureTaskForJob(sql, {
+      jobId: existingJobId,
+      jobType: "reassessment",
+      payload: { cronId, email, locale },
+      planId
+    });
+
+    return existingJobId;
   }
 
   const jobId = crypto.randomUUID();
@@ -1292,6 +1566,13 @@ async function enqueueReassessmentEmailJob(
     eventType: "reassessment_job_enqueued",
     jobId,
     level: "low",
+    planId
+  });
+
+  await ensureTaskForJob(sql, {
+    jobId,
+    jobType: "reassessment",
+    payload: { cronId, email, locale },
     planId
   });
 
@@ -1445,6 +1726,198 @@ async function claimNextJob(sql: postgres.Sql) {
 
     return job;
   });
+}
+
+async function deferReservedTask(
+  sql: postgres.Sql,
+  reserved: ReservedTask,
+  reason: string
+) {
+  await sql.begin(async (transaction) => {
+    await transaction`
+      update public.task_reservations set
+        status = 'released',
+        released_at = now()
+      where task_id = ${reserved.task.id}::uuid
+        and status = 'active'
+    `;
+
+    await transaction`
+      update public.tasks set
+        status = 'queued',
+        attempts = greatest(attempts - 1, 0),
+        reserved_by_agent_id = null,
+        lease_until = null,
+        scheduled_for = now() + interval '10 minutes',
+        updated_at = now()
+      where id = ${reserved.task.id}::uuid
+        and status in ('reserved', 'running')
+    `;
+
+    await transaction`
+      insert into public.task_events (
+        id,
+        task_id,
+        goal_id,
+        agent_id,
+        event_type,
+        event_status,
+        severity,
+        event_payload,
+        occurred_at,
+        created_at
+      )
+      values (
+        ${randomUUID()}::uuid,
+        ${reserved.task.id}::uuid,
+        ${reserved.task.goalId}::uuid,
+        ${reserved.agent.id}::uuid,
+        'task_deferred',
+        'observed',
+        'low',
+        ${transaction.json(
+          toJsonValue({
+            legacyJobId: reserved.task.legacyJobId,
+            reason
+          })
+        )},
+        now(),
+        now()
+      )
+    `;
+  });
+}
+
+async function claimJobForReservedTask(
+  sql: postgres.Sql,
+  reserved: ReservedTask
+): Promise<ClaimedJob | null> {
+  const legacyJobId = reserved.task.legacyJobId;
+
+  if (!legacyJobId) {
+    await failTask({
+      errorMessage: "Reserved worker task is missing legacy_job_id.",
+      resultPayload: {
+        taskType: reserved.task.taskType
+      },
+      taskId: reserved.task.id
+    });
+
+    return null;
+  }
+
+  const rows = await sql.begin(async (transaction) => {
+    const claimed = await transaction<ClaimedJob[]>`
+      update jobs set
+        status = 'running',
+        attempts = attempts + 1,
+        started_at = coalesce(started_at, now()),
+        updated_at = now()
+      where id = ${legacyJobId}::uuid
+        and (
+          status = 'queued'
+          or (
+            status = 'running'
+            and updated_at < now() - make_interval(mins => ${STALE_RUNNING_JOB_MINUTES})
+          )
+        )
+        and job_type <> 'supplement_review'
+      returning id::text, job_type, plan_id::text, attempts, payload
+    `;
+    const job = claimed[0] ?? null;
+
+    if (job?.plan_id && job.job_type === "formulation") {
+      await transaction`
+        update assessments set
+          status = 'preparing',
+          queue_position = 0,
+          error_message = null,
+          processing_started_at = coalesce(processing_started_at, now()),
+          updated_at = now()
+        where plan_id = ${job.plan_id}::uuid
+      `;
+    }
+
+    return claimed;
+  });
+  const job = rows[0] ?? null;
+
+  if (job) {
+    return job;
+  }
+
+  const statusRows = await sql<Array<{
+    error_message: string | null;
+    status: string;
+  }>>`
+    select status, error_message
+    from jobs
+    where id = ${legacyJobId}::uuid
+    limit 1
+  `;
+  const status = statusRows[0]?.status ?? "missing";
+
+  if (status === "complete") {
+    await completeTask({
+      resultPayload: {
+        legacyJobId,
+        status
+      },
+      taskId: reserved.task.id
+    });
+  } else if (status === "running") {
+    await deferReservedTask(
+      sql,
+      reserved,
+      "Legacy job is already running; task-backed worker will retry later."
+    );
+  } else {
+    await failTask({
+      errorMessage:
+        statusRows[0]?.error_message ??
+        `Legacy job is not available for processing: ${status}.`,
+      resultPayload: {
+        legacyJobId,
+        status
+      },
+      taskId: reserved.task.id
+    });
+  }
+
+  return null;
+}
+
+async function claimNextTaskJob(sql: postgres.Sql): Promise<ClaimedTaskJob | null> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const reserved = await reserveNextTask({
+      agent: {
+        capabilities: [JOB_WORKER_CAPABILITY],
+        metadata: {
+          bridge: "legacy_jobs"
+        },
+        name: "MattaNutra Jobs Worker",
+        type: "deterministic"
+      },
+      leaseSeconds: 3600,
+      mustRequireCapability: JOB_WORKER_CAPABILITY,
+      taskTypes: [...JOB_WORKER_TASK_TYPES]
+    });
+
+    if (!reserved) {
+      return null;
+    }
+
+    const job = await claimJobForReservedTask(sql, reserved);
+
+    if (job) {
+      return {
+        job,
+        reserved
+      };
+    }
+  }
+
+  return null;
 }
 
 async function failJob(
@@ -2262,7 +2735,8 @@ async function runJobsWorker() {
   });
 
   while (true) {
-    const job = await claimNextJob(sql);
+    const claimedTaskJob = await claimNextTaskJob(sql);
+    const job = claimedTaskJob?.job ?? (await claimNextJob(sql));
 
     if (!job) {
       await auditJobEvent(sql, {
@@ -2273,7 +2747,13 @@ async function runJobsWorker() {
     }
 
     await auditJobEvent(sql, {
-      eventPayload: { attempts: job.attempts, jobType: job.job_type },
+      eventPayload: {
+        attempts: job.attempts,
+        jobType: job.job_type,
+        taskBacked: Boolean(claimedTaskJob),
+        taskId: claimedTaskJob?.reserved.task.id,
+        goalId: claimedTaskJob?.reserved.task.goalId
+      },
       eventType: "job_picked_up",
       jobId: job.id,
       level: "low",
@@ -2282,8 +2762,51 @@ async function runJobsWorker() {
 
     try {
       await processJob(sql, job);
+
+      if (claimedTaskJob) {
+        try {
+          await completeTask({
+            resultPayload: {
+              jobId: job.id,
+              jobType: job.job_type,
+              planId: job.plan_id,
+              status: "complete"
+            },
+            taskId: claimedTaskJob.reserved.task.id
+          });
+        } catch (taskError) {
+          console.warn("Unable to complete task-backed job task", {
+            error: taskError,
+            jobId: job.id,
+            taskId: claimedTaskJob.reserved.task.id
+          });
+        }
+      }
     } catch (error) {
       await failJob(sql, job, error);
+
+      if (claimedTaskJob) {
+        const message =
+          error instanceof Error ? error.message : "Unknown job error";
+
+        try {
+          await failTask({
+            errorMessage: message,
+            resultPayload: {
+              jobId: job.id,
+              jobType: job.job_type,
+              planId: job.plan_id
+            },
+            taskId: claimedTaskJob.reserved.task.id
+          });
+        } catch (taskError) {
+          console.warn("Unable to fail task-backed job task", {
+            error: taskError,
+            jobId: job.id,
+            taskId: claimedTaskJob.reserved.task.id
+          });
+        }
+      }
     }
   }
 }

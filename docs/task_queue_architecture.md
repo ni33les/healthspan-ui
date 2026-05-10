@@ -81,7 +81,7 @@ New tasks should normally inherit the parent goal priority unless a workflow has
 
 ## Current Status
 
-Phases 1, 2, 3, 4, 5, and 6 are implemented.
+Phases 1, 2, 3, 4, 5, 6, and 7 are implemented.
 
 The following tables now exist in the schema:
 
@@ -94,7 +94,7 @@ The following tables now exist in the schema:
 - `task_reservations`
 - `task_approvals`
 
-The existing `jobs` table remains in place. Nothing has been migrated away from it yet.
+The existing `jobs` table remains in place as the compatibility execution record. New formulation, free example, email, and reassessment jobs now also create Goals and Tasks, and the internal worker reserves task-backed jobs first.
 
 The internal service layer lives in:
 
@@ -116,7 +116,7 @@ What was added:
 - Comments for collaborative working notes.
 - Append-only task events for audit.
 - Lease-based reservations.
-- Approval records for four-eyes review.
+- Approval records for normal human approval tasks where a workflow needs them.
 
 Acceptance criteria:
 
@@ -151,7 +151,7 @@ What was added:
 - Capability normalization and matching.
 - Agent upsert/heartbeat support that keeps agents separate from tasks.
 - Idempotent task creation by `(goal_id, idempotency_key)`.
-- Task reservation by highest priority, oldest eligible scheduled work.
+- Task reservation by goal priority first, then task priority, oldest eligible scheduled work.
 - Dependency checks before reservation.
 - Lease expiry handling, including requeue or fail-after-max-attempts.
 - Completion and failure helpers.
@@ -300,26 +300,34 @@ Acceptance criteria:
 
 ## Phase 7: Worker Migration
 
-Move deterministic workers first:
+Status: complete as a migration bridge.
 
-- safety scan
-- dose normalisation
-- email delivery
-- cron scheduling
+The legacy job worker now reserves task-backed work before falling back to direct legacy job claims. The legacy `jobs` rows remain because existing formulation, email, cron, and status code still uses them as the execution payload.
 
-Then move AI workers:
+Migrated task-backed job types:
 
-- formulation
-- HealthScore copy
-- marketing copy
-- dose suggestion
+- `generate_formulation`
+- `generate_example_formulation`
+- `send_example_email`
+- `send_reassessment_email`
+
+Current behaviour:
+
+- Enqueuing a supported legacy job creates a Goal and Task with `legacy_job_id`.
+- Free example formulation and email jobs share the same Free example goal.
+- Paid formulation jobs create task-backed nutrition-plan goals.
+- Reassessment email jobs create task-backed reassessment goals.
+- The internal worker reserves eligible tasks by capability, claims the linked legacy job, processes the existing worker function, then completes or fails the task.
+- The internal worker only reserves tasks that explicitly require the `legacy_job_worker` capability and match migrated legacy job task types.
+- If the linked legacy job is already running, the task is released and retried later without consuming a task attempt. Stale running jobs can be reclaimed after the worker lease window.
+- If task creation is unavailable, the legacy job path still works.
 
 Acceptance criteria:
 
-- Slow work is task-based.
-- Only atomic validation remains synchronous.
-- Workers can restart without losing task state.
-- Duplicate processing is prevented by leases and idempotency.
+- Slow formulation and email work is task-backed. Done.
+- Only atomic validation remains synchronous. Mostly done; HealthScore copy and marketing copy still run in request/assessment flow and are candidates for later task extraction.
+- Workers can restart without losing task state. Done through task leases and legacy job compatibility.
+- Duplicate processing is prevented by leases, idempotency, task-type scoping, and stale-running guards. Done for task-backed job creation and reservation.
 
 ## Phase 8: Task Sequence Helpers
 
@@ -349,8 +357,6 @@ Acceptance criteria:
 - Historical jobs remain understandable.
 
 ## Remaining Plan From Here
-
-Phase 7: Worker migration. Move deterministic workers first, then AI workers, onto task reservation and completion.
 
 Phase 8: Task sequence helpers. Make ordered task chains easy, including normal human approval tasks where needed.
 
