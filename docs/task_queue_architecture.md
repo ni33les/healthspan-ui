@@ -17,7 +17,7 @@ Tasks and agents must remain completely separate. A task should require capabili
 | Concept | Meaning |
 | --- | --- |
 | Goal | Business-facing outcome the system is trying to achieve. A goal may need one task or many tasks discovered over time. |
-| Ray | Technical correlation ID behind a goal, tying related tasks, comments, events, plans, and BPM activity together. |
+| Ray | BPM/session correlation trace used for marketing source, campaign, funnel, and anonymous journey analysis. |
 | Task | An atomic unit of work that can be prioritised, reserved, completed, failed, or blocked. |
 | Agent | A human, AI agent, deterministic worker, system worker, or external worker. |
 | Capability | A skill an agent has and a task may require. |
@@ -31,13 +31,15 @@ Tasks and agents must remain completely separate. A task should require capabili
 
 Use **Goal** in the admin UI, docs, and business language.
 
-Keep `ray_id` as the technical identifier. A ray is the thread of evidence behind a goal.
+Use `goals.id` as the operational identifier for a business outcome or milestone.
 
-Use the existing BPM `ray` whenever one is available. This gives traceability from traffic source, campaign, funnel events, and plan activity into the operational task history.
+Keep BPM `ray` as a separate trace attribute. A goal may store that trace in `goals.ray` when the work came from a web journey, campaign, funnel event, plan, or OpenClaw handoff.
 
-When no BPM ray exists, create a new ray for the operational goal. The ray can later be linked to a plan, email hash, source, or parent context if that information becomes available.
+Tasks point to `goal_id`. They do not use `ray_id` as their parent. This keeps cause-and-effect clear: Goals group work; rays explain where the journey came from.
 
-Goals do not need to know every task upfront. They start with the next known task, and humans or agents may spawn more tasks into the same ray as the work becomes clearer.
+When no BPM ray exists, a goal can still be created and traced by `goals.id`. The optional `goals.ray` can later be populated if source context becomes available.
+
+Goals do not need to know every task upfront. They start with the next known task, and humans or agents may spawn more tasks into the same goal as the work becomes clearer.
 
 Goal status should be derived from its tasks unless explicitly cancelled:
 
@@ -53,7 +55,20 @@ Goal status should be derived from its tasks unless explicitly cancelled:
 
 ## Priority Scale
 
-Tasks and rays use a simple `1` to `6` priority scale.
+Tasks and goals use a simple `1` to `6` priority scale.
+
+Goal priority is the primary business scheduling signal. It answers: which outcome matters most right now?
+
+Task priority is secondary. It answers: within that goal, which piece of work should happen next?
+
+Workers should reserve eligible tasks by:
+
+1. goal priority, highest first
+2. task priority, highest first
+3. scheduled time, oldest due work first
+4. creation time, oldest first
+
+New tasks should normally inherit the parent goal priority unless a workflow has a specific reason to lower or raise that task inside the goal.
 
 | Priority | Meaning | Use |
 | --- | --- | --- |
@@ -66,12 +81,12 @@ Tasks and rays use a simple `1` to `6` priority scale.
 
 ## Current Status
 
-Phases 1, 2, and 3 are implemented.
+Phases 1, 2, 3, and 4 are implemented.
 
 The following tables now exist in the schema:
 
 - `agents`
-- `rays`
+- `goals`
 - `tasks`
 - `task_dependencies`
 - `task_comments`
@@ -94,7 +109,7 @@ Status: complete.
 What was added:
 
 - A task agent registry for humans, AI agents, deterministic workers, external workers, and system workers.
-- A ray table to group tasks under one business goal or customer journey.
+- A goals table to group tasks under one business outcome or customer journey.
 - A central task table with priority, status, capabilities, actor type, reasoning effort, payload, result payload, idempotency key, lease fields, and legacy job link.
 - A priority scale of `1` to `6`, defaulting to `3`.
 - Dependency support for ordered workflows.
@@ -106,11 +121,11 @@ What was added:
 Acceptance criteria:
 
 - Schema can be reapplied cleanly.
-- Every task belongs to a ray.
-- Existing BPM rays are reused where available.
+- Every task belongs to a goal.
+- Existing BPM rays are stored on goals where available.
 - Agents and tasks are separate.
 - Tasks can require capabilities without naming a specific agent.
-- Task and ray priority is constrained to `1..6`.
+- Task and goal priority is constrained to `1..6`.
 - Events are append-only.
 - Existing `jobs` flow is unchanged.
 
@@ -120,7 +135,7 @@ Status: complete.
 
 Internal helpers added:
 
-- `createRay`
+- `createGoal`
 - `createTask`
 - `addTaskComment`
 - `addTaskEvent`
@@ -135,12 +150,12 @@ What was added:
 - Priority normalization for the `1..6` operating bands.
 - Capability normalization and matching.
 - Agent upsert/heartbeat support that keeps agents separate from tasks.
-- Idempotent task creation by `(ray_id, idempotency_key)`.
+- Idempotent task creation by `(goal_id, idempotency_key)`.
 - Task reservation by highest priority, oldest eligible scheduled work.
 - Dependency checks before reservation.
 - Lease expiry handling, including requeue or fail-after-max-attempts.
 - Completion and failure helpers.
-- Child task spawning under the same ray.
+- Child task spawning under the same goal.
 - Automatic task events for creation, reservation, completion, failure, comments, expired leases, and spawned child tasks.
 - Unit tests for priority, capabilities, and lease boundaries.
 
@@ -168,7 +183,7 @@ Implemented endpoints:
 - `POST /api/tasks/:id/spawn`
 - `POST /api/tasks/:id/renew`
 - `GET /api/tasks/:id`
-- `GET /api/rays/:rayId/tasks`
+- `GET /api/goals/:goalId/tasks`
 
 Authentication:
 
@@ -178,13 +193,13 @@ Authentication:
 What was added:
 
 - Shared OpenClaw API helper with no-store responses and a consistent bearer challenge.
-- Task reservation endpoint returning task, ray, comments, dependencies, agent, and reservation id.
+- Task reservation endpoint returning task, goal, comments, dependencies, agent, and reservation id.
 - Task inspection endpoint.
 - Task comment endpoint.
 - Task complete/fail endpoints.
 - Task lease renewal endpoint.
 - Child task spawn endpoint.
-- Ray task listing endpoint.
+- Goal task listing endpoint.
 - Tests covering missing, wrong, bearer, and header token auth.
 
 Acceptance criteria:
@@ -194,20 +209,32 @@ Acceptance criteria:
 - Bearer token with `ADMIN_CLAW_TOKEN` succeeds.
 - `x-admin-claw-token` with `ADMIN_CLAW_TOKEN` succeeds.
 - Agents can reserve only tasks matching their capabilities.
-- Reservation response includes payload, comments, dependencies, and ray context.
+- Reservation response includes payload, comments, dependencies, and goal context.
 
 ## Phase 4: Goal Layer And Admin GUI
 
-Build the goal-first admin view over rays.
+Status: complete.
 
-Views needed:
+Built the goal-first admin view over the operational task system.
+
+Views added or updated:
 
 - Goals
-- Goal Detail / Ray Timeline
+- Goal Detail / Timeline
 - All Tasks
 - Human Review
 - Agents
 - Technical Alerts
+
+What was added:
+
+- Admin Goals menu item.
+- Server-side goal data loader over `goals`, `tasks`, `task_events`, comments, dependencies, reservations, and approvals.
+- Derived goal status: processing, needs review, blocked, stuck, succeeded, failed, or cancelled.
+- Goal summary cards.
+- Goal list with status, priority, source, task progress, and last activity.
+- Goal detail panel with task list, timeline, dependencies, reservations, and approvals.
+- Stable `goal=<goal_id>` dashboard query parameter for selected goal detail.
 
 Acceptance criteria:
 
@@ -237,7 +264,27 @@ Acceptance criteria:
 - Review completion removes the user-facing review box where appropriate.
 - Every admin action writes task events and comments.
 
-## Phase 6: Worker Migration
+## Phase 6: Goal-First Scheduling
+
+Make the queue reserve tasks by business goal priority first.
+
+Reservation order:
+
+- eligible tasks only
+- goal priority, highest first
+- task priority, highest first
+- scheduled time, oldest due work first
+- creation time, oldest first
+
+Acceptance criteria:
+
+- A task in a priority `6` goal outranks a priority `6` task in a priority `3` goal.
+- Task priority still controls ordering inside the same goal.
+- New tasks inherit goal priority unless explicitly overridden.
+- The admin UI makes goal priority more prominent than task priority.
+- Task events explain any explicit priority override.
+
+## Phase 7: Worker Migration
 
 Move deterministic workers first:
 
@@ -260,7 +307,7 @@ Acceptance criteria:
 - Workers can restart without losing task state.
 - Duplicate processing is prevented by leases and idempotency.
 
-## Phase 7: Four-Eyes Approval
+## Phase 8: Four-Eyes Approval
 
 Add approval rules by task type, agent type, risk level, and capability.
 
@@ -269,9 +316,9 @@ Acceptance criteria:
 - High-risk AI work can finish but remain pending approval.
 - Approved tasks unblock downstream dependencies.
 - Rejected work can spawn correction tasks.
-- Approval history is visible on the ray timeline.
+- Approval history is visible on the goal timeline.
 
-## Phase 8: Deprecate Old Jobs
+## Phase 9: Deprecate Old Jobs
 
 Only after task flows are proven:
 
@@ -288,15 +335,15 @@ Acceptance criteria:
 
 ## Remaining Plan From Here
 
-Phase 4: Goal layer and admin GUI. Make rays visible as named Goals, derive useful statuses, and give the admin team a goal timeline.
-
 Phase 5: First migration slice. Move supplement review onto Goals/Tasks while leaving legacy jobs untouched elsewhere.
 
-Phase 6: Worker migration. Move deterministic workers first, then AI workers, onto task reservation and completion.
+Phase 6: Goal-first scheduling. Make reservation order use goal priority first, then task priority, then due time and age. Default task priority from the goal unless deliberately overridden.
 
-Phase 7: Four-eyes approval. Add approval rules and unblock dependent tasks only after approval.
+Phase 7: Worker migration. Move deterministic workers first, then AI workers, onto task reservation and completion.
 
-Phase 8: Deprecate old jobs. Stop creating legacy jobs once migrated paths are proven and remove old branches safely.
+Phase 8: Four-eyes approval. Add approval rules and unblock dependent tasks only after approval.
+
+Phase 9: Deprecate old jobs. Stop creating legacy jobs once migrated paths are proven and remove old branches safely.
 
 ## Definition Of Done
 

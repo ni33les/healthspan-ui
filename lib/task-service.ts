@@ -19,7 +19,7 @@ export type AgentType =
 
 export type AgentStatus = "active" | "offline" | "paused" | "retired";
 
-export type RayStatus =
+export type GoalStatus =
   | "active"
   | "blocked"
   | "cancelled"
@@ -27,7 +27,7 @@ export type RayStatus =
   | "failed"
   | "open";
 
-export type RayType = "goal" | "journey" | "system" | "task_run";
+export type GoalType = "goal" | "journey" | "system" | "task_run";
 
 export type TaskActorType =
   | "ai"
@@ -97,7 +97,7 @@ export type TaskAgent = Readonly<{
   updatedAt: string;
 }>;
 
-export type TaskRay = Readonly<{
+export type TaskGoal = Readonly<{
   completedAt: string | null;
   context: unknown;
   createdAt: string;
@@ -106,10 +106,11 @@ export type TaskRay = Readonly<{
   id: string;
   planId: string | null;
   priority: TaskPriority;
+  ray: string | null;
   source: string | null;
-  status: RayStatus;
+  status: GoalStatus;
   title: string;
-  type: RayType;
+  type: GoalType;
   updatedAt: string;
 }>;
 
@@ -131,7 +132,7 @@ export type TaskRecord = Readonly<{
   payload: unknown;
   planId: string | null;
   priority: TaskPriority;
-  rayId: string;
+  goalId: string;
   reasoningEffort: TaskReasoningEffort;
   requiredCapabilities: string[];
   reservedByAgentId: string | null;
@@ -153,7 +154,7 @@ export type TaskComment = Readonly<{
   createdAt: string;
   id: string;
   metadata: unknown;
-  rayId: string;
+  goalId: string;
   taskId: string;
   visibility: TaskCommentVisibility;
 }>;
@@ -168,7 +169,7 @@ export type TaskDependency = Readonly<{
 export type TaskBundle = Readonly<{
   comments: TaskComment[];
   dependencies: TaskDependency[];
-  ray: TaskRay;
+  goal: TaskGoal;
   task: TaskRecord;
 }>;
 
@@ -195,7 +196,7 @@ type AgentRow = {
   updated_at: Date | string;
 };
 
-type RayRow = {
+type GoalRow = {
   completed_at: Date | string | null;
   context: unknown;
   created_at: Date | string;
@@ -204,9 +205,10 @@ type RayRow = {
   id: string;
   plan_id: string | null;
   priority: number;
-  ray_type: RayType;
+  ray: string | null;
+  goal_type: GoalType;
   source: string | null;
-  status: RayStatus;
+  status: GoalStatus;
   title: string;
   updated_at: Date | string;
 };
@@ -229,7 +231,7 @@ type TaskRow = {
   payload: unknown;
   plan_id: string | null;
   priority: number;
-  ray_id: string;
+  goal_id: string;
   reasoning_effort: TaskReasoningEffort;
   required_capabilities: string[];
   reserved_by_agent_id: string | null;
@@ -251,7 +253,7 @@ type CommentRow = {
   created_at: Date | string;
   id: string;
   metadata: unknown;
-  ray_id: string;
+  goal_id: string;
   task_id: string;
   visibility: TaskCommentVisibility;
 };
@@ -267,22 +269,23 @@ type ExpiredReservationRow = {
   agent_id: string;
   attempts: number;
   max_attempts: number;
-  ray_id: string;
+  goal_id: string;
   reservation_id: string;
   task_id: string;
 };
 
-export type CreateRayInput = Readonly<{
+export type CreateGoalInput = Readonly<{
   context?: Record<string, unknown>;
   createdByAgentId?: string | null;
   emailHash?: string | null;
   id?: string | null;
   planId?: string | null;
   priority?: unknown;
+  ray?: string | null;
   source?: string | null;
-  status?: RayStatus;
+  status?: GoalStatus;
   title: string;
-  type?: RayType;
+  type?: GoalType;
 }>;
 
 export type CreateTaskInput = Readonly<{
@@ -303,7 +306,7 @@ export type CreateTaskInput = Readonly<{
   payload?: Record<string, unknown>;
   planId?: string | null;
   priority?: unknown;
-  rayId: string;
+  goalId: string;
   reasoningEffort?: TaskReasoningEffort;
   requiredCapabilities?: unknown;
   scheduledFor?: Date | string | null;
@@ -327,7 +330,7 @@ export type AddTaskEventInput = Readonly<{
   eventPayload?: Record<string, unknown>;
   eventStatus?: TaskEventStatus;
   eventType: string;
-  rayId?: string | null;
+  goalId?: string | null;
   severity?: TaskEventSeverity;
   taskId?: string | null;
 }>;
@@ -364,7 +367,7 @@ export type RenewTaskLeaseInput = Readonly<{
   taskId: string;
 }>;
 
-export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId" | "rayId"> &
+export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId" | "goalId"> &
   Readonly<{
     parentTaskId: string;
   }>;
@@ -446,7 +449,7 @@ function mapAgent(row: AgentRow): TaskAgent {
   };
 }
 
-function mapRay(row: RayRow): TaskRay {
+function mapGoal(row: GoalRow): TaskGoal {
   return {
     completedAt: isoDate(row.completed_at),
     context: row.context,
@@ -456,10 +459,11 @@ function mapRay(row: RayRow): TaskRay {
     id: row.id,
     planId: row.plan_id,
     priority: normalizeTaskPriority(row.priority),
+    ray: row.ray,
     source: row.source,
     status: row.status,
     title: row.title,
-    type: row.ray_type,
+    type: row.goal_type,
     updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
   };
 }
@@ -483,7 +487,7 @@ function mapTask(row: TaskRow): TaskRecord {
     payload: row.payload,
     planId: row.plan_id,
     priority: normalizeTaskPriority(row.priority),
-    rayId: row.ray_id,
+    goalId: row.goal_id,
     reasoningEffort: row.reasoning_effort,
     requiredCapabilities: normalizeCapabilities(row.required_capabilities),
     reservedByAgentId: row.reserved_by_agent_id,
@@ -507,7 +511,7 @@ function mapComment(row: CommentRow): TaskComment {
     createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
     id: row.id,
     metadata: row.metadata,
-    rayId: row.ray_id,
+    goalId: row.goal_id,
     taskId: row.task_id,
     visibility: row.visibility
   };
@@ -522,9 +526,9 @@ function mapDependency(row: DependencyRow): TaskDependency {
   };
 }
 
-async function taskRayId(sql: Db, taskId: string) {
-  const rows = await sql<{ ray_id: string }[]>`
-    select ray_id::text
+async function taskGoalId(sql: Db, taskId: string) {
+  const rows = await sql<{ goal_id: string }[]>`
+    select goal_id::text
     from public.tasks
     where id = ${taskId}::uuid
     limit 1
@@ -534,15 +538,15 @@ async function taskRayId(sql: Db, taskId: string) {
     throw new Error(`Task ${taskId} not found`);
   }
 
-  return rows[0].ray_id;
+  return rows[0].goal_id;
 }
 
 async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
   const taskId = uuidOrNull(input.taskId);
-  const rayId = uuidOrNull(input.rayId) ?? (taskId ? await taskRayId(sql, taskId) : null);
+  const goalId = uuidOrNull(input.goalId) ?? (taskId ? await taskGoalId(sql, taskId) : null);
 
-  if (!rayId) {
-    throw new Error("Task event requires a rayId or valid taskId");
+  if (!goalId) {
+    throw new Error("Task event requires a goalId or valid taskId");
   }
 
   const id = randomUUID();
@@ -551,7 +555,7 @@ async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
     insert into public.task_events (
       id,
       task_id,
-      ray_id,
+      goal_id,
       agent_id,
       event_type,
       event_status,
@@ -563,7 +567,7 @@ async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
     values (
       ${id}::uuid,
       ${taskId}::uuid,
-      ${rayId}::uuid,
+      ${goalId}::uuid,
       ${uuidOrNull(input.agentId)}::uuid,
       ${cleanText(input.eventType, "unknown")},
       ${input.eventStatus ?? "observed"},
@@ -647,11 +651,14 @@ async function upsertAgentInTransaction(
   return mapAgent(rows[0]);
 }
 
-async function createRayInTransaction(sql: Db, input: CreateRayInput) {
-  const rows = await sql<RayRow[]>`
-    insert into public.rays (
+async function createGoalInTransaction(sql: Db, input: CreateGoalInput) {
+  const goalId = uuidOrNew(input.id);
+  const ray = uuidOrNull(input.ray) ?? goalId;
+  const rows = await sql<GoalRow[]>`
+    insert into public.goals (
       id,
-      ray_type,
+      ray,
+      goal_type,
       title,
       status,
       priority,
@@ -664,9 +671,10 @@ async function createRayInTransaction(sql: Db, input: CreateRayInput) {
       updated_at
     )
     values (
-      ${uuidOrNew(input.id)}::uuid,
+      ${goalId}::uuid,
+      ${ray}::uuid,
       ${input.type ?? "goal"},
-      ${cleanText(input.title, "Untitled ray")},
+      ${cleanText(input.title, "Untitled goal")},
       ${input.status ?? "open"},
       ${normalizeTaskPriority(input.priority)},
       ${uuidOrNull(input.planId)}::uuid,
@@ -678,16 +686,17 @@ async function createRayInTransaction(sql: Db, input: CreateRayInput) {
       now()
     )
     on conflict (id) do update set
-      plan_id = coalesce(public.rays.plan_id, excluded.plan_id),
-      email_hash = coalesce(public.rays.email_hash, excluded.email_hash),
-      source = coalesce(public.rays.source, excluded.source),
-      context = public.rays.context || excluded.context,
-      priority = greatest(public.rays.priority, excluded.priority),
+      ray = coalesce(public.goals.ray, excluded.ray),
+      plan_id = coalesce(public.goals.plan_id, excluded.plan_id),
+      email_hash = coalesce(public.goals.email_hash, excluded.email_hash),
+      source = coalesce(public.goals.source, excluded.source),
+      context = public.goals.context || excluded.context,
+      priority = greatest(public.goals.priority, excluded.priority),
       updated_at = now()
     returning *
   `;
 
-  return mapRay(rows[0]);
+  return mapGoal(rows[0]);
 }
 
 async function addTaskCommentInTransaction(
@@ -700,13 +709,13 @@ async function addTaskCommentInTransaction(
     throw new Error("Task comment requires a valid taskId");
   }
 
-  const rayId = await taskRayId(sql, taskId);
+  const goalId = await taskGoalId(sql, taskId);
   const id = randomUUID();
   const rows = await sql<CommentRow[]>`
     insert into public.task_comments (
       id,
       task_id,
-      ray_id,
+      goal_id,
       agent_id,
       author_type,
       author_name,
@@ -719,7 +728,7 @@ async function addTaskCommentInTransaction(
     values (
       ${id}::uuid,
       ${taskId}::uuid,
-      ${rayId}::uuid,
+      ${goalId}::uuid,
       ${uuidOrNull(input.agentId)}::uuid,
       ${input.authorType ?? "system"},
       ${optionalText(input.authorName)},
@@ -740,7 +749,7 @@ async function addTaskCommentInTransaction(
       visibility: input.visibility ?? "internal"
     },
     eventType: "comment_added",
-    rayId,
+    goalId,
     taskId
   });
 
@@ -748,10 +757,10 @@ async function addTaskCommentInTransaction(
 }
 
 async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
-  const rayId = uuidOrNull(input.rayId);
+  const goalId = uuidOrNull(input.goalId);
 
-  if (!rayId) {
-    throw new Error("Task requires a valid rayId");
+  if (!goalId) {
+    throw new Error("Task requires a valid goalId");
   }
 
   const idempotencyKey = optionalText(input.idempotencyKey);
@@ -760,7 +769,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
     const existing = await sql<TaskRow[]>`
       select *
       from public.tasks
-      where ray_id = ${rayId}::uuid
+      where goal_id = ${goalId}::uuid
         and idempotency_key = ${idempotencyKey}
         and status not in ('completed', 'failed', 'cancelled', 'skipped')
       order by created_at desc
@@ -775,7 +784,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
   const inserted = await sql<TaskRow[]>`
     insert into public.tasks (
       id,
-      ray_id,
+      goal_id,
       parent_task_id,
       plan_id,
       legacy_job_id,
@@ -800,7 +809,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
     )
     values (
       ${uuidOrNew(input.id)}::uuid,
-      ${rayId}::uuid,
+      ${goalId}::uuid,
       ${uuidOrNull(input.parentTaskId)}::uuid,
       ${uuidOrNull(input.planId)}::uuid,
       ${uuidOrNull(input.legacyJobId)}::uuid,
@@ -833,7 +842,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       await sql<TaskRow[]>`
         select *
         from public.tasks
-        where ray_id = ${rayId}::uuid
+        where goal_id = ${goalId}::uuid
           and idempotency_key = ${idempotencyKey}
           and status not in ('completed', 'failed', 'cancelled', 'skipped')
         order by created_at desc
@@ -884,7 +893,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       requiredCapabilities: task.requiredCapabilities
     },
     eventType: "task_created",
-    rayId,
+    goalId,
     taskId: task.id
   });
 
@@ -904,10 +913,10 @@ export async function upsertAgent(input: Parameters<typeof upsertAgentInTransact
   return sql.begin((tx) => upsertAgentInTransaction(tx, input));
 }
 
-export async function createRay(input: CreateRayInput) {
+export async function createGoal(input: CreateGoalInput) {
   const sql = getRequiredSql();
 
-  return sql.begin((tx) => createRayInTransaction(tx, input));
+  return sql.begin((tx) => createGoalInTransaction(tx, input));
 }
 
 export async function createTask(input: CreateTaskInput) {
@@ -948,11 +957,11 @@ export async function getTaskBundle(input: Readonly<{ taskId: string }>) {
   }
 
   const task = mapTask(taskRows[0]);
-  const [rayRows, commentRows, dependencyRows] = await Promise.all([
-    sql<RayRow[]>`
+  const [goalRows, commentRows, dependencyRows] = await Promise.all([
+    sql<GoalRow[]>`
       select *
-      from public.rays
-      where id = ${task.rayId}::uuid
+      from public.goals
+      where id = ${task.goalId}::uuid
       limit 1
     `,
     sql<CommentRow[]>`
@@ -973,41 +982,41 @@ export async function getTaskBundle(input: Readonly<{ taskId: string }>) {
     `
   ]);
 
-  if (!rayRows[0]) {
-    throw new Error(`Ray ${task.rayId} not found`);
+  if (!goalRows[0]) {
+    throw new Error(`Goal ${task.goalId} not found`);
   }
 
   return {
     comments: commentRows.map(mapComment),
     dependencies: dependencyRows.map(mapDependency),
-    ray: mapRay(rayRows[0]),
+    goal: mapGoal(goalRows[0]),
     task
   } satisfies TaskBundle;
 }
 
-export async function listRayTasks(input: Readonly<{ rayId: string }>) {
+export async function listGoalTasks(input: Readonly<{ goalId: string }>) {
   const sql = getRequiredSql();
-  const rayId = uuidOrNull(input.rayId);
+  const goalId = uuidOrNull(input.goalId);
 
-  if (!rayId) {
-    throw new Error("Ray not found");
+  if (!goalId) {
+    throw new Error("Goal not found");
   }
 
-  const rayRows = await sql<RayRow[]>`
+  const goalRows = await sql<GoalRow[]>`
     select *
-    from public.rays
-    where id = ${rayId}::uuid
+    from public.goals
+    where id = ${goalId}::uuid
     limit 1
   `;
 
-  if (!rayRows[0]) {
-    throw new Error(`Ray ${rayId} not found`);
+  if (!goalRows[0]) {
+    throw new Error(`Goal ${goalId} not found`);
   }
 
   const taskRows = await sql<TaskRow[]>`
     select *
     from public.tasks
-    where ray_id = ${rayId}::uuid
+    where goal_id = ${goalId}::uuid
     order by created_at asc
   `;
   const taskIds = taskRows.map((row) => row.id);
@@ -1027,7 +1036,7 @@ export async function listRayTasks(input: Readonly<{ rayId: string }>) {
 
   return {
     dependencies: dependencyRows.map(mapDependency),
-    ray: mapRay(rayRows[0]),
+    goal: mapGoal(goalRows[0]),
     tasks: taskRows.map(mapTask)
   };
 }
@@ -1044,7 +1053,7 @@ async function releaseExpiredReservationsInTransaction(sql: Db) {
       task_reservations.id::text as reservation_id,
       task_reservations.task_id::text,
       task_reservations.agent_id::text,
-      tasks.ray_id::text,
+      tasks.goal_id::text,
       tasks.attempts,
       tasks.max_attempts
     from public.task_reservations
@@ -1084,7 +1093,7 @@ async function releaseExpiredReservationsInTransaction(sql: Db) {
       },
       eventStatus: exhausted ? "failed" : "observed",
       eventType: exhausted ? "task_failed_after_lease_expiry" : "lease_expired",
-      rayId: row.ray_id,
+      goalId: row.goal_id,
       severity: exhausted ? "high" : "medium",
       taskId: row.task_id
     });
@@ -1198,7 +1207,7 @@ export async function reserveNextTask(
       },
       eventStatus: "accepted",
       eventType: "task_reserved",
-      rayId: task.rayId,
+      goalId: task.goalId,
       taskId: task.id
     });
 
@@ -1254,7 +1263,7 @@ export async function completeTask(input: CompleteTaskInput) {
       eventPayload: input.resultPayload ?? {},
       eventStatus: "succeeded",
       eventType: "task_completed",
-      rayId: task.rayId,
+      goalId: task.goalId,
       taskId: task.id
     });
 
@@ -1327,7 +1336,7 @@ export async function renewTaskLease(input: RenewTaskLeaseInput) {
       },
       eventStatus: "accepted",
       eventType: "task_lease_renewed",
-      rayId: task.rayId,
+      goalId: task.goalId,
       taskId: task.id
     });
 
@@ -1377,7 +1386,7 @@ export async function failTask(input: FailTaskInput) {
       },
       eventStatus: "failed",
       eventType: "task_failed",
-      rayId: task.rayId,
+      goalId: task.goalId,
       severity: "high",
       taskId: task.id
     });
@@ -1406,7 +1415,7 @@ export async function spawnChildTask(input: SpawnChildTaskInput) {
       ...input,
       createdByTaskId: parent.id,
       parentTaskId: parent.id,
-      rayId: parent.rayId
+      goalId: parent.goalId
     });
 
     await addTaskEventInTransaction(tx, {
@@ -1416,7 +1425,7 @@ export async function spawnChildTask(input: SpawnChildTaskInput) {
         childTaskType: created.task.taskType
       },
       eventType: "child_task_created",
-      rayId: parent.rayId,
+      goalId: parent.goalId,
       taskId: parent.id
     });
 

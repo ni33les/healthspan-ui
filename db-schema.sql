@@ -598,10 +598,186 @@ create index if not exists agents_status_idx
 create index if not exists agents_capabilities_gin_idx
   on public.agents using gin (capabilities);
 
-create table if not exists public.rays (
+do $$
+begin
+  if to_regclass('public.goals') is null
+    and to_regclass('public.rays') is not null then
+    alter table public.rays rename to goals;
+  end if;
+
+  if to_regclass('public.goals') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'goals'
+        and column_name = 'ray_type'
+    ) then
+    alter table public.goals rename column ray_type to goal_type;
+  end if;
+
+  if to_regclass('public.tasks') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'tasks'
+        and column_name = 'ray_id'
+    )
+    and not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'tasks'
+        and column_name = 'goal_id'
+    ) then
+    alter table public.tasks rename column ray_id to goal_id;
+  end if;
+
+  if to_regclass('public.task_comments') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_comments'
+        and column_name = 'ray_id'
+    )
+    and not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_comments'
+        and column_name = 'goal_id'
+    ) then
+    alter table public.task_comments rename column ray_id to goal_id;
+  end if;
+
+  if to_regclass('public.task_events') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_events'
+        and column_name = 'ray_id'
+    )
+    and not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_events'
+        and column_name = 'goal_id'
+    ) then
+    alter table public.task_events rename column ray_id to goal_id;
+  end if;
+
+  if to_regclass('public.task_approvals') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_approvals'
+        and column_name = 'ray_id'
+    )
+    and not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_approvals'
+        and column_name = 'goal_id'
+    ) then
+    alter table public.task_approvals rename column ray_id to goal_id;
+  end if;
+
+  if to_regclass('public.tasks') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'tasks'
+        and column_name = 'ray_id'
+    )
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'tasks'
+        and column_name = 'goal_id'
+    ) then
+    update public.tasks set goal_id = ray_id where goal_id is null;
+    alter table public.tasks drop column ray_id;
+  end if;
+
+  if to_regclass('public.task_comments') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_comments'
+        and column_name = 'ray_id'
+    )
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_comments'
+        and column_name = 'goal_id'
+    ) then
+    update public.task_comments set goal_id = ray_id where goal_id is null;
+    alter table public.task_comments drop column ray_id;
+  end if;
+
+  if to_regclass('public.task_events') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_events'
+        and column_name = 'ray_id'
+    )
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_events'
+        and column_name = 'goal_id'
+    ) then
+    update public.task_events set goal_id = ray_id where goal_id is null;
+    alter table public.task_events drop column ray_id;
+  end if;
+
+  if to_regclass('public.task_approvals') is not null
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_approvals'
+        and column_name = 'ray_id'
+    )
+    and exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'task_approvals'
+        and column_name = 'goal_id'
+    ) then
+    update public.task_approvals set goal_id = ray_id where goal_id is null;
+    alter table public.task_approvals drop column ray_id;
+  end if;
+end $$;
+
+drop index if exists public.rays_status_idx;
+drop index if exists public.rays_plan_idx;
+drop index if exists public.rays_email_hash_idx;
+drop index if exists public.tasks_ray_idx;
+drop index if exists public.task_comments_ray_idx;
+drop index if exists public.task_events_ray_idx;
+drop index if exists public.task_approvals_ray_idx;
+
+create table if not exists public.goals (
   id uuid primary key,
-  ray_type text not null default 'goal' check (
-    ray_type in ('journey', 'goal', 'task_run', 'system')
+  ray uuid null,
+  goal_type text not null default 'goal' check (
+    goal_type in ('journey', 'goal', 'task_run', 'system')
   ),
   title text not null,
   status text not null default 'open' check (
@@ -620,8 +796,9 @@ create table if not exists public.rays (
   updated_at timestamptz not null default now()
 );
 
-alter table public.rays
-  add column if not exists ray_type text default 'goal',
+alter table public.goals
+  add column if not exists ray uuid null,
+  add column if not exists goal_type text default 'goal',
   add column if not exists title text,
   add column if not exists status text default 'open',
   add column if not exists priority integer default 3,
@@ -634,13 +811,14 @@ alter table public.rays
   add column if not exists created_at timestamptz default now(),
   add column if not exists updated_at timestamptz default now();
 
-update public.rays
+update public.goals
 set
-  ray_type = case
-    when ray_type in ('journey', 'goal', 'task_run', 'system') then ray_type
+  ray = coalesce(ray, id),
+  goal_type = case
+    when goal_type in ('journey', 'goal', 'task_run', 'system') then goal_type
     else 'goal'
   end,
-  title = coalesce(nullif(title, ''), 'Untitled ray'),
+  title = coalesce(nullif(title, ''), 'Untitled goal'),
   status = case
     when status in ('open', 'active', 'blocked', 'completed', 'cancelled', 'failed')
       then status
@@ -650,8 +828,9 @@ set
   context = coalesce(context, '{}'::jsonb),
   created_at = coalesce(created_at, now()),
   updated_at = coalesce(updated_at, now())
-where ray_type is null
-  or ray_type not in ('journey', 'goal', 'task_run', 'system')
+where ray is null
+  or goal_type is null
+  or goal_type not in ('journey', 'goal', 'task_run', 'system')
   or title is null
   or title = ''
   or status is null
@@ -663,9 +842,9 @@ where ray_type is null
   or created_at is null
   or updated_at is null;
 
-alter table public.rays
-  alter column ray_type set default 'goal',
-  alter column ray_type set not null,
+alter table public.goals
+  alter column goal_type set default 'goal',
+  alter column goal_type set not null,
   alter column title set not null,
   alter column status set default 'open',
   alter column status set not null,
@@ -683,47 +862,51 @@ begin
   if not exists (
     select 1
     from pg_constraint
-    where conrelid = 'public.rays'::regclass
-      and conname = 'rays_type_check'
+    where conrelid = 'public.goals'::regclass
+      and conname = 'goals_type_check'
   ) then
-    alter table public.rays
-      add constraint rays_type_check
-      check (ray_type in ('journey', 'goal', 'task_run', 'system'));
+    alter table public.goals
+      add constraint goals_type_check
+      check (goal_type in ('journey', 'goal', 'task_run', 'system'));
   end if;
 
   if not exists (
     select 1
     from pg_constraint
-    where conrelid = 'public.rays'::regclass
-      and conname = 'rays_status_check'
+    where conrelid = 'public.goals'::regclass
+      and conname = 'goals_status_check'
   ) then
-    alter table public.rays
-      add constraint rays_status_check
+    alter table public.goals
+      add constraint goals_status_check
       check (status in ('open', 'active', 'blocked', 'completed', 'cancelled', 'failed'));
   end if;
 
-  alter table public.rays
-    drop constraint if exists rays_priority_check;
+  alter table public.goals
+    drop constraint if exists goals_priority_check;
 
-  alter table public.rays
-    add constraint rays_priority_check
+  alter table public.goals
+    add constraint goals_priority_check
     check (priority >= 1 and priority <= 6);
 end $$;
 
-create index if not exists rays_status_idx
-  on public.rays (status, priority desc, created_at asc);
+create index if not exists goals_status_idx
+  on public.goals (status, priority desc, created_at asc);
 
-create index if not exists rays_plan_idx
-  on public.rays (plan_id, created_at desc)
+create index if not exists goals_ray_idx
+  on public.goals (ray, created_at desc)
+  where ray is not null;
+
+create index if not exists goals_plan_idx
+  on public.goals (plan_id, created_at desc)
   where plan_id is not null;
 
-create index if not exists rays_email_hash_idx
-  on public.rays (email_hash, created_at desc)
+create index if not exists goals_email_hash_idx
+  on public.goals (email_hash, created_at desc)
   where email_hash is not null;
 
 create table if not exists public.tasks (
   id uuid primary key,
-  ray_id uuid not null references public.rays(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
   parent_task_id uuid null references public.tasks(id) on delete set null,
   plan_id uuid null references public.assessments(plan_id) on delete set null,
   legacy_job_id uuid null references public.jobs(id) on delete set null,
@@ -772,7 +955,7 @@ create table if not exists public.tasks (
 );
 
 alter table public.tasks
-  add column if not exists ray_id uuid references public.rays(id) on delete cascade,
+  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists parent_task_id uuid null references public.tasks(id) on delete set null,
   add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
   add column if not exists legacy_job_id uuid null references public.jobs(id) on delete set null,
@@ -874,7 +1057,7 @@ where task_type is null
   or updated_at is null;
 
 alter table public.tasks
-  alter column ray_id set not null,
+  alter column goal_id set not null,
   alter column task_type set not null,
   alter column title set not null,
   alter column actor_type set default 'system',
@@ -971,8 +1154,8 @@ end $$;
 
 comment on table public.agents is
   'Humans, AI agents, deterministic workers, and external workers that may reserve and process tasks by capability.';
-comment on table public.rays is
-  'A ray is one goal or journey of work, tying related tasks, comments, events, plans, and customer context together.';
+comment on table public.goals is
+  'Business goals or milestones of work, tying related tasks, comments, events, plans, and customer context together. The optional ray column preserves BPM/session traceability.';
 comment on table public.tasks is
   'Prioritised atomic work items. Tasks describe what must be done; agents describe who or what can do it.';
 comment on column public.tasks.priority is
@@ -985,8 +1168,8 @@ comment on column public.tasks.reasoning_effort is
 create index if not exists tasks_queue_idx
   on public.tasks (status, priority desc, scheduled_for asc, created_at asc);
 
-create index if not exists tasks_ray_idx
-  on public.tasks (ray_id, created_at asc);
+create index if not exists tasks_goal_idx
+  on public.tasks (goal_id, created_at asc);
 
 create index if not exists tasks_plan_idx
   on public.tasks (plan_id, created_at desc)
@@ -1008,7 +1191,7 @@ create index if not exists tasks_required_capabilities_gin_idx
   on public.tasks using gin (required_capabilities);
 
 create unique index if not exists tasks_active_idempotency_idx
-  on public.tasks (ray_id, idempotency_key)
+  on public.tasks (goal_id, idempotency_key)
   where idempotency_key is not null
     and status not in ('completed', 'failed', 'cancelled', 'skipped');
 
@@ -1075,7 +1258,7 @@ create index if not exists task_dependencies_waiting_idx
 create table if not exists public.task_comments (
   id uuid primary key,
   task_id uuid not null references public.tasks(id) on delete cascade,
-  ray_id uuid not null references public.rays(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
   agent_id uuid null references public.agents(id) on delete set null,
   author_type text not null default 'system' check (
     author_type in ('human', 'ai', 'deterministic', 'external', 'system', 'worker')
@@ -1094,7 +1277,7 @@ create table if not exists public.task_comments (
 
 alter table public.task_comments
   add column if not exists task_id uuid references public.tasks(id) on delete cascade,
-  add column if not exists ray_id uuid references public.rays(id) on delete cascade,
+  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists author_type text default 'system',
   add column if not exists author_name text null,
@@ -1135,7 +1318,7 @@ where author_type is null
 
 alter table public.task_comments
   alter column task_id set not null,
-  alter column ray_id set not null,
+  alter column goal_id set not null,
   alter column author_type set default 'system',
   alter column author_type set not null,
   alter column visibility set default 'internal',
@@ -1190,8 +1373,8 @@ comment on table public.task_comments is
 create index if not exists task_comments_task_idx
   on public.task_comments (task_id, created_at asc);
 
-create index if not exists task_comments_ray_idx
-  on public.task_comments (ray_id, created_at asc);
+create index if not exists task_comments_goal_idx
+  on public.task_comments (goal_id, created_at asc);
 
 create index if not exists task_comments_agent_idx
   on public.task_comments (agent_id, created_at desc)
@@ -1207,7 +1390,7 @@ end $$;
 create table if not exists public.task_events (
   id uuid primary key,
   task_id uuid null references public.tasks(id) on delete set null,
-  ray_id uuid not null references public.rays(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
   agent_id uuid null references public.agents(id) on delete set null,
   event_type text not null,
   event_status text not null default 'observed' check (
@@ -1223,7 +1406,7 @@ create table if not exists public.task_events (
 
 alter table public.task_events
   add column if not exists task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists ray_id uuid references public.rays(id) on delete cascade,
+  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists event_type text,
   add column if not exists event_status text default 'observed',
@@ -1258,7 +1441,7 @@ where event_type is null
   or created_at is null;
 
 alter table public.task_events
-  alter column ray_id set not null,
+  alter column goal_id set not null,
   alter column event_type set not null,
   alter column event_status set default 'observed',
   alter column event_status set not null,
@@ -1316,8 +1499,8 @@ create index if not exists task_events_task_idx
   on public.task_events (task_id, occurred_at asc)
   where task_id is not null;
 
-create index if not exists task_events_ray_idx
-  on public.task_events (ray_id, occurred_at asc);
+create index if not exists task_events_goal_idx
+  on public.task_events (goal_id, occurred_at asc);
 
 create index if not exists task_events_agent_idx
   on public.task_events (agent_id, occurred_at desc)
@@ -1402,7 +1585,7 @@ create index if not exists task_reservations_lease_idx
 create table if not exists public.task_approvals (
   id uuid primary key,
   task_id uuid not null references public.tasks(id) on delete cascade,
-  ray_id uuid not null references public.rays(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
   requested_by_agent_id uuid null references public.agents(id) on delete set null,
   decided_by_agent_id uuid null references public.agents(id) on delete set null,
   approval_type text not null default 'four_eyes' check (
@@ -1422,7 +1605,7 @@ create table if not exists public.task_approvals (
 
 alter table public.task_approvals
   add column if not exists task_id uuid references public.tasks(id) on delete cascade,
-  add column if not exists ray_id uuid references public.rays(id) on delete cascade,
+  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists requested_by_agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists decided_by_agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists approval_type text default 'four_eyes',
@@ -1461,7 +1644,7 @@ where approval_type is null
 
 alter table public.task_approvals
   alter column task_id set not null,
-  alter column ray_id set not null,
+  alter column goal_id set not null,
   alter column approval_type set default 'four_eyes',
   alter column approval_type set not null,
   alter column status set default 'requested',
@@ -1503,8 +1686,8 @@ end $$;
 create index if not exists task_approvals_task_idx
   on public.task_approvals (task_id, requested_at desc);
 
-create index if not exists task_approvals_ray_idx
-  on public.task_approvals (ray_id, requested_at desc);
+create index if not exists task_approvals_goal_idx
+  on public.task_approvals (goal_id, requested_at desc);
 
 create index if not exists task_approvals_status_idx
   on public.task_approvals (status, requested_at asc);
@@ -2076,6 +2259,8 @@ create index if not exists bpm_occurred_idx
 
 create index if not exists bpm_event_time_idx
   on public.bpm (event_type, event_name, occurred_at desc);
+
+drop index if exists public.bpm_goal_idx;
 
 create index if not exists bpm_ray_idx
   on public.bpm (ray, occurred_at desc);
@@ -3020,6 +3205,8 @@ create index if not exists safety_reviews_job_idx
   on public.safety_reviews (job_id, opened_at desc)
   where job_id is not null;
 
+drop index if exists public.safety_reviews_goal_idx;
+
 create index if not exists safety_reviews_ray_idx
   on public.safety_reviews (ray, opened_at desc)
   where ray is not null;
@@ -3739,9 +3926,9 @@ begin
   end;
 
   begin
-    execute 'alter table public.rays owner to mn';
+    execute 'alter table public.goals owner to mn';
   exception when others then
-    raise notice 'Skipping rays owner change: %', sqlerrm;
+    raise notice 'Skipping goals owner change: %', sqlerrm;
   end;
 
   begin
@@ -3863,7 +4050,7 @@ begin
          public.supplement_admin_audit,
          public.safety_reviews,
          public.agents,
-         public.rays,
+         public.goals,
          public.tasks,
          public.task_dependencies,
          public.task_comments,

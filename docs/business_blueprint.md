@@ -69,6 +69,8 @@ flowchart TB
 - BPM tracking for funnel, campaign, affiliate, safety, error, email, chat, and formulation events.
 - Admin dashboard with KPI and Conversions views over hour, day, week, month, year, and all-time windows.
 - Admin Technical section with Alerts and Jobs views for failed email sends, stuck jobs, cron failures, AI/worker errors, and recent job history.
+- Goal-based task architecture foundation: goals group tasks, tasks are reserved by agents, and task events/comments preserve cause-and-effect.
+- Admin Goals view showing goal status, priority, source, BPM/session ray, tasks, events, comments, dependencies, reservations, and approvals.
 - Dashboard filters for locale, device, source, medium, campaign, campaign ID, affiliate, promo code, selected plan, plan ID, ray, and email hash.
 
 ## Main Gaps
@@ -76,7 +78,7 @@ flowchart TB
 | Gap | Why It Matters | Suggested Next Step |
 | --- | --- | --- |
 | Payment activation | Cannot test revenue conversion yet | Wire Precision/Pro checkout once account is ready |
-| Admin operations views | Sales analytics, technical alerts, jobs, supplement review, and supplement editing basics exist; content and campaign comparison views still need interfaces | Add campaign and content panels |
+| Admin operations views | Sales analytics, goals, task visibility, technical alerts, legacy jobs, supplement review, and supplement editing basics exist; content and campaign comparison views still need interfaces | Add campaign and content panels |
 | Supplement governance | Whitelist, blacklist, max dose, and safety review basics exist; frequency and interaction rules are not wired yet | Add frequency, condition, medication, pregnancy, and lab interaction checks |
 | Product matching | Affiliate revenue depends on trusted products | Start with curated whitelist before marketplace automation |
 | Chat handoff | Pro needs a convincing ongoing service experience | Make one channel excellent first, likely LINE |
@@ -183,6 +185,7 @@ Current admin dashboard:
 9. Human Review queue for supplement review jobs and dose-reduction notices.
 10. Technical Alerts queue for failed jobs, stuck jobs, failed cron tasks, high/critical job audit events, and error/high BPM events.
 11. Jobs view for queued, running, failed, and completed operational jobs, including attempts, timing, payload, errors, and latest audit event.
+12. Goals view for milestone-level operational visibility over the newer task system.
 
 How the admin sections should be read:
 
@@ -192,15 +195,16 @@ How the admin sections should be read:
 | Conversions | Where do people continue, and where do they stop? | Live from BPM events |
 | Supplements | Which supplements are allowed, blocked, or awaiting review? | Live with editable dose ceilings and safety flags |
 | Human Review | What needs a human decision before being shown or acted on? | Live for supplement review and dose-reduction notices |
+| Goals | What outcome is being pursued, and which tasks/events explain its current state? | Live for the new task architecture |
 | Technical Alerts | What failed or looks stuck? | Live for jobs, cron, job audit, and BPM error events |
-| Jobs | What work has been queued, run, completed, or failed? | Live job history and current state |
+| Jobs | What legacy work has been queued, run, completed, or failed? | Live legacy job history and current state |
 
 Remaining admin dashboard work:
 
 1. Campaign and affiliate comparison tables.
 2. Email-specific communications reporting if email volume makes it worth separating from Jobs/Alerts.
 3. Retry actions for failed technical jobs where safe.
-4. Ray drill-down for a single anonymous journey.
+4. Ray drill-down for a single anonymous BPM/session journey.
 5. Content, testimonial, interaction-rule, and advanced supplement decision management.
 6. Revenue and payment reporting after checkout is live.
 
@@ -278,7 +282,7 @@ flowchart TB
   class L partial;
 ```
 
-The job queue carries supplement review work as `job_type = 'supplement_review'`. The worker does not process these automatically; they appear in the admin Human Review queue.
+The legacy job queue still carries supplement review work as `job_type = 'supplement_review'`. The worker does not process these automatically; they appear in the admin Human Review queue. New operational work should move toward Goals and Tasks as each flow is migrated.
 
 The safety review record should carry the operational details: supplement, dose, rule, context, reviewer decision, and client notification state.
 

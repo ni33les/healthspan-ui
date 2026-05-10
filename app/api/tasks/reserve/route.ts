@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       agent: reserved.agent,
       comments: bundle.comments,
       dependencies: bundle.dependencies,
-      ray: bundle.ray,
+      goal: bundle.goal,
       reservationId: reserved.reservationId,
       task: bundle.task
     });

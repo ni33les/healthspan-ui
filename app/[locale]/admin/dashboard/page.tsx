@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin-dashboard-data";
 import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
+import { getAdminGoalsData } from "@/lib/admin-goals";
 import { getAdminReviewQueueData } from "@/lib/admin-review-queue";
 import { getAdminSupplementsData } from "@/lib/admin-supplements";
 import {
@@ -57,12 +58,14 @@ export default async function LocalizedAdminDashboardPage({
   const view =
     rawView === "alerts" ||
     rawView === "flow" ||
+    rawView === "goals" ||
     rawView === "jobs" ||
     rawView === "reviews" ||
     rawView === "supplements"
       ? rawView
       : "kpi";
   const filters = normalizeAdminDashboardFilters(query);
+  const selectedGoalId = firstParam(query.goal);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
@@ -72,6 +75,7 @@ export default async function LocalizedAdminDashboardPage({
     alertsData,
     data,
     flowData,
+    goalsData,
     jobsData,
     reviewQueueData,
     supplementsData
@@ -79,6 +83,7 @@ export default async function LocalizedAdminDashboardPage({
     getAdminTechnicalAlertsData(range),
     getAdminDashboardData(range, filters),
     getAdminFlowData(range, filters),
+    getAdminGoalsData(range, selectedGoalId),
     getAdminJobsData(range),
     getAdminReviewQueueData(),
     getAdminSupplementsData()
@@ -91,6 +96,7 @@ export default async function LocalizedAdminDashboardPage({
       data={data}
       filters={filters}
       flowData={flowData}
+      goalsData={goalsData}
       jobsData={jobsData}
       locale={locale}
       reviewQueueData={reviewQueueData}

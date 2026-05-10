@@ -13,6 +13,7 @@ import {
   ChevronDownIcon,
   DocumentTextIcon,
   EnvelopeIcon,
+  FlagIcon,
   ExclamationTriangleIcon,
   FunnelIcon,
   HomeIcon,
@@ -61,11 +62,17 @@ import type {
   AdminFlowData,
   AdminFlowNodeId
 } from "@/lib/admin-flow-data";
+import type {
+  AdminGoalsData,
+  AdminGoalRow,
+  AdminGoalStatus
+} from "@/lib/admin-goals";
 import type { Locale } from "@/lib/i18n";
 
 type AdminDashboardView =
   | "alerts"
   | "flow"
+  | "goals"
   | "jobs"
   | "kpi"
   | "reviews"
@@ -113,6 +120,30 @@ type AdminContent = Readonly<{
     title: string;
   };
   generated: string;
+  goals: {
+    active: string;
+    approvals: string;
+    blocked: string;
+    cancelled: string;
+    comments: string;
+    dependencies: string;
+    empty: string;
+    events: string;
+    failed: string;
+    lastActivity: string;
+    needsReview: string;
+    noSelection: string;
+    plan: string;
+    priority: string;
+    processing: string;
+    reservations: string;
+    source: string;
+    stuck: string;
+    succeeded: string;
+    tasks: string;
+    trace: string;
+    total: string;
+  };
   flowNodes: Record<AdminFlowNodeId, string>;
   flowMetrics: {
     dropped: string;
@@ -269,6 +300,30 @@ const content = {
       title: "Filters"
     },
     generated: "Generated",
+    goals: {
+      active: "Active",
+      approvals: "Approvals",
+      blocked: "Blocked",
+      cancelled: "Cancelled",
+      comments: "Comments",
+      dependencies: "Dependencies",
+      empty: "No goals in this timeframe.",
+      events: "Events",
+      failed: "Failed",
+      lastActivity: "Last activity",
+      needsReview: "Needs review",
+      noSelection: "Select a goal to see its timeline.",
+      plan: "Plan",
+      priority: "Priority",
+      processing: "Processing",
+      reservations: "Reservations",
+      source: "Source",
+      stuck: "Stuck",
+      succeeded: "Succeeded",
+      tasks: "Tasks",
+      trace: "Trace",
+      total: "Total"
+    },
     flowNodes: {
       assessmentStarted: "Started",
       assessmentSubmitted: "Submitted",
@@ -327,6 +382,7 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
+      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "Campaigns" },
       { href: "#", icon: EnvelopeIcon, name: "Leads" },
@@ -340,6 +396,7 @@ const content = {
     pageTitles: {
       alerts: "Technical Alerts",
       flow: "Sales Conversions",
+      goals: "Goals",
       jobs: "Jobs",
       kpi: "Key Performance Indicators",
       reviews: "Human Review",
@@ -510,6 +567,30 @@ const content = {
       title: "ตัวกรอง"
     },
     generated: "สร้างเมื่อ",
+    goals: {
+      active: "กำลังทำ",
+      approvals: "การอนุมัติ",
+      blocked: "ติดขัด",
+      cancelled: "ยกเลิก",
+      comments: "ความคิดเห็น",
+      dependencies: "เงื่อนไขก่อนหน้า",
+      empty: "ไม่มี Goals ในช่วงเวลานี้",
+      events: "อีเวนต์",
+      failed: "ล้มเหลว",
+      lastActivity: "กิจกรรมล่าสุด",
+      needsReview: "ต้องรีวิว",
+      noSelection: "เลือก Goal เพื่อดูไทม์ไลน์",
+      plan: "แผน",
+      priority: "ความสำคัญ",
+      processing: "กำลังดำเนินการ",
+      reservations: "การจองงาน",
+      source: "แหล่งที่มา",
+      stuck: "ค้าง",
+      succeeded: "สำเร็จ",
+      tasks: "งาน",
+      trace: "Trace",
+      total: "ทั้งหมด"
+    },
     flowNodes: {
       assessmentStarted: "เริ่มทำ",
       assessmentSubmitted: "ส่งแบบประเมิน",
@@ -568,6 +649,7 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
+      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "แคมเปญ" },
       { href: "#", icon: EnvelopeIcon, name: "ลีด" },
@@ -581,6 +663,7 @@ const content = {
     pageTitles: {
       alerts: "การแจ้งเตือนทางเทคนิค",
       flow: "Sales Conversions",
+      goals: "Goals",
       jobs: "งานระบบ",
       kpi: "Key Performance Indicators",
       reviews: "รีวิวโดยคน",
@@ -763,6 +846,33 @@ function adminHref(
       params.set(key, value);
     });
   }
+
+  return `/${locale}/admin/dashboard?${params.toString()}`;
+}
+
+function adminGoalHref({
+  accessToken,
+  filters,
+  goalId,
+  locale,
+  range
+}: Readonly<{
+  accessToken: string;
+  filters: AdminDashboardFilters;
+  goalId: string;
+  locale: Locale;
+  range: AdminDashboardRange;
+}>) {
+  const params = new URLSearchParams({
+    access_token: accessToken,
+    goal: goalId,
+    range,
+    view: "goals"
+  });
+
+  adminDashboardFilterEntries(filters).forEach(([key, value]) => {
+    params.set(key, value);
+  });
 
   return `/${locale}/admin/dashboard?${params.toString()}`;
 }
@@ -2796,6 +2906,396 @@ function AdminJobsView({
   );
 }
 
+function goalStatusLabel(labels: AdminContent, status: AdminGoalStatus) {
+  if (status === "needs_review") {
+    return labels.goals.needsReview;
+  }
+
+  return labels.goals[status];
+}
+
+function goalStatusClass(status: AdminGoalStatus) {
+  if (status === "succeeded") {
+    return "bg-[#ECFDF5] text-[#126B4F] ring-[#A7F3D0]";
+  }
+
+  if (status === "needs_review" || status === "blocked") {
+    return "bg-amber-50 text-amber-800 ring-amber-200";
+  }
+
+  if (status === "stuck" || status === "failed") {
+    return "bg-red-50 text-red-700 ring-red-100";
+  }
+
+  if (status === "cancelled") {
+    return "bg-gray-50 text-gray-700 ring-gray-200";
+  }
+
+  return "bg-blue-50 text-blue-700 ring-blue-100";
+}
+
+function compactId(value: string) {
+  return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
+}
+
+function AdminGoalsView({
+  accessToken,
+  data,
+  filters,
+  labels,
+  locale,
+  range
+}: Readonly<{
+  accessToken: string;
+  data: AdminGoalsData;
+  filters: AdminDashboardFilters;
+  labels: AdminContent;
+  locale: Locale;
+  range: AdminDashboardRange;
+}>) {
+  const selectedGoal = data.selectedGoal;
+
+  return (
+    <section className="mt-8 space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.total}
+          value={formatNumber(data.summary.total, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.processing}
+          value={formatNumber(data.summary.processing, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.needsReview}
+          value={formatNumber(data.summary.needsReview, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.blocked}
+          value={formatNumber(data.summary.blocked, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.stuck}
+          value={formatNumber(data.summary.stuck, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.goals.succeeded}
+          value={formatNumber(data.summary.succeeded, locale)}
+        />
+      </div>
+
+      {data.rows.length > 0 ? (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)]">
+          <div className="space-y-3">
+            {data.rows.map((goal) => (
+              <a
+                key={goal.id}
+                aria-current={goal.id === data.selectedGoalId ? "page" : undefined}
+                className={classNames(
+                  goal.id === data.selectedGoalId
+                    ? "ring-[#1FA77A]"
+                    : "ring-gray-200 hover:bg-gray-50",
+                  "block rounded-2xl bg-white p-4 shadow-sm ring-1 transition"
+                )}
+                href={adminGoalHref({
+                  accessToken,
+                  filters,
+                  goalId: goal.id,
+                  locale,
+                  range
+                })}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-semibold text-gray-900">
+                      {goal.title}
+                    </h2>
+                    <p className="mt-1 text-xs font-medium text-gray-500">
+                      {compactId(goal.id)}
+                    </p>
+                  </div>
+                  <span
+                    className={classNames(
+                      goalStatusClass(goal.status),
+                      "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+                    )}
+                  >
+                    {goalStatusLabel(labels, goal.status)}
+                  </span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <SupplementListMeta
+                    label={labels.goals.tasks}
+                    value={`${formatNumber(goal.completedTaskCount, locale)} / ${formatNumber(goal.taskCount, locale)}`}
+                  />
+                  <SupplementListMeta
+                    label={labels.goals.priority}
+                    value={goal.priority}
+                  />
+                  <SupplementListMeta
+                    label={labels.goals.source}
+                    value={goal.source ?? "—"}
+                  />
+                  <SupplementListMeta
+                    label={labels.goals.lastActivity}
+                    value={formatGeneratedAt(goal.lastActivityAt, locale)}
+                  />
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <GoalDetailPanel
+            data={data}
+            goal={selectedGoal}
+            labels={labels}
+            locale={locale}
+          />
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-white px-5 py-12 text-center text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
+          {labels.goals.empty}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GoalDetailPanel({
+  data,
+  goal,
+  labels,
+  locale
+}: Readonly<{
+  data: AdminGoalsData;
+  goal: AdminGoalRow | null;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  if (!goal) {
+    return (
+      <div className="rounded-2xl bg-white p-6 text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
+        {labels.goals.noSelection}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <span
+              className={classNames(
+                goalStatusClass(goal.status),
+                "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+              )}
+            >
+              {goalStatusLabel(labels, goal.status)}
+            </span>
+            <h2 className="mt-3 text-xl font-semibold text-gray-900">
+              {goal.title}
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">{goal.id}</p>
+          </div>
+          <div className="shrink-0 rounded-full bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
+            {labels.goals.priority}: {goal.priority}
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SupplementListMeta
+            label={labels.goals.plan}
+            value={goal.planId ?? "—"}
+          />
+          <SupplementListMeta
+            label={labels.goals.trace}
+            value={goal.ray ?? "—"}
+          />
+          <SupplementListMeta
+            label={labels.goals.source}
+            value={goal.source ?? "—"}
+          />
+          <SupplementListMeta
+            label={labels.goals.lastActivity}
+            value={formatGeneratedAt(goal.lastActivityAt, locale)}
+          />
+        </div>
+      </section>
+
+      <GoalDetailSection title={labels.goals.tasks}>
+        <div className="space-y-3">
+          {data.tasks.map((task) => (
+            <article
+              key={task.id}
+              className="rounded-xl bg-white p-4 ring-1 ring-gray-200"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold text-gray-900">
+                    {task.title}
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {readableToken(task.taskType)} · {readableToken(task.actorType)}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
+                  {readableToken(task.status)}
+                </span>
+              </div>
+              {task.errorMessage ? (
+                <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 ring-1 ring-red-100">
+                  {task.errorMessage}
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      </GoalDetailSection>
+
+      <GoalDetailSection title={labels.goals.events}>
+        <div className="space-y-3">
+          {[...data.events, ...data.comments]
+            .sort((left, right) => {
+              const leftDate =
+                "occurredAt" in left ? left.occurredAt : left.createdAt;
+              const rightDate =
+                "occurredAt" in right ? right.occurredAt : right.createdAt;
+
+              return (
+                new Date(rightDate).getTime() - new Date(leftDate).getTime()
+              );
+            })
+            .slice(0, 30)
+            .map((item) =>
+              "occurredAt" in item ? (
+                <TimelineItem
+                  key={`event:${item.id}`}
+                  eyebrow={`${readableToken(item.eventStatus)} · ${item.agentName ?? "System"}`}
+                  title={readableToken(item.eventType)}
+                  time={formatGeneratedAt(item.occurredAt, locale)}
+                />
+              ) : (
+                <TimelineItem
+                  key={`comment:${item.id}`}
+                  eyebrow={`${readableToken(item.commentType)} · ${item.authorName ?? readableToken(item.authorType)}`}
+                  title={item.body}
+                  time={formatGeneratedAt(item.createdAt, locale)}
+                />
+              )
+            )}
+        </div>
+      </GoalDetailSection>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <GoalDetailCompactList
+          empty="—"
+          items={data.dependencies.map(
+            (item) =>
+              `${compactId(item.taskId)} → ${compactId(item.dependsOnTaskId)} · ${readableToken(item.dependencyType)}`
+          )}
+          title={labels.goals.dependencies}
+        />
+        <GoalDetailCompactList
+          empty="—"
+          items={data.reservations.map(
+            (item) =>
+              `${item.agentName ?? "Agent"} · ${readableToken(item.status)} · ${formatGeneratedAt(item.reservedAt, locale)}`
+          )}
+          title={labels.goals.reservations}
+        />
+        <GoalDetailCompactList
+          empty="—"
+          items={data.approvals.map(
+            (item) =>
+              `${readableToken(item.approvalType)} · ${readableToken(item.status)} · ${formatGeneratedAt(item.requestedAt, locale)}`
+          )}
+          title={labels.goals.approvals}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GoalDetailSection({
+  children,
+  title
+}: Readonly<{
+  children: ReactNode;
+  title: string;
+}>) {
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+        {title}
+      </h2>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function TimelineItem({
+  eyebrow,
+  time,
+  title
+}: Readonly<{
+  eyebrow: string;
+  time: string;
+  title: string;
+}>) {
+  return (
+    <article className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
+            {eyebrow}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-gray-900">{title}</p>
+        </div>
+        <p className="shrink-0 text-xs font-medium text-gray-500">{time}</p>
+      </div>
+    </article>
+  );
+}
+
+function GoalDetailCompactList({
+  empty,
+  items,
+  title
+}: Readonly<{
+  empty: string;
+  items: string[];
+  title: string;
+}>) {
+  return (
+    <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
+        {title}
+      </h2>
+      <div className="mt-3 space-y-2">
+        {items.length > 0 ? (
+          items.slice(0, 6).map((item) => (
+            <p
+              className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 ring-1 ring-gray-100"
+              key={item}
+            >
+              {item}
+            </p>
+          ))
+        ) : (
+          <p className="text-sm font-medium text-gray-400">{empty}</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FlowSummaryCard({
   compact = false,
   label,
@@ -3523,6 +4023,7 @@ function adminViewDatabaseAvailable({
   alertsData,
   data,
   flowData,
+  goalsData,
   jobsData,
   reviewQueueData,
   supplementsData,
@@ -3531,6 +4032,7 @@ function adminViewDatabaseAvailable({
   alertsData: AdminTechnicalAlertsData;
   data: AdminDashboardData;
   flowData: AdminFlowData;
+  goalsData: AdminGoalsData;
   jobsData: AdminJobsData;
   reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
@@ -3542,6 +4044,10 @@ function adminViewDatabaseAvailable({
 
   if (view === "flow") {
     return flowData.databaseAvailable;
+  }
+
+  if (view === "goals") {
+    return goalsData.databaseAvailable;
   }
 
   if (view === "jobs") {
@@ -3565,6 +4071,7 @@ export function AdminDashboard({
   data,
   filters,
   flowData,
+  goalsData,
   jobsData,
   locale,
   reviewQueueData,
@@ -3576,6 +4083,7 @@ export function AdminDashboard({
   data: AdminDashboardData;
   filters: AdminDashboardFilters;
   flowData: AdminFlowData;
+  goalsData: AdminGoalsData;
   jobsData: AdminJobsData;
   locale: Locale;
   reviewQueueData: AdminReviewQueueData;
@@ -3588,6 +4096,7 @@ export function AdminDashboard({
     alertsData,
     data,
     flowData,
+    goalsData,
     jobsData,
     reviewQueueData,
     supplementsData,
@@ -3677,6 +4186,7 @@ export function AdminDashboard({
 
           {view === "alerts" ||
           view === "flow" ||
+          view === "goals" ||
           view === "jobs" ||
           view === "kpi" ? (
             <>
@@ -3715,6 +4225,15 @@ export function AdminDashboard({
 
           {view === "flow" ? (
             <AdminFlowView flowData={flowData} labels={labels} locale={locale} />
+          ) : view === "goals" ? (
+            <AdminGoalsView
+              accessToken={accessToken}
+              data={goalsData}
+              filters={filters}
+              labels={labels}
+              locale={locale}
+              range={data.range}
+            />
           ) : view === "alerts" ? (
             <AdminTechnicalAlertsView
               data={alertsData}
