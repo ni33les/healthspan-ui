@@ -28,6 +28,13 @@ import {
 } from "@/lib/reassessment-email";
 import { sendTransactionalEmail } from "@/lib/smtp-email";
 import {
+  AGENT_CAPABILITIES,
+  requiredCapabilitiesForWorkTaskType,
+  SYSTEM_AGENTS,
+  systemAgentForWorkTaskType,
+  taskReservationAgent
+} from "@/lib/system-agents";
+import {
   addTaskEvent,
   completeTask,
   createGoal,
@@ -60,8 +67,6 @@ const TASK_PRIORITIES = {
   pro: 6,
   reassessment: 3
 } as const;
-const INTERNAL_WORKER_CAPABILITY = "mattanutra_internal_worker";
-const COMMUNICATION_WORKER_CAPABILITY = "client_safety_followup";
 const COMMUNICATION_DISPATCH_BATCH_SIZE = 10;
 const INTERNAL_WORK_TASK_TYPES: WorkTaskType[] = [
   "analyze_healthscore",
@@ -69,6 +74,13 @@ const INTERNAL_WORK_TASK_TYPES: WorkTaskType[] = [
   "generate_formulation",
   "send_example_email",
   "send_reassessment_email"
+];
+const INTERNAL_WORK_TASK_GROUPS: ReadonlyArray<Readonly<{
+  taskTypes: readonly WorkTaskType[];
+}>> = [
+  { taskTypes: ["analyze_healthscore"] },
+  { taskTypes: ["generate_formulation", "generate_example_formulation"] },
+  { taskTypes: ["send_example_email", "send_reassessment_email"] }
 ];
 const COMMUNICATION_WORKER_TASK_TYPES = ["client_safety_followup"] as const;
 
@@ -196,7 +208,7 @@ async function createWorkTask(input: Readonly<{
     planId: input.planId,
     priority: input.priority,
     reasoningEffort: input.reasoningEffort,
-    requiredCapabilities: [INTERNAL_WORKER_CAPABILITY],
+    requiredCapabilities: requiredCapabilitiesForWorkTaskType(input.taskType),
     taskType: input.taskType,
     title: input.taskTitle
   });
@@ -1585,33 +1597,31 @@ async function failWorkTask(
 }
 
 async function claimNextInternalTask(): Promise<ReservedTask | null> {
+  for (const group of INTERNAL_WORK_TASK_GROUPS) {
+    const agent = systemAgentForWorkTaskType(group.taskTypes[0] ?? "");
+    const reserved = await reserveNextTask({
+      agent: taskReservationAgent(agent),
+      leaseSeconds: 3600,
+      taskTypes: [...group.taskTypes]
+    });
+
+    if (reserved) {
+      return reserved;
+    }
+  }
+
   return reserveNextTask({
-    agent: {
-      capabilities: [INTERNAL_WORKER_CAPABILITY],
-      metadata: {
-        worker: "internal"
-      },
-      name: "MattaNutra Task Worker",
-      type: "deterministic"
-    },
+    agent: taskReservationAgent(SYSTEM_AGENTS.scheduler),
     leaseSeconds: 3600,
-    mustRequireCapability: INTERNAL_WORKER_CAPABILITY,
     taskTypes: INTERNAL_WORK_TASK_TYPES
   });
 }
 
 async function claimNextCommunicationTask(): Promise<ReservedTask | null> {
   return reserveNextTask({
-    agent: {
-      capabilities: [COMMUNICATION_WORKER_CAPABILITY],
-      metadata: {
-        worker: "communications"
-      },
-      name: "MattaNutra Communications Worker",
-      type: "deterministic"
-    },
+    agent: taskReservationAgent(SYSTEM_AGENTS.communicationsCoordinator),
     leaseSeconds: 600,
-    mustRequireCapability: COMMUNICATION_WORKER_CAPABILITY,
+    mustRequireCapability: AGENT_CAPABILITIES.clientSafetyFollowup,
     taskTypes: [...COMMUNICATION_WORKER_TASK_TYPES]
   });
 }

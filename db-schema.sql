@@ -438,6 +438,164 @@ create index if not exists agents_status_idx
 create index if not exists agents_capabilities_gin_idx
   on public.agents using gin (capabilities);
 
+insert into public.agents (
+  id,
+  name,
+  agent_type,
+  status,
+  capabilities,
+  model,
+  metadata,
+  last_seen_at,
+  created_at,
+  updated_at
+)
+values
+  (
+    '668ee3d3-00ec-48a0-86cc-8091af904eda'::uuid,
+    'HealthScore Engine',
+    'ai',
+    'active',
+    array[
+      'healthscore_analysis',
+      'mattanutra_internal_worker',
+      'sales_copy'
+    ]::text[],
+    'grok:healthscore',
+    '{"seeded": true, "usesModel": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    'ef8472a6-2049-44e0-a001-3f5d6963499f'::uuid,
+    'Nutrition Plan Formulator',
+    'ai',
+    'active',
+    array[
+      'formulation_generation',
+      'free_example_formulation',
+      'mattanutra_internal_worker'
+    ]::text[],
+    'grok:formulation',
+    '{"seeded": true, "usesModel": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '1fa305ca-e68c-40f1-bd6e-a7cbc632d210'::uuid,
+    'Safety Scanner',
+    'deterministic',
+    'active',
+    array[
+      'dose_normalization',
+      'supplement_review_triage',
+      'supplement_safety_scan'
+    ]::text[],
+    null,
+    '{"seeded": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '161f03a5-70ec-4e56-b54e-b23daee2e520'::uuid,
+    'Communications Coordinator',
+    'deterministic',
+    'active',
+    array[
+      'client_safety_followup',
+      'communication_dispatch',
+      'communication_route'
+    ]::text[],
+    null,
+    '{"seeded": true, "channelFallbackOrder": ["chat", "email"]}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '5a72e41c-4535-4d28-8043-51448af40343'::uuid,
+    'Email Dispatcher',
+    'deterministic',
+    'active',
+    array[
+      'email_send',
+      'free_email_send',
+      'mattanutra_internal_worker',
+      'reassessment_email_send'
+    ]::text[],
+    null,
+    '{"seeded": true, "channelFamily": "email"}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '8386c905-f607-4d5f-bb5f-3a98a598294d'::uuid,
+    'Chat Dispatcher',
+    'external',
+    'active',
+    array[
+      'chat_send',
+      'communication_dispatch',
+      'line_send',
+      'telegram_send',
+      'whatsapp_send'
+    ]::text[],
+    null,
+    '{"seeded": true, "channelFamily": "chat"}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '5ccf4955-5b2b-4240-aa75-d5d7dfc9b380'::uuid,
+    'Human Reviewer',
+    'human',
+    'active',
+    array[
+      'formulation_review',
+      'human_review',
+      'safety_review',
+      'supplement_governance',
+      'supplement_review'
+    ]::text[],
+    null,
+    '{"seeded": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    '436cc481-6639-402e-b639-bf5737e3acd4'::uuid,
+    'Scheduler',
+    'deterministic',
+    'active',
+    array[
+      'communication_dispatch',
+      'mattanutra_internal_worker',
+      'scheduler'
+    ]::text[],
+    null,
+    '{"seeded": true}'::jsonb,
+    null,
+    now(),
+    now()
+  )
+on conflict ((lower(name))) do update set
+  agent_type = excluded.agent_type,
+  capabilities = excluded.capabilities,
+  model = excluded.model,
+  metadata = public.agents.metadata || excluded.metadata,
+  status = case
+    when public.agents.status in ('offline', 'paused', 'retired')
+      then public.agents.status
+    else excluded.status
+  end,
+  updated_at = now();
+
 do $$
 begin
   if to_regclass('public.goals') is null

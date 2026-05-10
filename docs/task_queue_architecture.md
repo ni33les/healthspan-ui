@@ -53,8 +53,26 @@ The internal service layer lives in:
 
 - `lib/task-service.ts`
 - `lib/task-service-utils.ts`
+- `lib/system-agents.ts`
 - `lib/task-worker.ts`
 - `lib/openclaw-api.ts`
+
+## Built-In Agent Roster
+
+The clean schema seeds the MattaNutra-operated agents that keep the system moving. OpenClaw is deliberately not seeded yet; it remains a future external worker.
+
+| Agent | Type | Main responsibility |
+| --- | --- | --- |
+| HealthScore Engine | AI | HealthScore interpretation and conversion-focused score copy. |
+| Nutrition Plan Formulator | AI | Paid and Free nutrition-plan formulation. |
+| Safety Scanner | Deterministic | Supplement matching, dose normalization, safety triage, and review flags. |
+| Communications Coordinator | Deterministic | Channel choice, client follow-up orchestration, and chat-then-email fallback. |
+| Email Dispatcher | Deterministic | Free example emails and reassessment emails. |
+| Chat Dispatcher | External | LINE, WhatsApp, Telegram, and other chat delivery handoff. |
+| Human Reviewer | Human | Safety approvals, supplement governance, and formulation review. |
+| Scheduler | Deterministic | Cron, housekeeping, and fallback task processing. |
+
+Tasks still match by capability, not by hard-coded worker name. These built-in rows give the dashboard immediate visibility and let the task worker reserve work under the correct operational identity.
 
 ## Goal And Ray Policy
 
@@ -118,7 +136,9 @@ The dashboard now separates business and operational views:
 | --- | --- |
 | KPI | Free, Precision, and Pro conversion performance. |
 | Conversions | Funnel movement and stage loss. |
-| Goals | Outcome-level operational tracking, with tasks, comments, events, dependencies, reservations, and approvals. |
+| Execution / Goals | Outcome-level operational tracking, with tasks, comments, events, dependencies, reservations, and approvals. |
+| Execution / Visibility | Live task queue visibility across queued, active, human, blocked, failed, and completed work. |
+| Execution / Agents | Live agent roster, current work, capabilities, and success/failure rate. |
 | Human Review | Admin-facing safety and supplement decisions. |
 | Alerts | Failed/stuck tasks, failed cron work, high-severity task events, and BPM errors. |
 | Communications | Channel-aware outbound messages and contact state. |

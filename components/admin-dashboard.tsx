@@ -12,6 +12,7 @@ import {
   BeakerIcon,
   ChatBubbleLeftRightIcon,
   ChevronDownIcon,
+  CpuChipIcon,
   DocumentTextIcon,
   EnvelopeIcon,
   FlagIcon,
@@ -19,6 +20,7 @@ import {
   FunnelIcon,
   HomeIcon,
   MegaphoneIcon,
+  QueueListIcon,
   SparklesIcon,
   XMarkIcon
 } from "@heroicons/react/24/outline";
@@ -31,6 +33,12 @@ import type {
   AdminDashboardRateId,
   AdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import type {
+  AdminAgentsData,
+  AdminAgentRow,
+  AdminTaskVisibilityData,
+  AdminTaskVisibilityRow
+} from "@/lib/admin-execution";
 import type {
   AdminCommunicationRow,
   AdminCommunicationsData,
@@ -73,13 +81,15 @@ import type {
 import type { Locale } from "@/lib/i18n";
 
 type AdminDashboardView =
+  | "agents"
   | "alerts"
   | "communications"
   | "flow"
   | "goals"
   | "kpi"
   | "reviews"
-  | "supplements";
+  | "supplements"
+  | "visibility";
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 type AdminNavItem = Readonly<{
@@ -140,6 +150,25 @@ type AdminContent = Readonly<{
     time: string;
     total: string;
   };
+  agents: {
+    active: string;
+    capabilities: string;
+    completed: string;
+    currentTask: string;
+    empty: string;
+    failed: string;
+    failureRate: string;
+    lastSeen: string;
+    model: string;
+    offline: string;
+    paused: string;
+    retired: string;
+    status: string;
+    successRate: string;
+    total: string;
+    type: string;
+    working: string;
+  };
   generated: string;
   goals: {
     active: string;
@@ -152,6 +181,7 @@ type AdminContent = Readonly<{
     events: string;
     failed: string;
     lastActivity: string;
+    live: string;
     needsReview: string;
     noSelection: string;
     plan: string;
@@ -164,6 +194,7 @@ type AdminContent = Readonly<{
     tasks: string;
     trace: string;
     total: string;
+    updated: string;
   };
   flowNodes: Record<AdminFlowNodeId, string>;
   flowMetrics: {
@@ -231,6 +262,23 @@ type AdminContent = Readonly<{
     total: string;
   };
   technicalTitle: string;
+  visibility: {
+    active: string;
+    actor: string;
+    blocked: string;
+    capabilities: string;
+    completed: string;
+    empty: string;
+    failed: string;
+    goal: string;
+    human: string;
+    priority: string;
+    queued: string;
+    status: string;
+    task: string;
+    total: string;
+    worker: string;
+  };
   supplements: {
     allCategories: string;
     allStatuses: string;
@@ -318,6 +366,25 @@ const content = {
       time: "Time",
       total: "Total"
     },
+    agents: {
+      active: "Active",
+      capabilities: "Capabilities",
+      completed: "Completed",
+      currentTask: "Current task",
+      empty: "No agents have registered yet.",
+      failed: "Failed",
+      failureRate: "Failure",
+      lastSeen: "Last seen",
+      model: "Model",
+      offline: "Offline",
+      paused: "Paused",
+      retired: "Retired",
+      status: "Status",
+      successRate: "Success",
+      total: "Total",
+      type: "Type",
+      working: "Working"
+    },
     generated: "Generated",
     goals: {
       active: "Active",
@@ -330,6 +397,7 @@ const content = {
       events: "Events",
       failed: "Failed",
       lastActivity: "Last activity",
+      live: "Live",
       needsReview: "Needs review",
       noSelection: "Select a goal to see its timeline.",
       plan: "Plan",
@@ -341,7 +409,8 @@ const content = {
       succeeded: "Succeeded",
       tasks: "Tasks",
       trace: "Trace",
-      total: "Total"
+      total: "Total",
+      updated: "Updated"
     },
     flowNodes: {
       assessmentStarted: "Started",
@@ -401,7 +470,6 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
-      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "Campaigns" },
       { href: "#", icon: EnvelopeIcon, name: "Leads" },
@@ -415,16 +483,23 @@ const content = {
     ],
     nextBuckets: "Next 3 buckets",
     openSidebar: "Open sidebar",
-    queues: [{ icon: ExclamationTriangleIcon, name: "Human review", view: "reviews" }],
-    queuesTitle: "Queues",
+    queues: [
+      { icon: FlagIcon, name: "Goals", view: "goals" },
+      { icon: QueueListIcon, name: "Visibility", view: "visibility" },
+      { icon: CpuChipIcon, name: "Agents", view: "agents" },
+      { icon: ExclamationTriangleIcon, name: "Human review", view: "reviews" }
+    ],
+    queuesTitle: "Execution",
     pageTitles: {
+      agents: "Agents",
       alerts: "Technical Alerts",
       communications: "Communications",
       flow: "Sales Conversions",
       goals: "Goals",
       kpi: "Key Performance Indicators",
       reviews: "Human Review",
-      supplements: "Supplements"
+      supplements: "Supplements",
+      visibility: "Visibility"
     },
     ranges: {
       all: "All",
@@ -490,6 +565,23 @@ const content = {
       total: "Total"
     },
     technicalTitle: "Technical",
+    visibility: {
+      active: "Active",
+      actor: "Actor",
+      blocked: "Blocked",
+      capabilities: "Capabilities",
+      completed: "Completed",
+      empty: "No tasks are visible in this timeframe.",
+      failed: "Failed",
+      goal: "Goal",
+      human: "Human",
+      priority: "Priority",
+      queued: "Queued",
+      status: "Status",
+      task: "Task",
+      total: "Total",
+      worker: "Worker"
+    },
     supplements: {
       allCategories: "All categories",
       allStatuses: "All statuses",
@@ -585,6 +677,25 @@ const content = {
       time: "เวลา",
       total: "ทั้งหมด"
     },
+    agents: {
+      active: "ใช้งาน",
+      capabilities: "ความสามารถ",
+      completed: "สำเร็จ",
+      currentTask: "งานปัจจุบัน",
+      empty: "ยังไม่มี agent ลงทะเบียน",
+      failed: "ล้มเหลว",
+      failureRate: "ล้มเหลว",
+      lastSeen: "พบล่าสุด",
+      model: "โมเดล",
+      offline: "ออฟไลน์",
+      paused: "พัก",
+      retired: "เลิกใช้",
+      status: "สถานะ",
+      successRate: "สำเร็จ",
+      total: "ทั้งหมด",
+      type: "ประเภท",
+      working: "กำลังทำ"
+    },
     generated: "สร้างเมื่อ",
     goals: {
       active: "กำลังทำ",
@@ -597,6 +708,7 @@ const content = {
       events: "อีเวนต์",
       failed: "ล้มเหลว",
       lastActivity: "กิจกรรมล่าสุด",
+      live: "สด",
       needsReview: "ต้องรีวิว",
       noSelection: "เลือก Goal เพื่อดูไทม์ไลน์",
       plan: "แผน",
@@ -608,7 +720,8 @@ const content = {
       succeeded: "สำเร็จ",
       tasks: "งาน",
       trace: "Trace",
-      total: "ทั้งหมด"
+      total: "ทั้งหมด",
+      updated: "อัปเดต"
     },
     flowNodes: {
       assessmentStarted: "เริ่มทำ",
@@ -668,7 +781,6 @@ const content = {
     },
     navigation: [
       { icon: HomeIcon, name: "KPI", view: "kpi" },
-      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: FunnelIcon, name: "Conversions", view: "flow" },
       { href: "#", icon: MegaphoneIcon, name: "แคมเปญ" },
       { href: "#", icon: EnvelopeIcon, name: "ลีด" },
@@ -682,16 +794,23 @@ const content = {
     ],
     nextBuckets: "คาดการณ์ 3 ช่วงถัดไป",
     openSidebar: "เปิดแถบเมนู",
-    queues: [{ icon: ExclamationTriangleIcon, name: "รีวิวโดยคน", view: "reviews" }],
-    queuesTitle: "คิวงาน",
+    queues: [
+      { icon: FlagIcon, name: "Goals", view: "goals" },
+      { icon: QueueListIcon, name: "Visibility", view: "visibility" },
+      { icon: CpuChipIcon, name: "Agents", view: "agents" },
+      { icon: ExclamationTriangleIcon, name: "รีวิวโดยคน", view: "reviews" }
+    ],
+    queuesTitle: "Execution",
     pageTitles: {
+      agents: "Agents",
       alerts: "การแจ้งเตือนทางเทคนิค",
       communications: "การสื่อสาร",
       flow: "Sales Conversions",
       goals: "Goals",
       kpi: "Key Performance Indicators",
       reviews: "รีวิวโดยคน",
-      supplements: "อาหารเสริม"
+      supplements: "อาหารเสริม",
+      visibility: "Visibility"
     },
     ranges: {
       all: "ทั้งหมด",
@@ -757,6 +876,23 @@ const content = {
       total: "ทั้งหมด"
     },
     technicalTitle: "เทคนิค",
+    visibility: {
+      active: "กำลังทำ",
+      actor: "ผู้ทำ",
+      blocked: "ติดขัด",
+      capabilities: "ความสามารถ",
+      completed: "สำเร็จ",
+      empty: "ไม่มีงานในช่วงเวลานี้",
+      failed: "ล้มเหลว",
+      goal: "Goal",
+      human: "คน",
+      priority: "ความสำคัญ",
+      queued: "รอคิว",
+      status: "สถานะ",
+      task: "งาน",
+      total: "ทั้งหมด",
+      worker: "ผู้รับงาน"
+    },
     supplements: {
       allCategories: "ทุกหมวดหมู่",
       allStatuses: "ทุกสถานะ",
@@ -876,6 +1012,91 @@ function adminGoalHref({
   });
 
   return `/${locale}/admin/dashboard?${params.toString()}`;
+}
+
+function adminGoalsEventsHref({
+  accessToken,
+  goalId,
+  range
+}: Readonly<{
+  accessToken: string;
+  goalId: string | null;
+  range: AdminDashboardRange;
+}>) {
+  const params = new URLSearchParams({
+    access_token: accessToken,
+    range
+  });
+
+  if (goalId) {
+    params.set("goal", goalId);
+  }
+
+  return `/api/admin/goals/events?${params.toString()}`;
+}
+
+function adminExecutionEventsHref({
+  accessToken,
+  range,
+  view
+}: Readonly<{
+  accessToken: string;
+  range: AdminDashboardRange;
+  view: "agents" | "visibility";
+}>) {
+  const params = new URLSearchParams({
+    access_token: accessToken,
+    range
+  });
+
+  return `/api/admin/${view}/events?${params.toString()}`;
+}
+
+function useLiveAdminData<T>({
+  enabled,
+  eventName,
+  href,
+  initialData,
+  streamKey
+}: Readonly<{
+  enabled: boolean;
+  eventName: string;
+  href: string;
+  initialData: T;
+  streamKey: string;
+}>) {
+  const [streamedData, setStreamedData] = useState<{
+    data: T;
+    key: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !href || typeof EventSource === "undefined") {
+      return;
+    }
+
+    const source = new EventSource(href);
+
+    function handleEvent(event: Event) {
+      try {
+        setStreamedData({
+          data: JSON.parse((event as MessageEvent).data) as T,
+          key: streamKey
+        });
+      } catch {
+        // Keep the last good snapshot if the browser receives a malformed frame.
+      }
+    }
+
+    source.addEventListener(eventName, handleEvent);
+
+    return () => {
+      source.removeEventListener(eventName, handleEvent);
+      source.close();
+    };
+  }, [enabled, eventName, href, streamKey]);
+
+  return streamedData?.key === streamKey ? streamedData.data : initialData;
 }
 
 function formatLocale(locale: Locale) {
@@ -2728,6 +2949,14 @@ function AdminCommunicationsView({
 }>) {
   return (
     <section className="mt-8 space-y-6">
+      <div className="flex justify-end">
+        <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
+          <span className="size-2 rounded-full bg-[#1FA77A]" />
+          {labels.goals.live} · {labels.goals.updated}{" "}
+          {formatGeneratedAt(data.generatedAt, locale)}
+        </span>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <FlowSummaryCard
           label={labels.communications.total}
@@ -2978,6 +3207,398 @@ function compactId(value: string) {
   return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
 }
 
+function LiveUpdatedBadge({
+  generatedAt,
+  labels,
+  locale
+}: Readonly<{
+  generatedAt: string;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  return (
+    <div className="flex justify-end">
+      <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
+        <span className="size-2 rounded-full bg-[#1FA77A]" />
+        {labels.goals.live} · {labels.goals.updated}{" "}
+        {formatGeneratedAt(generatedAt, locale)}
+      </span>
+    </div>
+  );
+}
+
+function taskStatusClass(status: string) {
+  if (status === "completed") {
+    return "bg-[#1FA77A]/10 text-[#126B4F] ring-[#1FA77A]/20";
+  }
+
+  if (status === "queued") {
+    return "bg-sky-50 text-sky-700 ring-sky-100";
+  }
+
+  if (status === "reserved" || status === "running") {
+    return "bg-blue-50 text-blue-700 ring-blue-100";
+  }
+
+  if (
+    status === "blocked" ||
+    status === "needs_review" ||
+    status === "waiting_approval"
+  ) {
+    return "bg-amber-50 text-amber-800 ring-amber-200";
+  }
+
+  if (status === "failed") {
+    return "bg-red-50 text-red-700 ring-red-100";
+  }
+
+  return "bg-gray-50 text-gray-700 ring-gray-200";
+}
+
+function agentStatusClass(status: string) {
+  if (status === "active") {
+    return "bg-[#1FA77A]/10 text-[#126B4F] ring-[#1FA77A]/20";
+  }
+
+  if (status === "paused") {
+    return "bg-amber-50 text-amber-800 ring-amber-200";
+  }
+
+  if (status === "offline") {
+    return "bg-red-50 text-red-700 ring-red-100";
+  }
+
+  return "bg-gray-50 text-gray-700 ring-gray-200";
+}
+
+function CapabilityList({ values }: Readonly<{ values: string[] }>) {
+  if (values.length === 0) {
+    return <span className="text-gray-400">—</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {values.slice(0, 5).map((value) => (
+        <span
+          key={value}
+          className="rounded-full bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200"
+        >
+          {readableToken(value)}
+        </span>
+      ))}
+      {values.length > 5 ? (
+        <span className="rounded-full bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-500 ring-1 ring-gray-200">
+          +{values.length - 5}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AdminVisibilityView({
+  data,
+  labels,
+  locale
+}: Readonly<{
+  data: AdminTaskVisibilityData;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  return (
+    <section className="mt-8 space-y-6">
+      <LiveUpdatedBadge
+        generatedAt={data.generatedAt}
+        labels={labels}
+        locale={locale}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-7">
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.total}
+          value={formatNumber(data.summary.total, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.queued}
+          value={formatNumber(data.summary.queued, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.active}
+          value={formatNumber(data.summary.active, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.human}
+          value={formatNumber(data.summary.human, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.blocked}
+          value={formatNumber(data.summary.blocked, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.failed}
+          value={formatNumber(data.summary.failed, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.visibility.completed}
+          value={formatNumber(data.summary.completed, locale)}
+        />
+      </div>
+
+      {data.rows.length > 0 ? (
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+          <div className="divide-y divide-gray-100">
+            {data.rows.map((row) => (
+              <VisibilityTaskCard
+                key={row.id}
+                labels={labels}
+                locale={locale}
+                row={row}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-white px-5 py-12 text-center text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
+          {labels.visibility.empty}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function VisibilityTaskCard({
+  labels,
+  locale,
+  row
+}: Readonly<{
+  labels: AdminContent;
+  locale: Locale;
+  row: AdminTaskVisibilityRow;
+}>) {
+  return (
+    <article className="px-5 py-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={classNames(
+                taskStatusClass(row.status),
+                "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+              )}
+            >
+              {readableToken(row.status)}
+            </span>
+            <span className="rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
+              {labels.visibility.priority}: {row.goalPriority}.{row.priority}
+            </span>
+            {row.blockedDependencyCount > 0 ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                {labels.visibility.blocked}: {row.blockedDependencyCount}
+              </span>
+            ) : null}
+          </div>
+          <h2 className="mt-3 text-base font-semibold text-gray-900">
+            {row.title}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            {readableToken(row.taskType)} · {compactId(row.id)}
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <SupplementListMeta
+              label={labels.visibility.goal}
+              value={row.goalTitle}
+            />
+            <SupplementListMeta
+              label={labels.visibility.actor}
+              value={readableToken(row.actorType)}
+            />
+            <SupplementListMeta
+              label={labels.visibility.worker}
+              value={row.agentName ?? "—"}
+            />
+            <SupplementListMeta
+              label={labels.visibility.status}
+              value={`${row.attempts}/${row.maxAttempts}`}
+            />
+            <SupplementListMeta
+              label={labels.goals.lastActivity}
+              value={formatGeneratedAt(row.updatedAt, locale)}
+            />
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+              {labels.visibility.capabilities}
+            </p>
+            <CapabilityList values={row.requiredCapabilities} />
+          </div>
+
+          {row.errorMessage ? (
+            <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-100">
+              {row.errorMessage}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AdminAgentsView({
+  data,
+  labels,
+  locale
+}: Readonly<{
+  data: AdminAgentsData;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  return (
+    <section className="mt-8 space-y-6">
+      <LiveUpdatedBadge
+        generatedAt={data.generatedAt}
+        labels={labels}
+        locale={locale}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.total}
+          value={formatNumber(data.summary.total, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.working}
+          value={formatNumber(data.summary.working, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.active}
+          value={formatNumber(data.summary.active, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.offline}
+          value={formatNumber(data.summary.offline, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.paused}
+          value={formatNumber(data.summary.paused, locale)}
+        />
+        <FlowSummaryCard
+          compact={true}
+          label={labels.agents.retired}
+          value={formatNumber(data.summary.retired, locale)}
+        />
+      </div>
+
+      {data.rows.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {data.rows.map((row) => (
+            <AgentCard key={row.id} labels={labels} locale={locale} row={row} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-white px-5 py-12 text-center text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
+          {labels.agents.empty}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentCard({
+  labels,
+  locale,
+  row
+}: Readonly<{
+  labels: AdminContent;
+  locale: Locale;
+  row: AdminAgentRow;
+}>) {
+  return (
+    <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="truncate text-base font-semibold text-gray-900">
+            {row.name}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            {readableToken(row.type)} · {compactId(row.id)}
+          </p>
+        </div>
+        <span
+          className={classNames(
+            agentStatusClass(row.status),
+            "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+          )}
+        >
+          {readableToken(row.status)}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <SupplementListMeta
+          label={labels.agents.currentTask}
+          value={row.activeTaskTitle ?? row.activeTaskId ?? "—"}
+        />
+        <SupplementListMeta
+          label={labels.agents.model}
+          value={row.model ?? "—"}
+        />
+        <SupplementListMeta
+          label={labels.agents.successRate}
+          value={
+            row.successRate === null
+              ? "—"
+              : formatPercent(row.successRate * 100, locale)
+          }
+        />
+        <SupplementListMeta
+          label={labels.agents.failureRate}
+          value={
+            row.failureRate === null
+              ? "—"
+              : formatPercent(row.failureRate * 100, locale)
+          }
+        />
+        <SupplementListMeta
+          label={labels.agents.completed}
+          value={formatNumber(row.completedCount, locale)}
+        />
+        <SupplementListMeta
+          label={labels.agents.failed}
+          value={formatNumber(row.failedCount, locale)}
+        />
+        <SupplementListMeta
+          label={labels.agents.lastSeen}
+          value={row.lastSeenAt ? formatGeneratedAt(row.lastSeenAt, locale) : "—"}
+        />
+        <SupplementListMeta
+          label={labels.agents.working}
+          value={formatNumber(row.activeTaskCount, locale)}
+        />
+      </div>
+
+      <div className="mt-5">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+          {labels.agents.capabilities}
+        </p>
+        <CapabilityList values={row.capabilities} />
+      </div>
+    </article>
+  );
+}
+
 function AdminGoalsView({
   accessToken,
   data,
@@ -2997,6 +3618,12 @@ function AdminGoalsView({
 
   return (
     <section className="mt-8 space-y-6">
+      <LiveUpdatedBadge
+        generatedAt={data.generatedAt}
+        labels={labels}
+        locale={locale}
+      />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <FlowSummaryCard
           compact={true}
@@ -4061,23 +4688,31 @@ function AdminFilterPanel({
 
 function adminViewDatabaseAvailable({
   alertsData,
+  agentsData,
   communicationsData,
   data,
   flowData,
   goalsData,
   reviewQueueData,
   supplementsData,
+  visibilityData,
   view
 }: Readonly<{
   alertsData: AdminTechnicalAlertsData;
+  agentsData: AdminAgentsData;
   communicationsData: AdminCommunicationsData;
   data: AdminDashboardData;
   flowData: AdminFlowData;
   goalsData: AdminGoalsData;
   reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
+  visibilityData: AdminTaskVisibilityData;
   view: AdminDashboardView;
 }>) {
+  if (view === "agents") {
+    return agentsData.databaseAvailable;
+  }
+
   if (view === "alerts") {
     return alertsData.databaseAvailable;
   }
@@ -4102,12 +4737,17 @@ function adminViewDatabaseAvailable({
     return supplementsData.databaseAvailable;
   }
 
+  if (view === "visibility") {
+    return visibilityData.databaseAvailable;
+  }
+
   return data.databaseAvailable;
 }
 
 export function AdminDashboard({
   accessToken,
   alertsData,
+  agentsData,
   communicationsData,
   data,
   filters,
@@ -4116,10 +4756,12 @@ export function AdminDashboard({
   locale,
   reviewQueueData,
   supplementsData,
+  visibilityData,
   view
 }: Readonly<{
   accessToken: string;
   alertsData: AdminTechnicalAlertsData;
+  agentsData: AdminAgentsData;
   communicationsData: AdminCommunicationsData;
   data: AdminDashboardData;
   filters: AdminDashboardFilters;
@@ -4128,18 +4770,67 @@ export function AdminDashboard({
   locale: Locale;
   reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
+  visibilityData: AdminTaskVisibilityData;
   view: AdminDashboardView;
 }>) {
   const labels = content[locale];
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const goalsStreamKey = `${view}:${data.range}:${goalsData.selectedGoalId ?? ""}`;
+  const liveGoalsData = useLiveAdminData({
+    enabled: view === "goals" && Boolean(accessToken),
+    eventName: "goals",
+    href:
+      accessToken && view === "goals"
+        ? adminGoalsEventsHref({
+            accessToken,
+            goalId: goalsData.selectedGoalId,
+            range: data.range
+          })
+        : "",
+    initialData: goalsData,
+    streamKey: goalsStreamKey
+  });
+  const visibilityStreamKey = `${view}:${data.range}:visibility`;
+  const liveVisibilityData = useLiveAdminData({
+    enabled: view === "visibility" && Boolean(accessToken),
+    eventName: "visibility",
+    href:
+      accessToken && view === "visibility"
+        ? adminExecutionEventsHref({
+            accessToken,
+            range: data.range,
+            view: "visibility"
+          })
+        : "",
+    initialData: visibilityData,
+    streamKey: visibilityStreamKey
+  });
+  const agentsStreamKey = `${view}:${data.range}:agents`;
+  const liveAgentsData = useLiveAdminData({
+    enabled: view === "agents" && Boolean(accessToken),
+    eventName: "agents",
+    href:
+      accessToken && view === "agents"
+        ? adminExecutionEventsHref({
+            accessToken,
+            range: data.range,
+            view: "agents"
+          })
+        : "",
+    initialData: agentsData,
+    streamKey: agentsStreamKey
+  });
+
   const databaseAvailable = adminViewDatabaseAvailable({
     alertsData,
+    agentsData: liveAgentsData,
     communicationsData,
     data,
     flowData,
-    goalsData,
+    goalsData: liveGoalsData,
     reviewQueueData,
     supplementsData,
+    visibilityData: liveVisibilityData,
     view
   });
 
@@ -4224,11 +4915,13 @@ export function AdminDashboard({
             </div>
           ) : null}
 
-          {view === "alerts" ||
+          {view === "agents" ||
+          view === "alerts" ||
           view === "communications" ||
           view === "flow" ||
           view === "goals" ||
-          view === "kpi" ? (
+          view === "kpi" ||
+          view === "visibility" ? (
             <>
               <div className="mt-6">
                 <TimeframeSelector
@@ -4265,6 +4958,12 @@ export function AdminDashboard({
 
           {view === "flow" ? (
             <AdminFlowView flowData={flowData} labels={labels} locale={locale} />
+          ) : view === "agents" ? (
+            <AdminAgentsView
+              data={liveAgentsData}
+              labels={labels}
+              locale={locale}
+            />
           ) : view === "communications" ? (
             <AdminCommunicationsView
               data={communicationsData}
@@ -4274,7 +4973,7 @@ export function AdminDashboard({
           ) : view === "goals" ? (
             <AdminGoalsView
               accessToken={accessToken}
-              data={goalsData}
+              data={liveGoalsData}
               filters={filters}
               labels={labels}
               locale={locale}
@@ -4297,6 +4996,12 @@ export function AdminDashboard({
             <AdminSupplementsView
               accessToken={accessToken}
               data={supplementsData}
+              labels={labels}
+              locale={locale}
+            />
+          ) : view === "visibility" ? (
+            <AdminVisibilityView
+              data={liveVisibilityData}
               labels={labels}
               locale={locale}
             />

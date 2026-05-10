@@ -8,6 +8,10 @@ import {
 } from "@/lib/admin-dashboard-data";
 import { getAdminCommunicationsData } from "@/lib/admin-communications";
 import { normalizeAdminDashboardFilters } from "@/lib/admin-dashboard-filters";
+import {
+  getAdminAgentsData,
+  getAdminTaskVisibilityData
+} from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { getAdminGoalsData } from "@/lib/admin-goals";
 import { getAdminReviewQueueData } from "@/lib/admin-review-queue";
@@ -55,11 +59,13 @@ export default async function LocalizedAdminDashboardPage({
   const rawView = firstParam(query.view);
   const view =
     rawView === "alerts" ||
+    rawView === "agents" ||
     rawView === "communications" ||
     rawView === "flow" ||
     rawView === "goals" ||
     rawView === "reviews" ||
-    rawView === "supplements"
+    rawView === "supplements" ||
+    rawView === "visibility"
       ? rawView
       : "kpi";
   const filters = normalizeAdminDashboardFilters(query);
@@ -71,26 +77,31 @@ export default async function LocalizedAdminDashboardPage({
 
   const [
     alertsData,
+    agentsData,
     communicationsData,
     data,
     flowData,
     goalsData,
     reviewQueueData,
-    supplementsData
+    supplementsData,
+    visibilityData
   ] = await Promise.all([
     getAdminTechnicalAlertsData(range),
+    getAdminAgentsData(range),
     getAdminCommunicationsData(range),
     getAdminDashboardData(range, filters),
     getAdminFlowData(range, filters),
     getAdminGoalsData(range, selectedGoalId),
     getAdminReviewQueueData(),
-    getAdminSupplementsData()
+    getAdminSupplementsData(),
+    getAdminTaskVisibilityData(range)
   ]);
 
   return (
     <AdminDashboard
       accessToken={accessToken ?? ""}
       alertsData={alertsData}
+      agentsData={agentsData}
       communicationsData={communicationsData}
       data={data}
       filters={filters}
@@ -99,6 +110,7 @@ export default async function LocalizedAdminDashboardPage({
       locale={locale}
       reviewQueueData={reviewQueueData}
       supplementsData={supplementsData}
+      visibilityData={visibilityData}
       view={view}
     />
   );

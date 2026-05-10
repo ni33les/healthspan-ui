@@ -14,7 +14,7 @@ MattaNutra earns trust through an anonymous wellness assessment and HealthScore,
 | Pro Plan | "I want ongoing support." | Recurring advisor relationship | Partial: offer exists, advisor handoff pending |
 | Product guidance | "What should I actually buy?" | Future affiliate revenue and customer convenience | Partial: results area exists, matching not live |
 | Blog and testimonials | "Can I learn and trust the brand?" | Marketing engine for paid, social, and organic traffic | Partial: platform live, cadence pending |
-| Admin analytics | "Where are users converting, dropping out, or needing attention?" | Tune marketing spend, product funnel, and operations | Partial: KPI, Conversions, Goals, Supplements, Human Review, Technical Alerts, and Communications views live |
+| Admin analytics | "Where are users converting, dropping out, or needing attention?" | Tune marketing spend, product funnel, and operations | Partial: KPI, Conversions, Execution, Supplements, Human Review, Technical Alerts, and Communications views live |
 
 ## Current Funnel
 
@@ -70,8 +70,9 @@ flowchart TB
 - Admin dashboard with KPI and Conversions views over hour, day, week, month, year, and all-time windows.
 - Admin Technical section with task-based Alerts for failed email sends, stuck tasks, cron failures, AI/worker errors, and high-severity BPM/task events.
 - Goal-based task architecture foundation: goals group tasks, agents reserve work by goal priority first, staged task sequences support ordered work, and task events/comments preserve cause-and-effect. Supported slow work now creates task-backed work items, worker reservations are enforced, human review decisions write reviewed formulation versions, and client review follow-up is handled through the communication-channel worker.
+- Built-in operational agents are seeded for HealthScore analysis, nutrition-plan formulation, safety scanning, communications coordination, email dispatch, chat dispatch, human review, and scheduling. OpenClaw is not part of this built-in roster yet.
 - Communication-channel foundation: each plan can be linked to an identity with LINE, WhatsApp, Telegram, WeChat, email, SMS, or manual channels; the system chooses the best available channel, preferring chat before email unless an explicit preference exists. Customers can now leave LINE, WhatsApp, Telegram, or email details from the safety review box, admin can monitor queued/sent/failed communications, and the worker can dispatch mapped LINE messages directly.
-- Admin Goals view showing goal status, priority, source, BPM/session ray, tasks, events, comments, dependencies, reservations, and approvals.
+- Admin Execution views showing goals, live task visibility, agent roster, current work, events, comments, dependencies, reservations, approvals, and agent success/failure rates.
 - Dashboard filters for locale, device, source, medium, campaign, campaign ID, affiliate, promo code, selected plan, plan ID, ray, and email hash.
 
 ## Main Gaps
@@ -185,7 +186,7 @@ Current admin dashboard:
 8. Filters are URL-driven and server-side, so KPI and Conversions views use the same BPM slice.
 9. Human Review queue for supplement review tasks and dose-reduction notices.
 10. Technical Alerts queue for failed tasks, stuck tasks, failed cron tasks, high/critical task events, and error/high BPM events.
-11. Goals view for milestone-level operational visibility over the task system.
+11. Execution views for milestone-level goals, live task visibility, and agent performance over the task system.
 
 How the admin sections should be read:
 
@@ -195,18 +196,19 @@ How the admin sections should be read:
 | Conversions | Where do people continue, and where do they stop? | Live from BPM events |
 | Supplements | Which supplements are allowed, blocked, or awaiting review? | Live with editable dose ceilings and safety flags |
 | Human Review | What needs a human decision before being shown or acted on? | Live for supplement review and dose-reduction notices |
-| Goals | What outcome is being pursued, and which tasks/events explain its current state? | Live for supplement review, formulation, Free email, reassessment, and staged task-backed work |
-| Communications | Which channel should be used to contact a client, and what messages were queued or sent? | Data model, worker, and OpenClaw APIs are live; dashboard view is still future work |
+| Execution / Goals | What outcome is being pursued, and which tasks/events explain its current state? | Live for supplement review, formulation, Free email, reassessment, and staged task-backed work |
+| Execution / Visibility | Which tasks are queued, active, blocked, failed, or complete right now? | Live from the task engine via SSE |
+| Execution / Agents | Which workers exist, what are they doing, and how reliable are they? | Live from the agents and reservation tables via SSE |
+| Communications | Which channel should be used to contact a client, and what messages were queued or sent? | Live for queued, sent, failed, delivered, and no-channel communication messages |
 | Technical Alerts | What failed or looks stuck? | Live for tasks, cron, task events, and BPM error events |
 
 Remaining admin dashboard work:
 
 1. Campaign and affiliate comparison tables.
-2. Communications dashboard for queued, sent, failed, and no-channel messages.
-3. Retry actions for failed technical tasks where safe.
-4. Ray drill-down for a single anonymous BPM/session journey.
-5. Content, testimonial, interaction-rule, and advanced supplement decision management.
-6. Revenue and payment reporting after checkout is live.
+2. Retry actions for failed technical tasks where safe.
+3. Ray drill-down for a single anonymous BPM/session journey.
+4. Content, testimonial, interaction-rule, and advanced supplement decision management.
+5. Revenue and payment reporting after checkout is live.
 
 ## Supplement Governance
 
