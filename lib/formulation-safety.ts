@@ -1,5 +1,5 @@
 import type postgres from "postgres";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AssessmentPlan } from "@/lib/assessment-jobs";
 import { toJsonValue } from "@/lib/assessment-store";
 import { writeBpmEvent } from "@/lib/bpm";
@@ -11,6 +11,7 @@ import {
 } from "@/lib/dose-conversion";
 import type { FormulationBlueprint, FormulationIngredient, LocalizedText } from "@/lib/formulation-types";
 import type { Locale } from "@/lib/i18n";
+import { createGoal, createTask } from "@/lib/task-service";
 
 type SafetyAudit = (event: {
   eventType: string;
@@ -52,6 +53,12 @@ type ReviewKind =
   | "review_required"
   | "unknown_supplement";
 
+type SupplementReviewWork = Readonly<{
+  goalId: string | null;
+  jobId: string;
+  taskId: string | null;
+}>;
+
 function textFromLocalized(value: LocalizedText) {
   return typeof value === "string" ? value : value.en || value.th || "";
 }
@@ -67,6 +74,23 @@ function normalizeName(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function deterministicUuid(seed: string) {
+  const bytes = Buffer.from(createHash("sha256").update(seed).digest().subarray(0, 16));
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = bytes.toString("hex");
+
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20)
+  ].join("-");
 }
 
 function numberOrNull(value: number | string | null) {
@@ -85,6 +109,30 @@ function formatDose(amount: number, unit: string | null) {
     : amount.toFixed(2).replace(/\.?0+$/g, "");
 
   return `${formatted} ${unit || "per day"}`.trim();
+}
+
+function reviewTaskType(kind: ReviewKind) {
+  if (kind === "unknown_supplement") {
+    return "classify_supplement";
+  }
+
+  if (kind === "dose_reduced") {
+    return "dose_reduction_notice";
+  }
+
+  return "review_supplement_for_plan";
+}
+
+function reviewTaskPriority(kind: ReviewKind) {
+  if (kind === "dose_unverified") {
+    return 5;
+  }
+
+  if (kind === "unknown_supplement" || kind === "review_required") {
+    return 4;
+  }
+
+  return 2;
 }
 
 async function loadSupplementLookup(sql: postgres.Sql) {
@@ -273,6 +321,147 @@ async function enqueueSupplementReviewJob(
   return jobId;
 }
 
+async function enqueueSupplementReviewWork(
+  sql: postgres.Sql,
+  input: {
+    kind: ReviewKind;
+    normalizedSupplementName: string;
+    payload: Record<string, unknown>;
+    planId: string | null;
+    supplementName: string;
+  }
+): Promise<SupplementReviewWork> {
+  const jobId = await enqueueSupplementReviewJob(sql, input);
+  const globalUnknown = input.kind === "unknown_supplement";
+  const priority = reviewTaskPriority(input.kind);
+  const goalId = deterministicUuid(
+    globalUnknown
+      ? `mattanutra:goal:supplement:${input.normalizedSupplementName}`
+      : `mattanutra:goal:supplement-safety:${input.planId}`
+  );
+  const goalTitle = globalUnknown
+    ? `Classify supplement: ${input.supplementName}`
+    : `Review supplement safety for plan ${input.planId?.slice(0, 8) ?? "unknown"}`;
+  const taskTitle =
+    input.kind === "dose_reduced"
+      ? `Review dose reduction: ${input.supplementName}`
+      : input.kind === "unknown_supplement"
+        ? `Classify new supplement: ${input.supplementName}`
+        : `Review supplement: ${input.supplementName}`;
+
+  try {
+    const goal = await createGoal({
+      context: {
+        legacyJobId: jobId,
+        normalizedSupplementName: input.normalizedSupplementName,
+        reviewKind: input.kind,
+        source: "formulation_safety"
+      },
+      id: goalId,
+      planId: globalUnknown ? null : input.planId,
+      priority,
+      source: "formulation_safety",
+      title: goalTitle,
+      type: "goal"
+    });
+    const { task } = await createTask({
+      actorType: "human",
+      goalId: goal.id,
+      idempotencyKey: `supplement-review:${input.kind}:${globalUnknown ? "global" : input.planId}:${input.normalizedSupplementName}`,
+      initialComment: {
+        authorName: "MattaNutra safety",
+        authorType: "system",
+        body: `Safety review opened for ${input.supplementName}.`,
+        commentType: "instruction",
+        metadata: {
+          legacyJobId: jobId,
+          reviewKind: input.kind
+        },
+        visibility: "admin"
+      },
+      legacyJobId: jobId,
+      maxAttempts: 1,
+      payload: {
+        normalizedSupplementName: input.normalizedSupplementName,
+        reviewJobId: jobId,
+        reviewKind: input.kind,
+        source: "formulation_safety",
+        supplementName: input.supplementName,
+        ...input.payload
+      },
+      planId: globalUnknown ? null : input.planId,
+      priority,
+      reasoningEffort: "none",
+      requiredCapabilities: ["supplement_review"],
+      taskType: reviewTaskType(input.kind),
+      title: taskTitle
+    });
+
+    await sql`
+      update public.jobs
+      set
+        payload = payload || ${sql.json(
+          toJsonValue({
+            goalId: goal.id,
+            taskId: task.id
+          })
+        )}::jsonb,
+        updated_at = now()
+      where id = ${jobId}::uuid
+    `;
+
+    return {
+      goalId: goal.id,
+      jobId,
+      taskId: task.id
+    };
+  } catch (error) {
+    console.warn("Unable to create task-backed supplement review work", {
+      error,
+      jobId,
+      reviewKind: input.kind,
+      supplementName: input.supplementName
+    });
+
+    return {
+      goalId: null,
+      jobId,
+      taskId: null
+    };
+  }
+}
+
+async function attachSafetyReviewWork(
+  sql: postgres.Sql,
+  input: {
+    context?: Record<string, unknown>;
+    goalId?: string | null;
+    jobId?: string | null;
+    reviewId: string;
+    taskId?: string | null;
+  }
+) {
+  try {
+    await sql`
+      update public.safety_reviews
+      set
+        job_id = coalesce(job_id, ${input.jobId ?? null}::uuid),
+        goal_id = coalesce(goal_id, ${input.goalId ?? null}::uuid),
+        task_id = coalesce(task_id, ${input.taskId ?? null}::uuid),
+        safety_context = safety_context || ${sql.json(
+          toJsonValue(input.context ?? {})
+        )}::jsonb,
+        updated_at = now()
+      where id = ${input.reviewId}::uuid
+    `;
+  } catch (error) {
+    console.warn("Unable to attach goal/task references to safety review", {
+      error,
+      reviewId: input.reviewId
+    });
+  }
+}
+
 async function createSafetyReview(
   sql: postgres.Sql,
   input: {
@@ -280,6 +469,7 @@ async function createSafetyReview(
     context: Record<string, unknown>;
     dose?: ParsedDose | null;
     flagReason: string;
+    goalId?: string | null;
     jobId?: string | null;
     limit?: ParsedDose | null;
     planId: string;
@@ -287,6 +477,7 @@ async function createSafetyReview(
     ruleCode: string;
     severity: "critical" | "high" | "low" | "medium";
     supplementName: string;
+    taskId?: string | null;
   }
 ) {
   const existing = await sql<{ id: string }[]>`
@@ -301,6 +492,14 @@ async function createSafetyReview(
   `;
 
   if (existing[0]?.id) {
+    await attachSafetyReviewWork(sql, {
+      context: input.context,
+      goalId: input.goalId,
+      jobId: input.jobId,
+      reviewId: existing[0].id,
+      taskId: input.taskId
+    });
+
     return existing[0].id;
   }
 
@@ -348,6 +547,14 @@ async function createSafetyReview(
     )
   `;
 
+  await attachSafetyReviewWork(sql, {
+    context: input.context,
+    goalId: input.goalId,
+    jobId,
+    reviewId,
+    taskId: input.taskId
+  });
+
   return reviewId;
 }
 
@@ -388,7 +595,7 @@ async function hideForReview(
 ) {
   const supplementName = match?.name ?? textFromLocalized(ingredient.supplement);
   const normalizedSupplementName = match?.normalized_name ?? normalizeName(supplementName);
-  const reviewJobId = await enqueueSupplementReviewJob(sql, {
+  const reviewWork = await enqueueSupplementReviewWork(sql, {
     kind,
     normalizedSupplementName,
     payload: {
@@ -404,20 +611,24 @@ async function hideForReview(
       supplementId: match?.id,
       supplementName
     },
-    planId: input.planId
+    planId: input.planId,
+    supplementName
   });
   const reviewId = await createSafetyReview(sql, {
     aiSuggestion: ingredient,
     context: {
+      goalId: reviewWork.goalId,
       matchedSupplementId: match?.id,
       normalizedSupplementName,
-      reviewJobId,
+      reviewJobId: reviewWork.jobId,
       safetyFlags: match?.safety_flags ?? [],
-      safetyNotes: match?.safety_notes
+      safetyNotes: match?.safety_notes,
+      taskId: reviewWork.taskId
     },
     dose,
     flagReason: reason,
-    jobId: reviewJobId,
+    goalId: reviewWork.goalId,
+    jobId: reviewWork.jobId,
     limit,
     planId: input.planId,
     reviewType:
@@ -428,7 +639,8 @@ async function hideForReview(
           : "ingredient_safety",
     ruleCode: kind,
     severity,
-    supplementName
+    supplementName,
+    taskId: reviewWork.taskId
   });
 
   await audit(input, {
@@ -437,16 +649,19 @@ async function hideForReview(
     payload: {
       reason,
       reviewId,
-      reviewJobId,
+      reviewJobId: reviewWork.jobId,
       reviewKind: kind,
+      reviewTaskId: reviewWork.taskId,
       supplementName
     }
   });
   await logSafetyBpm(input, "formulation_safety_review_opened", severity, {
+    goalId: reviewWork.goalId,
     reason,
     reviewId,
-    reviewJobId,
+    reviewJobId: reviewWork.jobId,
     reviewKind: kind,
+    reviewTaskId: reviewWork.taskId,
     supplementName
   });
 
@@ -454,7 +669,7 @@ async function hideForReview(
     action: kind === "unknown_supplement" ? "unknown_supplement" : "human_review",
     message: localized(reason),
     reviewId,
-    reviewJobId
+    reviewJobId: reviewWork.jobId
   });
 }
 
@@ -493,7 +708,7 @@ async function reduceDose(
 ) {
   const reason = `Dose reduced from ${dose.amount} ${dose.unit} to the configured maximum of ${formatDose(limit.amount, match.max_unit)}.`;
   const normalizedSupplementName = match.normalized_name;
-  const reviewJobId = await enqueueSupplementReviewJob(sql, {
+  const reviewWork = await enqueueSupplementReviewWork(sql, {
     kind: "dose_reduced",
     normalizedSupplementName,
     payload: {
@@ -506,26 +721,31 @@ async function reduceDose(
       supplementId: match.id,
       supplementName: match.name
     },
-    planId: input.planId
+    planId: input.planId,
+    supplementName: match.name
   });
 
   await createSafetyReview(sql, {
     aiSuggestion: ingredient,
     context: {
+      goalId: reviewWork.goalId,
       normalizedSupplementName,
-      reviewJobId,
+      reviewJobId: reviewWork.jobId,
       safetyFlags: match.safety_flags ?? [],
-      safetyNotes: match.safety_notes
+      safetyNotes: match.safety_notes,
+      taskId: reviewWork.taskId
     },
     dose,
     flagReason: reason,
-    jobId: reviewJobId,
+    goalId: reviewWork.goalId,
+    jobId: reviewWork.jobId,
     limit,
     planId: input.planId,
     reviewType: "dose_limit",
     ruleCode: "dose_reduced",
     severity: "low",
-    supplementName: match.name
+    supplementName: match.name,
+    taskId: reviewWork.taskId
   });
   await audit(input, {
     eventType: "formulation_safety_dose_reduced",
@@ -534,15 +754,18 @@ async function reduceDose(
       maxAmount: numberOrNull(match.max_amount),
       maxUnit: match.max_unit,
       originalDose: dose.originalText,
-      reviewJobId,
+      reviewJobId: reviewWork.jobId,
+      reviewTaskId: reviewWork.taskId,
       supplementName: match.name
     }
   });
   await logSafetyBpm(input, "formulation_safety_dose_reduced", "medium", {
+    goalId: reviewWork.goalId,
     maxAmount: numberOrNull(match.max_amount),
     maxUnit: match.max_unit,
     originalDose: dose.originalText,
-    reviewJobId,
+    reviewJobId: reviewWork.jobId,
+    reviewTaskId: reviewWork.taskId,
     supplementName: match.name
   });
 
@@ -550,7 +773,7 @@ async function reduceDose(
     ingredient,
     formatDose(limit.amount, match.max_unit),
     localized(reason),
-    reviewJobId
+    reviewWork.jobId
   );
 }
 

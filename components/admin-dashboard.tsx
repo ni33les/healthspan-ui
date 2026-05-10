@@ -2034,14 +2034,14 @@ function reviewKindLabel(labels: AdminContent, row: AdminReviewJobRow) {
 }
 
 function reviewPriorityPill(labels: AdminContent, priority: number) {
-  if (priority >= 10) {
+  if (priority >= 5) {
     return {
       className: "bg-red-50 text-red-700 ring-red-200",
       label: labels.reviewQueue.highPriority
     };
   }
 
-  if (priority >= 5) {
+  if (priority >= 3) {
     return {
       className: "bg-amber-50 text-amber-800 ring-amber-200",
       label: labels.reviewQueue.mediumPriority

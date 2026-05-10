@@ -63,7 +63,7 @@ flowchart TB
 - Grok formulation generation with validation/retry pattern.
 - Supplement whitelist, blacklist, dose ceilings, safety flags, and admin editing.
 - Automated formulation safety check: blacklisted items are removed, over-limit doses are reduced, and uncertain/new items are hidden for review.
-- Human Review queue for supplement safety work items and dose-reduction notifications.
+- Human Review queue for supplement safety work items and dose-reduction notifications, now bridged into Goals/Tasks for traceability.
 - Formulation page renders stored backend data.
 - Blog and testimonial tables, pages, and protected admin APIs.
 - BPM tracking for funnel, campaign, affiliate, safety, error, email, chat, and formulation events.
@@ -82,7 +82,7 @@ flowchart TB
 | Supplement governance | Whitelist, blacklist, max dose, and safety review basics exist; frequency and interaction rules are not wired yet | Add frequency, condition, medication, pregnancy, and lab interaction checks |
 | Product matching | Affiliate revenue depends on trusted products | Start with curated whitelist before marketplace automation |
 | Chat handoff | Pro needs a convincing ongoing service experience | Make one channel excellent first, likely LINE |
-| Human safety review | Flagged suggestions can now enter the Human Review queue, but full accept/reject/revise workflows are not complete | Add reviewer actions, client notification states, and audit reporting |
+| Human safety review | Flagged suggestions now enter Human Review and create Goal/Task records; client follow-up after review still needs completion | Add client notification states, post-review worker, and audit reporting |
 | Follow-up nurture | Free users need more than one email | Define post-preview sequence |
 
 ## Sales Funnel Paths
@@ -270,7 +270,7 @@ flowchart TB
   G --> H["Log safety event"]
   B -->|Review-required| I["Hide item"]
   B -->|Unknown supplement| I
-  I --> J["Create Human Review job"]
+  I --> J["Create Human Review job + Goal/Task"]
   I --> K["Log BPM safety alert"]
   J --> L["Admin later chooses whitelist, review, blacklist, or ignore"]
 
@@ -282,9 +282,9 @@ flowchart TB
   class L partial;
 ```
 
-The legacy job queue still carries supplement review work as `job_type = 'supplement_review'`. The worker does not process these automatically; they appear in the admin Human Review queue. New operational work should move toward Goals and Tasks as each flow is migrated.
+The legacy job queue still carries supplement review work as `job_type = 'supplement_review'` while this flow migrates. New review work also creates a Goal and Task, so admin decisions are visible in the goal timeline with task comments and events. The worker does not process these automatically; they appear in the admin Human Review queue for a human decision.
 
-The safety review record should carry the operational details: supplement, dose, rule, context, reviewer decision, and client notification state.
+The safety review record carries the operational details: supplement, dose, rule, context, linked goal/task where available, reviewer decision, and client notification state.
 
 ## Content and Marketing Engine
 
@@ -309,7 +309,7 @@ Best use:
 1. Campaign/affiliate reporting tables on top of the live BPM dashboard filters.
 2. Safe acknowledge/retry/dismiss actions for technical alerts and failed jobs.
 3. Supplement interaction rules for medications, conditions, pregnancy, age, and labs.
-4. Full Human Review actions: whitelist, review-required, blacklist, ignore, revise dose, and client notification.
+4. Post-review client notification and communication-channel fallback.
 5. Payment integration for Precision and Pro.
 6. Product matching against approved supplement/product whitelist.
 7. One excellent chat handoff, likely LINE first.

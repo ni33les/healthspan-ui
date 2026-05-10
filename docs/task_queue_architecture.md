@@ -248,7 +248,9 @@ Acceptance criteria:
 
 ## Phase 5: First Migration Slice
 
-Migrate supplement review first.
+Status: complete.
+
+Supplement review is the first migrated slice. New safety review work still creates the legacy `supplement_review` job so the existing admin queue remains stable, but it now also creates a Goal and a Task:
 
 Candidate task types:
 
@@ -257,12 +259,22 @@ Candidate task types:
 - `dose_reduction_notice`
 - `client_safety_followup`
 
+Current behaviour:
+
+- Unknown supplements create a stable global goal keyed by the normalised supplement name.
+- Plan-specific safety flags create a plan safety goal.
+- Review tasks point back to the legacy job through `legacy_job_id`.
+- `safety_reviews` may carry `goal_id` and `task_id` so the operational decision can be traced from plan to job to task.
+- The Human Review queue reads task-backed rows first and falls back to legacy jobs when needed.
+- Completing, dismissing, approving, or resolving a review completes the related task and writes task comments/events.
+- Goals are marked completed when their review tasks are complete and no active task remains.
+
 Acceptance criteria:
 
-- Unknown supplements create one useful human task instead of noisy duplicates.
-- Completing a review updates the downstream state.
-- Review completion removes the user-facing review box where appropriate.
-- Every admin action writes task events and comments.
+- Unknown supplements create one useful human task instead of noisy duplicates. Done.
+- Completing a review updates the downstream state. Done for the Human Review queue bridge.
+- Review completion removes the user-facing review box where appropriate. Done for plan-specific approve/disapprove; remaining client follow-up is tracked separately.
+- Every admin action writes task events and comments. Done for dismiss, resolve, approve, and disapprove.
 
 ## Phase 6: Goal-First Scheduling
 
@@ -334,8 +346,6 @@ Acceptance criteria:
 - Historical jobs remain understandable.
 
 ## Remaining Plan From Here
-
-Phase 5: First migration slice. Move supplement review onto Goals/Tasks while leaving legacy jobs untouched elsewhere.
 
 Phase 6: Goal-first scheduling. Make reservation order use goal priority first, then task priority, then due time and age. Default task priority from the goal unless deliberately overridden.
 

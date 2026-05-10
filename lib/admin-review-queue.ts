@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type postgres from "postgres";
 import { getSql } from "@/lib/db";
 import type {
   SupplementConfidence,
@@ -48,6 +49,7 @@ export type AdminReviewQueueData = Readonly<{
 type ReviewJobDbRow = Readonly<{
   ai_suggestion: Record<string, unknown> | null;
   flag_reason: string | null;
+  goal_id?: string | null;
   id: string;
   limit_unit: string | null;
   limit_value: number | string | null;
@@ -59,7 +61,22 @@ type ReviewJobDbRow = Readonly<{
   status: string;
   suggested_dose_unit: string | null;
   suggested_dose_value: number | string | null;
+  task_id?: string | null;
 }>;
+
+type Db = postgres.Sql | postgres.TransactionSql;
+
+type CompletedTaskRow = Readonly<{
+  goal_id: string;
+  id: string;
+}>;
+
+const REVIEW_TASK_TYPES = [
+  "classify_supplement",
+  "review_supplement_for_plan",
+  "dose_reduction_notice",
+  "client_safety_followup"
+] as const;
 
 export type ResolveAdminReviewJobInput = Readonly<{
   actor?: string | null;
@@ -258,17 +275,12 @@ function buildSummary(rows: AdminReviewJobRow[]) {
   );
 }
 
-export async function getAdminReviewQueueData(): Promise<AdminReviewQueueData> {
-  const sql = getSql();
-
-  if (!sql) {
-    return emptyAdminReviewQueueData();
-  }
-
-  try {
-    const rows = await sql<ReviewJobDbRow[]>`
+async function loadLegacyReviewRows(sql: postgres.Sql) {
+  return sql<ReviewJobDbRow[]>`
       select
         jobs.id::text,
+        null::text as goal_id,
+        null::text as task_id,
         jobs.plan_id::text,
         jobs.status,
         jobs.priority,
@@ -294,6 +306,103 @@ export async function getAdminReviewQueueData(): Promise<AdminReviewQueueData> {
       order by jobs.priority desc, jobs.queued_at asc
       limit 200
     `;
+}
+
+async function loadTaskBackedReviewRows(sql: postgres.Sql) {
+  return sql<ReviewJobDbRow[]>`
+      with task_reviews as (
+        select
+          jobs.id::text,
+          tasks.goal_id::text,
+          tasks.id::text as task_id,
+          jobs.plan_id::text,
+          jobs.status,
+          tasks.priority,
+          coalesce(jobs.payload, '{}'::jsonb) || coalesce(tasks.payload, '{}'::jsonb) as payload,
+          jobs.queued_at,
+          safety_reviews.id::text as review_id,
+          safety_reviews.flag_reason,
+          safety_reviews.suggested_dose_value,
+          safety_reviews.suggested_dose_unit,
+          safety_reviews.limit_value,
+          safety_reviews.limit_unit,
+          safety_reviews.ai_suggestion
+        from public.tasks tasks
+        join public.jobs jobs on jobs.id = tasks.legacy_job_id
+        left join lateral (
+          select *
+          from public.safety_reviews safety_reviews
+          where safety_reviews.job_id = jobs.id
+          order by safety_reviews.opened_at asc
+          limit 1
+        ) safety_reviews on true
+        where tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+          and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
+          and jobs.job_type = 'supplement_review'
+          and jobs.status = 'queued'
+      ),
+      legacy_reviews as (
+        select
+          jobs.id::text,
+          null::text as goal_id,
+          null::text as task_id,
+          jobs.plan_id::text,
+          jobs.status,
+          jobs.priority,
+          jobs.payload,
+          jobs.queued_at,
+          safety_reviews.id::text as review_id,
+          safety_reviews.flag_reason,
+          safety_reviews.suggested_dose_value,
+          safety_reviews.suggested_dose_unit,
+          safety_reviews.limit_value,
+          safety_reviews.limit_unit,
+          safety_reviews.ai_suggestion
+        from public.jobs jobs
+        left join lateral (
+          select *
+          from public.safety_reviews safety_reviews
+          where safety_reviews.job_id = jobs.id
+          order by safety_reviews.opened_at asc
+          limit 1
+        ) safety_reviews on true
+        where jobs.job_type = 'supplement_review'
+          and jobs.status = 'queued'
+          and not exists (
+            select 1
+            from public.tasks tasks
+            where tasks.legacy_job_id = jobs.id
+              and tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+              and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
+          )
+      )
+      select *
+      from task_reviews
+      union all
+      select *
+      from legacy_reviews
+      order by priority desc, queued_at asc
+      limit 200
+    `;
+}
+
+export async function getAdminReviewQueueData(): Promise<AdminReviewQueueData> {
+  const sql = getSql();
+
+  if (!sql) {
+    return emptyAdminReviewQueueData();
+  }
+
+  try {
+    let rows: ReviewJobDbRow[];
+
+    try {
+      rows = await loadTaskBackedReviewRows(sql);
+    } catch (error) {
+      console.warn("Unable to load task-backed review queue; falling back to legacy jobs", error);
+      rows = await loadLegacyReviewRows(sql);
+    }
+
     const mappedRows = rows.map(rowFromDb);
 
     return {
@@ -306,6 +415,137 @@ export async function getAdminReviewQueueData(): Promise<AdminReviewQueueData> {
     console.error("Unable to load admin review queue", error);
     return emptyAdminReviewQueueData();
   }
+}
+
+async function taskTablesAvailable(transaction: Db) {
+  const rows = await transaction<{ available: boolean }[]>`
+    select to_regclass('public.tasks') is not null
+      and to_regclass('public.task_events') is not null
+      and to_regclass('public.task_comments') is not null
+      as available
+  `;
+
+  return rows[0]?.available === true;
+}
+
+async function completeSupplementReviewTasks(
+  transaction: Db,
+  input: Readonly<{
+    actor?: string | null;
+    commentBody: string;
+    eventPayload?: Record<string, unknown>;
+    eventType: string;
+    jobIds?: readonly string[];
+    taskIds?: readonly string[];
+  }>
+) {
+  if (!(await taskTablesAvailable(transaction))) {
+    return [];
+  }
+
+  const jobIds = [...(input.jobIds ?? [])];
+  const taskIds = [...(input.taskIds ?? [])];
+
+  if (jobIds.length < 1 && taskIds.length < 1) {
+    return [];
+  }
+
+  const resultPayload = toJsonValue({
+    actor: input.actor ?? "admin_dashboard",
+    ...(input.eventPayload ?? {})
+  });
+  const tasks = await transaction<CompletedTaskRow[]>`
+    update public.tasks
+    set
+      status = 'completed',
+      completed_at = now(),
+      lease_until = null,
+      reserved_by_agent_id = null,
+      result_payload = coalesce(result_payload, '{}'::jsonb) || ${transaction.json(resultPayload)}::jsonb,
+      updated_at = now()
+    where task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+      and status not in ('completed', 'failed', 'cancelled', 'skipped')
+      and (
+        (${jobIds.length > 0} and legacy_job_id = any(${jobIds}::uuid[]))
+        or (${taskIds.length > 0} and id = any(${taskIds}::uuid[]))
+      )
+    returning id::text, goal_id::text
+  `;
+
+  for (const task of tasks) {
+    await transaction`
+      insert into public.task_comments (
+        id,
+        task_id,
+        goal_id,
+        author_type,
+        author_name,
+        visibility,
+        comment_type,
+        body,
+        metadata,
+        created_at
+      )
+      values (
+        ${randomUUID()}::uuid,
+        ${task.id}::uuid,
+        ${task.goal_id}::uuid,
+        'human',
+        ${input.actor ?? "admin_dashboard"},
+        'admin',
+        'decision',
+        ${input.commentBody},
+        ${transaction.json(resultPayload)},
+        now()
+      )
+    `;
+
+    await transaction`
+      insert into public.task_events (
+        id,
+        task_id,
+        goal_id,
+        event_type,
+        event_status,
+        severity,
+        event_payload,
+        occurred_at,
+        created_at
+      )
+      values (
+        ${randomUUID()}::uuid,
+        ${task.id}::uuid,
+        ${task.goal_id}::uuid,
+        ${input.eventType},
+        'succeeded',
+        'medium',
+        ${transaction.json(resultPayload)},
+        now(),
+        now()
+      )
+    `;
+  }
+
+  const goalIds = Array.from(new Set(tasks.map((task) => task.goal_id)));
+
+  if (goalIds.length > 0) {
+    await transaction`
+      update public.goals
+      set
+        status = 'completed',
+        completed_at = coalesce(completed_at, now()),
+        updated_at = now()
+      where id = any(${goalIds}::uuid[])
+        and not exists (
+          select 1
+          from public.tasks
+          where tasks.goal_id = goals.id
+            and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
+        )
+    `;
+  }
+
+  return tasks;
 }
 
 export async function dismissAdminReviewJob({
@@ -351,6 +591,16 @@ export async function dismissAdminReviewJob({
       where job_id = ${id}::uuid
         and status in ('open', 'in_review', 'escalated')
     `;
+
+    await completeSupplementReviewTasks(transaction, {
+      actor,
+      commentBody: "Dismissed from admin review queue.",
+      eventPayload: {
+        legacyJobId: id
+      },
+      eventType: "supplement_review_dismissed",
+      jobIds: [id]
+    });
 
     await transaction`
       insert into public.job_audit_events (
@@ -566,6 +816,19 @@ export async function resolveAdminReviewJob(input: ResolveAdminReviewJobInput) {
           or trim(both '_' from regexp_replace(lower(coalesce(supplement_name, '')), '[^a-z0-9]+', '_', 'g')) = ${normalizedSupplementName}
         )
     `;
+
+    await completeSupplementReviewTasks(transaction, {
+      actor: input.actor,
+      commentBody: `Resolved as ${input.listStatus}.`,
+      eventPayload: {
+        completedJobIds,
+        resolvedSupplementId: supplementId,
+        resolution: input.listStatus,
+        supplementName
+      },
+      eventType: "supplement_review_resolved",
+      jobIds: completedJobIds
+    });
 
     await transaction`
       insert into public.supplement_admin_audit (
@@ -870,6 +1133,25 @@ export async function decideAdminPlanReviewJob(
         )}::jsonb
       where id = ${input.id}::uuid
     `;
+
+    await completeSupplementReviewTasks(transaction, {
+      actor: input.actor,
+      commentBody:
+        input.decision === "approve"
+          ? `Approved for the client at ${clientDose}.`
+          : "Disapproved and removed from the client formulation.",
+      eventPayload: {
+        clientDose,
+        decision: input.decision,
+        safetyReviewId: review.id,
+        supplementName: review.supplement_name
+      },
+      eventType:
+        input.decision === "approve"
+          ? "supplement_review_approved"
+          : "supplement_review_disapproved",
+      jobIds: [input.id]
+    });
 
     await transaction`
       insert into public.job_audit_events (

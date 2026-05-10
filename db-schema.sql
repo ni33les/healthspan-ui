@@ -2931,6 +2931,8 @@ create table if not exists public.safety_reviews (
   ray uuid null,
   plan_id uuid null references public.assessments(plan_id) on delete cascade,
   job_id uuid null references public.jobs(id) on delete set null,
+  goal_id uuid null references public.goals(id) on delete set null,
+  task_id uuid null references public.tasks(id) on delete set null,
   bpm_event_id uuid null references public.bpm(id) on delete set null,
   notification_job_id uuid null references public.jobs(id) on delete set null,
   formulation_version integer null,
@@ -2964,6 +2966,8 @@ alter table public.safety_reviews
   add column if not exists ray uuid null,
   add column if not exists plan_id uuid null references public.assessments(plan_id) on delete cascade,
   add column if not exists job_id uuid null references public.jobs(id) on delete set null,
+  add column if not exists goal_id uuid null references public.goals(id) on delete set null,
+  add column if not exists task_id uuid null references public.tasks(id) on delete set null,
   add column if not exists bpm_event_id uuid null references public.bpm(id) on delete set null,
   add column if not exists notification_job_id uuid null references public.jobs(id) on delete set null,
   add column if not exists formulation_version integer null,
@@ -3187,6 +3191,10 @@ comment on table public.safety_reviews is
   'Operational human-review queue for supplement and dose safety flags raised during formulation checks.';
 comment on column public.safety_reviews.bpm_event_id is
   'Optional BPM event showing the business/safety dashboard event that opened this review.';
+comment on column public.safety_reviews.goal_id is
+  'Optional operational goal that groups the safety review with related work.';
+comment on column public.safety_reviews.task_id is
+  'Optional task that represents the human or agent action required for this review.';
 comment on column public.safety_reviews.ai_suggestion is
   'The exact AI supplement suggestion payload that triggered the safety review.';
 comment on column public.safety_reviews.safety_context is
@@ -3206,6 +3214,14 @@ create index if not exists safety_reviews_job_idx
   where job_id is not null;
 
 drop index if exists public.safety_reviews_goal_idx;
+
+create index if not exists safety_reviews_goal_idx
+  on public.safety_reviews (goal_id, opened_at desc)
+  where goal_id is not null;
+
+create index if not exists safety_reviews_task_idx
+  on public.safety_reviews (task_id, opened_at desc)
+  where task_id is not null;
 
 create index if not exists safety_reviews_ray_idx
   on public.safety_reviews (ray, opened_at desc)
