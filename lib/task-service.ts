@@ -781,6 +781,25 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
     }
   }
 
+  const goals = await sql<Array<{ priority: number | string }>>`
+    select priority
+    from public.goals
+    where id = ${goalId}::uuid
+    limit 1
+  `;
+  const goalPriority = normalizeTaskPriority(goals[0]?.priority);
+  const hasExplicitPriority =
+    input.priority !== undefined &&
+    input.priority !== null &&
+    !(typeof input.priority === "string" && input.priority.trim() === "");
+  const taskPriority = hasExplicitPriority
+    ? normalizeTaskPriority(input.priority)
+    : goalPriority;
+
+  if (!goals[0]) {
+    throw new Error(`Goal ${goalId} not found`);
+  }
+
   const inserted = await sql<TaskRow[]>`
     insert into public.tasks (
       id,
@@ -818,7 +837,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       ${optionalText(input.description)},
       ${input.actorType ?? "system"},
       'queued',
-      ${normalizeTaskPriority(input.priority)},
+      ${taskPriority},
       ${normalizeCapabilities(input.requiredCapabilities)},
       ${input.reasoningEffort ?? "none"},
       ${sql.json(toJsonValue(input.payload ?? {}))},
@@ -888,14 +907,32 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
   await addTaskEventInTransaction(sql, {
     agentId: input.createdByAgentId,
     eventPayload: {
+      goalPriority,
       idempotencyKey,
       priority: task.priority,
+      prioritySource: hasExplicitPriority ? "explicit" : "goal",
       requiredCapabilities: task.requiredCapabilities
     },
     eventType: "task_created",
     goalId,
     taskId: task.id
   });
+
+  if (hasExplicitPriority && task.priority !== goalPriority) {
+    await addTaskEventInTransaction(sql, {
+      agentId: input.createdByAgentId,
+      eventPayload: {
+        goalPriority,
+        requestedPriority: input.priority,
+        taskPriority: task.priority
+      },
+      eventStatus: "observed",
+      eventType: "task_priority_overridden",
+      goalId,
+      severity: "low",
+      taskId: task.id
+    });
+  }
 
   if (input.initialComment) {
     await addTaskCommentInTransaction(sql, {
@@ -1123,7 +1160,9 @@ export async function reserveNextTask(
       with candidate as (
         select tasks.*
         from public.tasks
+        join public.goals on goals.id = tasks.goal_id
         where tasks.status = 'queued'
+          and goals.status in ('open', 'active')
           and tasks.scheduled_for <= now()
           and tasks.attempts < tasks.max_attempts
           and (
@@ -1156,7 +1195,7 @@ export async function reserveNextTask(
                 )
               )
           )
-        order by tasks.priority desc, tasks.scheduled_for asc, tasks.created_at asc
+        order by goals.priority desc, tasks.priority desc, tasks.scheduled_for asc, tasks.created_at asc
         limit 1
         for update skip locked
       )
@@ -1177,6 +1216,15 @@ export async function reserveNextTask(
 
     const task = mapTask(rows[0]);
     const reservationId = randomUUID();
+
+    await tx`
+      update public.goals
+      set
+        status = 'active',
+        updated_at = now()
+      where id = ${task.goalId}::uuid
+        and status = 'open'
+    `;
 
     await tx`
       insert into public.task_reservations (

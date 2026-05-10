@@ -69,7 +69,7 @@ flowchart TB
 - BPM tracking for funnel, campaign, affiliate, safety, error, email, chat, and formulation events.
 - Admin dashboard with KPI and Conversions views over hour, day, week, month, year, and all-time windows.
 - Admin Technical section with Alerts and Jobs views for failed email sends, stuck jobs, cron failures, AI/worker errors, and recent job history.
-- Goal-based task architecture foundation: goals group tasks, tasks are reserved by agents, and task events/comments preserve cause-and-effect.
+- Goal-based task architecture foundation: goals group tasks, agents reserve work by goal priority first, and task events/comments preserve cause-and-effect.
 - Admin Goals view showing goal status, priority, source, BPM/session ray, tasks, events, comments, dependencies, reservations, and approvals.
 - Dashboard filters for locale, device, source, medium, campaign, campaign ID, affiliate, promo code, selected plan, plan ID, ray, and email hash.
 

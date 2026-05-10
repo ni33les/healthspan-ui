@@ -390,7 +390,6 @@ async function enqueueSupplementReviewWork(
         ...input.payload
       },
       planId: globalUnknown ? null : input.planId,
-      priority,
       reasoningEffort: "none",
       requiredCapabilities: ["supplement_review"],
       taskType: reviewTaskType(input.kind),

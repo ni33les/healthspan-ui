@@ -81,7 +81,7 @@ New tasks should normally inherit the parent goal priority unless a workflow has
 
 ## Current Status
 
-Phases 1, 2, 3, and 4 are implemented.
+Phases 1, 2, 3, 4, 5, and 6 are implemented.
 
 The following tables now exist in the schema:
 
@@ -278,7 +278,9 @@ Acceptance criteria:
 
 ## Phase 6: Goal-First Scheduling
 
-Make the queue reserve tasks by business goal priority first.
+Status: complete.
+
+The queue now reserves tasks by business goal priority first.
 
 Reservation order:
 
@@ -290,11 +292,11 @@ Reservation order:
 
 Acceptance criteria:
 
-- A task in a priority `6` goal outranks a priority `6` task in a priority `3` goal.
-- Task priority still controls ordering inside the same goal.
-- New tasks inherit goal priority unless explicitly overridden.
-- The admin UI makes goal priority more prominent than task priority.
-- Task events explain any explicit priority override.
+- A task in a priority `6` goal outranks a priority `6` task in a priority `3` goal. Done.
+- Task priority still controls ordering inside the same goal. Done.
+- New tasks inherit goal priority unless explicitly overridden. Done.
+- The admin UI makes goal priority more prominent than task priority. Done through the Goals view.
+- Task events explain any explicit priority override. Done through `task_created` and `task_priority_overridden` events.
 
 ## Phase 7: Worker Migration
 
@@ -319,16 +321,17 @@ Acceptance criteria:
 - Workers can restart without losing task state.
 - Duplicate processing is prevented by leases and idempotency.
 
-## Phase 8: Four-Eyes Approval
+## Phase 8: Task Sequence Helpers
 
-Add approval rules by task type, agent type, risk level, and capability.
+Make it easy to create ordered task chains, including optional human approval tasks. Approval is not a special subsystem; it is just a normal human task inside a goal with downstream task dependencies.
 
 Acceptance criteria:
 
-- High-risk AI work can finish but remain pending approval.
-- Approved tasks unblock downstream dependencies.
-- Rejected work can spawn correction tasks.
-- Approval history is visible on the goal timeline.
+- Common workflows can create task sequences with one helper call.
+- Human approval tasks are regular tasks with clear titles, comments, payloads, and dependencies.
+- Downstream tasks stay ineligible until prerequisite tasks are complete or approved.
+- Rejected work can spawn correction tasks inside the same goal.
+- Approval history is visible on the goal timeline through comments and events.
 
 ## Phase 9: Deprecate Old Jobs
 
@@ -347,11 +350,9 @@ Acceptance criteria:
 
 ## Remaining Plan From Here
 
-Phase 6: Goal-first scheduling. Make reservation order use goal priority first, then task priority, then due time and age. Default task priority from the goal unless deliberately overridden.
-
 Phase 7: Worker migration. Move deterministic workers first, then AI workers, onto task reservation and completion.
 
-Phase 8: Four-eyes approval. Add approval rules and unblock dependent tasks only after approval.
+Phase 8: Task sequence helpers. Make ordered task chains easy, including normal human approval tasks where needed.
 
 Phase 9: Deprecate old jobs. Stop creating legacy jobs once migrated paths are proven and remove old branches safely.
 
