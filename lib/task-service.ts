@@ -1,0 +1,1210 @@
+import { randomUUID } from "node:crypto";
+import type postgres from "postgres";
+import { isUuid, toJsonValue } from "@/lib/assessment-store";
+import { getSql } from "@/lib/db";
+import {
+  normalizeCapabilities,
+  normalizeLeaseSeconds,
+  normalizeTaskPriority,
+  TASK_PRIORITY,
+  type TaskPriority
+} from "@/lib/task-service-utils";
+
+export type AgentType =
+  | "ai"
+  | "deterministic"
+  | "external"
+  | "human"
+  | "system";
+
+export type AgentStatus = "active" | "offline" | "paused" | "retired";
+
+export type RayStatus =
+  | "active"
+  | "blocked"
+  | "cancelled"
+  | "completed"
+  | "failed"
+  | "open";
+
+export type RayType = "goal" | "journey" | "system" | "task_run";
+
+export type TaskActorType =
+  | "ai"
+  | "deterministic"
+  | "external"
+  | "human"
+  | "system"
+  | "worker";
+
+export type TaskStatus =
+  | "blocked"
+  | "cancelled"
+  | "completed"
+  | "failed"
+  | "needs_review"
+  | "queued"
+  | "reserved"
+  | "running"
+  | "skipped"
+  | "waiting_approval";
+
+export type TaskReasoningEffort =
+  | "high"
+  | "low"
+  | "medium"
+  | "none"
+  | "xhigh";
+
+export type TaskEventSeverity = "critical" | "high" | "low" | "medium";
+
+export type TaskEventStatus =
+  | "accepted"
+  | "failed"
+  | "observed"
+  | "rejected"
+  | "requested"
+  | "succeeded";
+
+export type TaskCommentType =
+  | "answer"
+  | "decision"
+  | "instruction"
+  | "note"
+  | "question"
+  | "status"
+  | "system";
+
+export type TaskCommentVisibility =
+  | "admin"
+  | "customer"
+  | "internal"
+  | "worker";
+
+export type TaskDependencyType = "approved" | "complete" | "successful";
+
+export type TaskAgent = Readonly<{
+  capabilities: string[];
+  createdAt: string;
+  endpointUrl: string | null;
+  id: string;
+  lastSeenAt: string | null;
+  metadata: unknown;
+  model: string | null;
+  name: string;
+  status: AgentStatus;
+  type: AgentType;
+  updatedAt: string;
+}>;
+
+export type TaskRay = Readonly<{
+  completedAt: string | null;
+  context: unknown;
+  createdAt: string;
+  createdByAgentId: string | null;
+  emailHash: string | null;
+  id: string;
+  planId: string | null;
+  priority: TaskPriority;
+  source: string | null;
+  status: RayStatus;
+  title: string;
+  type: RayType;
+  updatedAt: string;
+}>;
+
+export type TaskRecord = Readonly<{
+  actorType: TaskActorType;
+  attempts: number;
+  completedAt: string | null;
+  createdAt: string;
+  createdByAgentId: string | null;
+  createdByTaskId: string | null;
+  description: string | null;
+  errorMessage: string | null;
+  id: string;
+  idempotencyKey: string | null;
+  leaseUntil: string | null;
+  legacyJobId: string | null;
+  maxAttempts: number;
+  parentTaskId: string | null;
+  payload: unknown;
+  planId: string | null;
+  priority: TaskPriority;
+  rayId: string;
+  reasoningEffort: TaskReasoningEffort;
+  requiredCapabilities: string[];
+  reservedByAgentId: string | null;
+  resultPayload: unknown;
+  scheduledFor: string;
+  startedAt: string | null;
+  status: TaskStatus;
+  taskType: string;
+  title: string;
+  updatedAt: string;
+}>;
+
+export type TaskComment = Readonly<{
+  agentId: string | null;
+  authorName: string | null;
+  authorType: TaskActorType;
+  body: string;
+  commentType: TaskCommentType;
+  createdAt: string;
+  id: string;
+  metadata: unknown;
+  rayId: string;
+  taskId: string;
+  visibility: TaskCommentVisibility;
+}>;
+
+export type ReservedTask = Readonly<{
+  agent: TaskAgent;
+  comments: TaskComment[];
+  reservationId: string;
+  task: TaskRecord;
+}>;
+
+type Db = postgres.Sql | postgres.TransactionSql;
+
+type AgentRow = {
+  capabilities: string[];
+  created_at: Date | string;
+  endpoint_url: string | null;
+  id: string;
+  last_seen_at: Date | string | null;
+  metadata: unknown;
+  model: string | null;
+  name: string;
+  status: AgentStatus;
+  agent_type: AgentType;
+  updated_at: Date | string;
+};
+
+type RayRow = {
+  completed_at: Date | string | null;
+  context: unknown;
+  created_at: Date | string;
+  created_by_agent_id: string | null;
+  email_hash: string | null;
+  id: string;
+  plan_id: string | null;
+  priority: number;
+  ray_type: RayType;
+  source: string | null;
+  status: RayStatus;
+  title: string;
+  updated_at: Date | string;
+};
+
+type TaskRow = {
+  actor_type: TaskActorType;
+  attempts: number;
+  completed_at: Date | string | null;
+  created_at: Date | string;
+  created_by_agent_id: string | null;
+  created_by_task_id: string | null;
+  description: string | null;
+  error_message: string | null;
+  id: string;
+  idempotency_key: string | null;
+  lease_until: Date | string | null;
+  legacy_job_id: string | null;
+  max_attempts: number;
+  parent_task_id: string | null;
+  payload: unknown;
+  plan_id: string | null;
+  priority: number;
+  ray_id: string;
+  reasoning_effort: TaskReasoningEffort;
+  required_capabilities: string[];
+  reserved_by_agent_id: string | null;
+  result_payload: unknown;
+  scheduled_for: Date | string;
+  started_at: Date | string | null;
+  status: TaskStatus;
+  task_type: string;
+  title: string;
+  updated_at: Date | string;
+};
+
+type CommentRow = {
+  agent_id: string | null;
+  author_name: string | null;
+  author_type: TaskActorType;
+  body: string;
+  comment_type: TaskCommentType;
+  created_at: Date | string;
+  id: string;
+  metadata: unknown;
+  ray_id: string;
+  task_id: string;
+  visibility: TaskCommentVisibility;
+};
+
+type ExpiredReservationRow = {
+  agent_id: string;
+  attempts: number;
+  max_attempts: number;
+  ray_id: string;
+  reservation_id: string;
+  task_id: string;
+};
+
+export type CreateRayInput = Readonly<{
+  context?: Record<string, unknown>;
+  createdByAgentId?: string | null;
+  emailHash?: string | null;
+  id?: string | null;
+  planId?: string | null;
+  priority?: unknown;
+  source?: string | null;
+  status?: RayStatus;
+  title: string;
+  type?: RayType;
+}>;
+
+export type CreateTaskInput = Readonly<{
+  actorType?: TaskActorType;
+  createdByAgentId?: string | null;
+  createdByTaskId?: string | null;
+  dependencies?: ReadonlyArray<{
+    taskId: string;
+    type?: TaskDependencyType;
+  }>;
+  description?: string | null;
+  id?: string | null;
+  idempotencyKey?: string | null;
+  initialComment?: Omit<AddTaskCommentInput, "taskId">;
+  legacyJobId?: string | null;
+  maxAttempts?: number;
+  parentTaskId?: string | null;
+  payload?: Record<string, unknown>;
+  planId?: string | null;
+  priority?: unknown;
+  rayId: string;
+  reasoningEffort?: TaskReasoningEffort;
+  requiredCapabilities?: unknown;
+  scheduledFor?: Date | string | null;
+  taskType: string;
+  title: string;
+}>;
+
+export type AddTaskCommentInput = Readonly<{
+  agentId?: string | null;
+  authorName?: string | null;
+  authorType?: TaskActorType;
+  body: string;
+  commentType?: TaskCommentType;
+  metadata?: Record<string, unknown>;
+  taskId: string;
+  visibility?: TaskCommentVisibility;
+}>;
+
+export type AddTaskEventInput = Readonly<{
+  agentId?: string | null;
+  eventPayload?: Record<string, unknown>;
+  eventStatus?: TaskEventStatus;
+  eventType: string;
+  rayId?: string | null;
+  severity?: TaskEventSeverity;
+  taskId?: string | null;
+}>;
+
+export type ReserveNextTaskInput = Readonly<{
+  agent: Readonly<{
+    capabilities?: unknown;
+    id?: string | null;
+    metadata?: Record<string, unknown>;
+    model?: string | null;
+    name: string;
+    type?: AgentType;
+  }>;
+  leaseSeconds?: unknown;
+}>;
+
+export type CompleteTaskInput = Readonly<{
+  agentId?: string | null;
+  resultPayload?: Record<string, unknown>;
+  taskId: string;
+}>;
+
+export type FailTaskInput = Readonly<{
+  agentId?: string | null;
+  errorMessage: string;
+  resultPayload?: Record<string, unknown>;
+  taskId: string;
+}>;
+
+export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId" | "rayId"> &
+  Readonly<{
+    parentTaskId: string;
+  }>;
+
+function getRequiredSql(sql?: postgres.Sql) {
+  const configured = sql ?? getSql();
+
+  if (!configured) {
+    throw new Error("Database connection is not configured");
+  }
+
+  return configured;
+}
+
+function uuidOrNull(value: unknown) {
+  return typeof value === "string" && isUuid(value) ? value : null;
+}
+
+function uuidOrNew(value: unknown) {
+  return uuidOrNull(value) ?? randomUUID();
+}
+
+function cleanText(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed ? trimmed : fallback;
+}
+
+function optionalText(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed ? trimmed : null;
+}
+
+function isoDate(value: Date | string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function positiveInteger(value: unknown, fallback: number) {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : fallback;
+
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.round(numeric));
+}
+
+function mapAgent(row: AgentRow): TaskAgent {
+  return {
+    capabilities: normalizeCapabilities(row.capabilities),
+    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
+    endpointUrl: row.endpoint_url,
+    id: row.id,
+    lastSeenAt: isoDate(row.last_seen_at),
+    metadata: row.metadata,
+    model: row.model,
+    name: row.name,
+    status: row.status,
+    type: row.agent_type,
+    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
+function mapRay(row: RayRow): TaskRay {
+  return {
+    completedAt: isoDate(row.completed_at),
+    context: row.context,
+    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
+    createdByAgentId: row.created_by_agent_id,
+    emailHash: row.email_hash,
+    id: row.id,
+    planId: row.plan_id,
+    priority: normalizeTaskPriority(row.priority),
+    source: row.source,
+    status: row.status,
+    title: row.title,
+    type: row.ray_type,
+    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
+function mapTask(row: TaskRow): TaskRecord {
+  return {
+    actorType: row.actor_type,
+    attempts: row.attempts,
+    completedAt: isoDate(row.completed_at),
+    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
+    createdByAgentId: row.created_by_agent_id,
+    createdByTaskId: row.created_by_task_id,
+    description: row.description,
+    errorMessage: row.error_message,
+    id: row.id,
+    idempotencyKey: row.idempotency_key,
+    leaseUntil: isoDate(row.lease_until),
+    legacyJobId: row.legacy_job_id,
+    maxAttempts: row.max_attempts,
+    parentTaskId: row.parent_task_id,
+    payload: row.payload,
+    planId: row.plan_id,
+    priority: normalizeTaskPriority(row.priority),
+    rayId: row.ray_id,
+    reasoningEffort: row.reasoning_effort,
+    requiredCapabilities: normalizeCapabilities(row.required_capabilities),
+    reservedByAgentId: row.reserved_by_agent_id,
+    resultPayload: row.result_payload,
+    scheduledFor: isoDate(row.scheduled_for) ?? new Date().toISOString(),
+    startedAt: isoDate(row.started_at),
+    status: row.status,
+    taskType: row.task_type,
+    title: row.title,
+    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
+function mapComment(row: CommentRow): TaskComment {
+  return {
+    agentId: row.agent_id,
+    authorName: row.author_name,
+    authorType: row.author_type,
+    body: row.body,
+    commentType: row.comment_type,
+    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
+    id: row.id,
+    metadata: row.metadata,
+    rayId: row.ray_id,
+    taskId: row.task_id,
+    visibility: row.visibility
+  };
+}
+
+async function taskRayId(sql: Db, taskId: string) {
+  const rows = await sql<{ ray_id: string }[]>`
+    select ray_id::text
+    from public.tasks
+    where id = ${taskId}::uuid
+    limit 1
+  `;
+
+  if (!rows[0]) {
+    throw new Error(`Task ${taskId} not found`);
+  }
+
+  return rows[0].ray_id;
+}
+
+async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
+  const taskId = uuidOrNull(input.taskId);
+  const rayId = uuidOrNull(input.rayId) ?? (taskId ? await taskRayId(sql, taskId) : null);
+
+  if (!rayId) {
+    throw new Error("Task event requires a rayId or valid taskId");
+  }
+
+  const id = randomUUID();
+
+  await sql`
+    insert into public.task_events (
+      id,
+      task_id,
+      ray_id,
+      agent_id,
+      event_type,
+      event_status,
+      severity,
+      event_payload,
+      occurred_at,
+      created_at
+    )
+    values (
+      ${id}::uuid,
+      ${taskId}::uuid,
+      ${rayId}::uuid,
+      ${uuidOrNull(input.agentId)}::uuid,
+      ${cleanText(input.eventType, "unknown")},
+      ${input.eventStatus ?? "observed"},
+      ${input.severity ?? "low"},
+      ${sql.json(toJsonValue(input.eventPayload ?? {}))},
+      now(),
+      now()
+    )
+  `;
+
+  return id;
+}
+
+async function upsertAgentInTransaction(
+  sql: Db,
+  input: Readonly<{
+    capabilities?: unknown;
+    id?: string | null;
+    metadata?: Record<string, unknown>;
+    model?: string | null;
+    name: string;
+    status?: AgentStatus;
+    type?: AgentType;
+  }>
+) {
+  const name = cleanText(input.name, "Unnamed agent");
+  const hasCapabilitiesInput = Array.isArray(input.capabilities);
+  const capabilities = normalizeCapabilities(input.capabilities);
+  const existing = await sql<AgentRow[]>`
+    select *
+    from public.agents
+    where lower(name) = lower(${name})
+    limit 1
+  `;
+
+  if (existing[0]) {
+    const rows = await sql<AgentRow[]>`
+      update public.agents set
+        agent_type = ${input.type ?? existing[0].agent_type},
+        status = ${input.status ?? existing[0].status},
+        capabilities = ${hasCapabilitiesInput ? capabilities : existing[0].capabilities},
+        model = coalesce(${optionalText(input.model)}, model),
+        metadata = metadata || ${sql.json(toJsonValue(input.metadata ?? {}))},
+        last_seen_at = now(),
+        updated_at = now()
+      where id = ${existing[0].id}::uuid
+      returning *
+    `;
+
+    return mapAgent(rows[0]);
+  }
+
+  const rows = await sql<AgentRow[]>`
+    insert into public.agents (
+      id,
+      name,
+      agent_type,
+      status,
+      capabilities,
+      model,
+      metadata,
+      last_seen_at,
+      created_at,
+      updated_at
+    )
+    values (
+      ${uuidOrNew(input.id)}::uuid,
+      ${name},
+      ${input.type ?? "system"},
+      ${input.status ?? "active"},
+      ${capabilities},
+      ${optionalText(input.model)},
+      ${sql.json(toJsonValue(input.metadata ?? {}))},
+      now(),
+      now(),
+      now()
+    )
+    returning *
+  `;
+
+  return mapAgent(rows[0]);
+}
+
+async function createRayInTransaction(sql: Db, input: CreateRayInput) {
+  const rows = await sql<RayRow[]>`
+    insert into public.rays (
+      id,
+      ray_type,
+      title,
+      status,
+      priority,
+      plan_id,
+      email_hash,
+      source,
+      context,
+      created_by_agent_id,
+      created_at,
+      updated_at
+    )
+    values (
+      ${uuidOrNew(input.id)}::uuid,
+      ${input.type ?? "goal"},
+      ${cleanText(input.title, "Untitled ray")},
+      ${input.status ?? "open"},
+      ${normalizeTaskPriority(input.priority)},
+      ${uuidOrNull(input.planId)}::uuid,
+      ${optionalText(input.emailHash)},
+      ${optionalText(input.source)},
+      ${sql.json(toJsonValue(input.context ?? {}))},
+      ${uuidOrNull(input.createdByAgentId)}::uuid,
+      now(),
+      now()
+    )
+    on conflict (id) do update set
+      plan_id = coalesce(public.rays.plan_id, excluded.plan_id),
+      email_hash = coalesce(public.rays.email_hash, excluded.email_hash),
+      source = coalesce(public.rays.source, excluded.source),
+      context = public.rays.context || excluded.context,
+      priority = greatest(public.rays.priority, excluded.priority),
+      updated_at = now()
+    returning *
+  `;
+
+  return mapRay(rows[0]);
+}
+
+async function addTaskCommentInTransaction(
+  sql: Db,
+  input: AddTaskCommentInput
+) {
+  const taskId = uuidOrNull(input.taskId);
+
+  if (!taskId) {
+    throw new Error("Task comment requires a valid taskId");
+  }
+
+  const rayId = await taskRayId(sql, taskId);
+  const id = randomUUID();
+  const rows = await sql<CommentRow[]>`
+    insert into public.task_comments (
+      id,
+      task_id,
+      ray_id,
+      agent_id,
+      author_type,
+      author_name,
+      visibility,
+      comment_type,
+      body,
+      metadata,
+      created_at
+    )
+    values (
+      ${id}::uuid,
+      ${taskId}::uuid,
+      ${rayId}::uuid,
+      ${uuidOrNull(input.agentId)}::uuid,
+      ${input.authorType ?? "system"},
+      ${optionalText(input.authorName)},
+      ${input.visibility ?? "internal"},
+      ${input.commentType ?? "note"},
+      ${cleanText(input.body, "")},
+      ${sql.json(toJsonValue(input.metadata ?? {}))},
+      now()
+    )
+    returning *
+  `;
+
+  await addTaskEventInTransaction(sql, {
+    agentId: input.agentId,
+    eventPayload: {
+      commentId: id,
+      commentType: input.commentType ?? "note",
+      visibility: input.visibility ?? "internal"
+    },
+    eventType: "comment_added",
+    rayId,
+    taskId
+  });
+
+  return mapComment(rows[0]);
+}
+
+async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
+  const rayId = uuidOrNull(input.rayId);
+
+  if (!rayId) {
+    throw new Error("Task requires a valid rayId");
+  }
+
+  const idempotencyKey = optionalText(input.idempotencyKey);
+
+  if (idempotencyKey) {
+    const existing = await sql<TaskRow[]>`
+      select *
+      from public.tasks
+      where ray_id = ${rayId}::uuid
+        and idempotency_key = ${idempotencyKey}
+        and status not in ('completed', 'failed', 'cancelled', 'skipped')
+      order by created_at desc
+      limit 1
+    `;
+
+    if (existing[0]) {
+      return { created: false, task: mapTask(existing[0]) };
+    }
+  }
+
+  const inserted = await sql<TaskRow[]>`
+    insert into public.tasks (
+      id,
+      ray_id,
+      parent_task_id,
+      plan_id,
+      legacy_job_id,
+      task_type,
+      title,
+      description,
+      actor_type,
+      status,
+      priority,
+      required_capabilities,
+      reasoning_effort,
+      payload,
+      result_payload,
+      idempotency_key,
+      scheduled_for,
+      attempts,
+      max_attempts,
+      created_by_agent_id,
+      created_by_task_id,
+      created_at,
+      updated_at
+    )
+    values (
+      ${uuidOrNew(input.id)}::uuid,
+      ${rayId}::uuid,
+      ${uuidOrNull(input.parentTaskId)}::uuid,
+      ${uuidOrNull(input.planId)}::uuid,
+      ${uuidOrNull(input.legacyJobId)}::uuid,
+      ${cleanText(input.taskType, "unknown")},
+      ${cleanText(input.title, "Untitled task")},
+      ${optionalText(input.description)},
+      ${input.actorType ?? "system"},
+      'queued',
+      ${normalizeTaskPriority(input.priority)},
+      ${normalizeCapabilities(input.requiredCapabilities)},
+      ${input.reasoningEffort ?? "none"},
+      ${sql.json(toJsonValue(input.payload ?? {}))},
+      '{}'::jsonb,
+      ${idempotencyKey},
+      ${input.scheduledFor ? new Date(input.scheduledFor) : new Date()},
+      0,
+      ${positiveInteger(input.maxAttempts, 3)},
+      ${uuidOrNull(input.createdByAgentId)}::uuid,
+      ${uuidOrNull(input.createdByTaskId)}::uuid,
+      now(),
+      now()
+    )
+    on conflict do nothing
+    returning *
+  `;
+
+  const taskRow =
+    inserted[0] ??
+    (
+      await sql<TaskRow[]>`
+        select *
+        from public.tasks
+        where ray_id = ${rayId}::uuid
+          and idempotency_key = ${idempotencyKey}
+          and status not in ('completed', 'failed', 'cancelled', 'skipped')
+        order by created_at desc
+        limit 1
+      `
+    )[0];
+
+  if (!taskRow) {
+    throw new Error("Unable to create or locate task");
+  }
+
+  const task = mapTask(taskRow);
+
+  if (!inserted[0]) {
+    return { created: false, task };
+  }
+
+  for (const dependency of input.dependencies ?? []) {
+    const dependsOnTaskId = uuidOrNull(dependency.taskId);
+
+    if (!dependsOnTaskId) {
+      continue;
+    }
+
+    await sql`
+      insert into public.task_dependencies (
+        task_id,
+        depends_on_task_id,
+        dependency_type,
+        created_at
+      )
+      values (
+        ${task.id}::uuid,
+        ${dependsOnTaskId}::uuid,
+        ${dependency.type ?? "complete"},
+        now()
+      )
+      on conflict (task_id, depends_on_task_id) do update set
+        dependency_type = excluded.dependency_type
+    `;
+  }
+
+  await addTaskEventInTransaction(sql, {
+    agentId: input.createdByAgentId,
+    eventPayload: {
+      idempotencyKey,
+      priority: task.priority,
+      requiredCapabilities: task.requiredCapabilities
+    },
+    eventType: "task_created",
+    rayId,
+    taskId: task.id
+  });
+
+  if (input.initialComment) {
+    await addTaskCommentInTransaction(sql, {
+      ...input.initialComment,
+      taskId: task.id
+    });
+  }
+
+  return { created: true, task };
+}
+
+export async function upsertAgent(input: Parameters<typeof upsertAgentInTransaction>[1]) {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => upsertAgentInTransaction(tx, input));
+}
+
+export async function createRay(input: CreateRayInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => createRayInTransaction(tx, input));
+}
+
+export async function createTask(input: CreateTaskInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => createTaskInTransaction(tx, input));
+}
+
+export async function addTaskComment(input: AddTaskCommentInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => addTaskCommentInTransaction(tx, input));
+}
+
+export async function addTaskEvent(input: AddTaskEventInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => addTaskEventInTransaction(tx, input));
+}
+
+export async function releaseExpiredReservations() {
+  const sql = getRequiredSql();
+
+  return sql.begin((tx) => releaseExpiredReservationsInTransaction(tx));
+}
+
+async function releaseExpiredReservationsInTransaction(sql: Db) {
+  const expired = await sql<ExpiredReservationRow[]>`
+    select
+      task_reservations.id::text as reservation_id,
+      task_reservations.task_id::text,
+      task_reservations.agent_id::text,
+      tasks.ray_id::text,
+      tasks.attempts,
+      tasks.max_attempts
+    from public.task_reservations
+    join public.tasks on tasks.id = task_reservations.task_id
+    where task_reservations.status = 'active'
+      and task_reservations.lease_until < now()
+    order by task_reservations.lease_until asc
+    for update skip locked
+  `;
+
+  for (const row of expired) {
+    const exhausted = row.attempts >= row.max_attempts;
+
+    await sql`
+      update public.task_reservations set
+        status = 'expired',
+        released_at = now()
+      where id = ${row.reservation_id}::uuid
+    `;
+
+    await sql`
+      update public.tasks set
+        status = ${exhausted ? "failed" : "queued"},
+        reserved_by_agent_id = null,
+        lease_until = null,
+        error_message = ${exhausted ? "Task lease expired after maximum attempts." : null},
+        updated_at = now()
+      where id = ${row.task_id}::uuid
+        and status in ('reserved', 'running')
+    `;
+
+    await addTaskEventInTransaction(sql, {
+      agentId: row.agent_id,
+      eventPayload: {
+        exhausted,
+        reservationId: row.reservation_id
+      },
+      eventStatus: exhausted ? "failed" : "observed",
+      eventType: exhausted ? "task_failed_after_lease_expiry" : "lease_expired",
+      rayId: row.ray_id,
+      severity: exhausted ? "high" : "medium",
+      taskId: row.task_id
+    });
+  }
+
+  return expired.length;
+}
+
+export async function reserveNextTask(
+  input: ReserveNextTaskInput
+): Promise<ReservedTask | null> {
+  const sql = getRequiredSql();
+
+  return sql.begin(async (tx) => {
+    const agent = await upsertAgentInTransaction(tx, {
+      capabilities: input.agent.capabilities,
+      id: input.agent.id,
+      metadata: input.agent.metadata,
+      model: input.agent.model,
+      name: input.agent.name,
+      type: input.agent.type ?? "external"
+    });
+    await releaseExpiredReservationsInTransaction(tx);
+
+    const leaseSeconds = normalizeLeaseSeconds(input.leaseSeconds);
+    const rows = await tx<TaskRow[]>`
+      with candidate as (
+        select tasks.*
+        from public.tasks
+        where tasks.status = 'queued'
+          and tasks.scheduled_for <= now()
+          and tasks.attempts < tasks.max_attempts
+          and (
+            coalesce(cardinality(tasks.required_capabilities), 0) = 0
+            or tasks.required_capabilities <@ ${agent.capabilities}::text[]
+          )
+          and not exists (
+            select 1
+            from public.task_dependencies
+            join public.tasks as dependency
+              on dependency.id = task_dependencies.depends_on_task_id
+            where task_dependencies.task_id = tasks.id
+              and (
+                (
+                  task_dependencies.dependency_type = 'complete'
+                  and dependency.status not in ('completed', 'skipped')
+                )
+                or (
+                  task_dependencies.dependency_type = 'successful'
+                  and dependency.status <> 'completed'
+                )
+                or (
+                  task_dependencies.dependency_type = 'approved'
+                  and not exists (
+                    select 1
+                    from public.task_approvals
+                    where task_approvals.task_id = dependency.id
+                      and task_approvals.status = 'approved'
+                  )
+                )
+              )
+          )
+        order by tasks.priority desc, tasks.scheduled_for asc, tasks.created_at asc
+        limit 1
+        for update skip locked
+      )
+      update public.tasks set
+        status = 'reserved',
+        reserved_by_agent_id = ${agent.id}::uuid,
+        lease_until = now() + make_interval(secs => ${leaseSeconds}),
+        attempts = public.tasks.attempts + 1,
+        updated_at = now()
+      from candidate
+      where public.tasks.id = candidate.id
+      returning public.tasks.*
+    `;
+
+    if (!rows[0]) {
+      return null;
+    }
+
+    const task = mapTask(rows[0]);
+    const reservationId = randomUUID();
+
+    await tx`
+      insert into public.task_reservations (
+        id,
+        task_id,
+        agent_id,
+        status,
+        reserved_at,
+        lease_until,
+        metadata
+      )
+      values (
+        ${reservationId}::uuid,
+        ${task.id}::uuid,
+        ${agent.id}::uuid,
+        'active',
+        now(),
+        ${new Date(task.leaseUntil ?? Date.now())},
+        ${tx.json(toJsonValue({ capabilities: agent.capabilities }))}
+      )
+    `;
+
+    await addTaskEventInTransaction(tx, {
+      agentId: agent.id,
+      eventPayload: {
+        leaseSeconds,
+        reservationId
+      },
+      eventStatus: "accepted",
+      eventType: "task_reserved",
+      rayId: task.rayId,
+      taskId: task.id
+    });
+
+    const commentRows = await tx<CommentRow[]>`
+      select *
+      from public.task_comments
+      where task_id = ${task.id}::uuid
+      order by created_at asc
+    `;
+
+    return {
+      agent,
+      comments: commentRows.map(mapComment),
+      reservationId,
+      task
+    };
+  });
+}
+
+export async function completeTask(input: CompleteTaskInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin(async (tx) => {
+    const rows = await tx<TaskRow[]>`
+      update public.tasks set
+        status = 'completed',
+        result_payload = ${tx.json(toJsonValue(input.resultPayload ?? {}))},
+        completed_at = now(),
+        lease_until = null,
+        reserved_by_agent_id = null,
+        updated_at = now()
+      where id = ${input.taskId}::uuid
+        and status in ('queued', 'reserved', 'running', 'needs_review', 'waiting_approval')
+      returning *
+    `;
+
+    if (!rows[0]) {
+      throw new Error(`Task ${input.taskId} could not be completed`);
+    }
+
+    const task = mapTask(rows[0]);
+
+    await tx`
+      update public.task_reservations set
+        status = 'completed',
+        completed_at = now()
+      where task_id = ${task.id}::uuid
+        and status = 'active'
+    `;
+
+    await addTaskEventInTransaction(tx, {
+      agentId: input.agentId,
+      eventPayload: input.resultPayload ?? {},
+      eventStatus: "succeeded",
+      eventType: "task_completed",
+      rayId: task.rayId,
+      taskId: task.id
+    });
+
+    return task;
+  });
+}
+
+export async function failTask(input: FailTaskInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin(async (tx) => {
+    const rows = await tx<TaskRow[]>`
+      update public.tasks set
+        status = 'failed',
+        error_message = ${cleanText(input.errorMessage, "Task failed.")},
+        result_payload = ${tx.json(toJsonValue(input.resultPayload ?? {}))},
+        lease_until = null,
+        reserved_by_agent_id = null,
+        updated_at = now()
+      where id = ${input.taskId}::uuid
+        and status not in ('completed', 'cancelled', 'skipped')
+      returning *
+    `;
+
+    if (!rows[0]) {
+      throw new Error(`Task ${input.taskId} could not be failed`);
+    }
+
+    const task = mapTask(rows[0]);
+
+    await tx`
+      update public.task_reservations set
+        status = 'failed',
+        released_at = now()
+      where task_id = ${task.id}::uuid
+        and status = 'active'
+    `;
+
+    await addTaskEventInTransaction(tx, {
+      agentId: input.agentId,
+      eventPayload: {
+        errorMessage: input.errorMessage,
+        resultPayload: input.resultPayload ?? {}
+      },
+      eventStatus: "failed",
+      eventType: "task_failed",
+      rayId: task.rayId,
+      severity: "high",
+      taskId: task.id
+    });
+
+    return task;
+  });
+}
+
+export async function spawnChildTask(input: SpawnChildTaskInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin(async (tx) => {
+    const parentRows = await tx<TaskRow[]>`
+      select *
+      from public.tasks
+      where id = ${input.parentTaskId}::uuid
+      limit 1
+    `;
+
+    if (!parentRows[0]) {
+      throw new Error(`Parent task ${input.parentTaskId} not found`);
+    }
+
+    const parent = mapTask(parentRows[0]);
+    const created = await createTaskInTransaction(tx, {
+      ...input,
+      createdByTaskId: parent.id,
+      parentTaskId: parent.id,
+      rayId: parent.rayId
+    });
+
+    await addTaskEventInTransaction(tx, {
+      agentId: input.createdByAgentId,
+      eventPayload: {
+        childTaskId: created.task.id,
+        childTaskType: created.task.taskType
+      },
+      eventType: "child_task_created",
+      rayId: parent.rayId,
+      taskId: parent.id
+    });
+
+    return created;
+  });
+}
+
+export { TASK_PRIORITY, normalizeTaskPriority };

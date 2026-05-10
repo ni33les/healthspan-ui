@@ -47,7 +47,7 @@ Tasks and rays use a simple `1` to `6` priority scale.
 
 ## Current Status
 
-Phase 1 is implemented in `db-schema.sql`.
+Phases 1 and 2 are implemented.
 
 The following tables now exist in the schema:
 
@@ -61,6 +61,11 @@ The following tables now exist in the schema:
 - `task_approvals`
 
 The existing `jobs` table remains in place. Nothing has been migrated away from it yet.
+
+The internal service layer lives in:
+
+- `lib/task-service.ts`
+- `lib/task-service-utils.ts`
 
 ## Phase 1: Core Data Model
 
@@ -91,7 +96,9 @@ Acceptance criteria:
 
 ## Phase 2: Task Service Layer
 
-Build internal helpers:
+Status: complete.
+
+Internal helpers added:
 
 - `createRay`
 - `createTask`
@@ -103,6 +110,20 @@ Build internal helpers:
 - `releaseExpiredReservations`
 - `spawnChildTask`
 
+What was added:
+
+- Priority normalization for the `1..6` operating bands.
+- Capability normalization and matching.
+- Agent upsert/heartbeat support that keeps agents separate from tasks.
+- Idempotent task creation by `(ray_id, idempotency_key)`.
+- Task reservation by highest priority, oldest eligible scheduled work.
+- Dependency checks before reservation.
+- Lease expiry handling, including requeue or fail-after-max-attempts.
+- Completion and failure helpers.
+- Child task spawning under the same ray.
+- Automatic task events for creation, reservation, completion, failure, comments, expired leases, and spawned child tasks.
+- Unit tests for priority, capabilities, and lease boundaries.
+
 Acceptance criteria:
 
 - Creating a task writes a `task_created` event.
@@ -110,6 +131,7 @@ Acceptance criteria:
 - Completing or failing a task writes a result event.
 - Duplicate idempotency keys do not create duplicate active tasks.
 - Expired leases become claimable again.
+- Agents reserve work by capability rather than by hard-coded worker name.
 
 ## Phase 3: Protected Worker API
 

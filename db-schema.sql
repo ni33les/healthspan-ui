@@ -1331,7 +1331,7 @@ create table if not exists public.task_reservations (
   task_id uuid not null references public.tasks(id) on delete cascade,
   agent_id uuid not null references public.agents(id) on delete cascade,
   status text not null default 'active' check (
-    status in ('active', 'released', 'completed', 'expired', 'cancelled')
+    status in ('active', 'released', 'completed', 'expired', 'failed', 'cancelled')
   ),
   reserved_at timestamptz not null default now(),
   lease_until timestamptz not null,
@@ -1355,14 +1355,14 @@ alter table public.task_reservations
 update public.task_reservations
 set
   status = case
-    when status in ('active', 'released', 'completed', 'expired', 'cancelled') then status
+    when status in ('active', 'released', 'completed', 'expired', 'failed', 'cancelled') then status
     else 'active'
   end,
   reserved_at = coalesce(reserved_at, now()),
   lease_until = coalesce(lease_until, now()),
   metadata = coalesce(metadata, '{}'::jsonb)
 where status is null
-  or status not in ('active', 'released', 'completed', 'expired', 'cancelled')
+  or status not in ('active', 'released', 'completed', 'expired', 'failed', 'cancelled')
   or reserved_at is null
   or lease_until is null
   or metadata is null;
@@ -1380,16 +1380,12 @@ alter table public.task_reservations
 
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.task_reservations'::regclass
-      and conname = 'task_reservations_status_check'
-  ) then
-    alter table public.task_reservations
-      add constraint task_reservations_status_check
-      check (status in ('active', 'released', 'completed', 'expired', 'cancelled'));
-  end if;
+  alter table public.task_reservations
+    drop constraint if exists task_reservations_status_check;
+
+  alter table public.task_reservations
+    add constraint task_reservations_status_check
+    check (status in ('active', 'released', 'completed', 'expired', 'failed', 'cancelled'));
 end $$;
 
 create unique index if not exists task_reservations_active_task_idx
