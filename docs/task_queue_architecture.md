@@ -90,7 +90,7 @@ Goals do not need to know every task upfront. They start with the next known tas
 
 ## Priority Scale
 
-Goals and tasks use a simple `1` to `6` priority scale.
+Goals and tasks use a simple `1` to `5` priority scale.
 
 Goal priority is the primary business scheduling signal. It answers: which outcome matters most right now?
 
@@ -105,12 +105,11 @@ Workers reserve eligible tasks by:
 
 | Priority | Meaning | Use |
 | --- | --- | --- |
-| `6` | Do now | User-blocking, paid customer waiting, urgent safety or contact task. |
-| `5` | Urgent | High-value or time-sensitive work. |
+| `5` | Critical | User-blocking, paid customer waiting, urgent safety or contact task. |
 | `4` | High | Customer-facing work that should move quickly. |
-| `3` | Normal | Default operational work. |
-| `2` | Low | Background enrichment or non-urgent admin. |
-| `1` | When you can | Housekeeping, informational, or nice-to-have work. |
+| `3` | Expedited | High-value or time-sensitive work. |
+| `2` | Normal | Default operational work. |
+| `1` | Low | Background enrichment, housekeeping, or non-urgent admin. |
 
 ## Implemented Flows
 

@@ -1,13 +1,12 @@
 export const TASK_PRIORITY = {
-  doNow: 6,
+  critical: 5,
+  expedited: 3,
   high: 4,
-  low: 2,
-  normal: 3,
-  urgent: 5,
-  whenYouCan: 1
+  low: 1,
+  normal: 2
 } as const;
 
-export type TaskPriority = 1 | 2 | 3 | 4 | 5 | 6;
+export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 export type TaskDependencyType = "approved" | "complete" | "successful";
 
 export type TaskSequenceDependencyInput = Readonly<{
@@ -52,7 +51,7 @@ export function normalizeTaskPriority(value: unknown): TaskPriority {
     return TASK_PRIORITY.normal;
   }
 
-  return Math.max(1, Math.min(6, Math.round(numeric))) as TaskPriority;
+  return Math.max(1, Math.min(5, Math.round(numeric))) as TaskPriority;
 }
 
 export function normalizeCapabilities(value: unknown): string[] {

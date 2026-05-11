@@ -9,10 +9,10 @@ import {
 } from "../lib/task-service-utils.ts";
 
 describe("task service utilities", () => {
-  it("normalizes priorities into the 1 to 6 operating bands", () => {
+  it("normalizes priorities into the 1 to 5 operating bands", () => {
     assert.equal(normalizeTaskPriority(undefined), TASK_PRIORITY.normal);
-    assert.equal(normalizeTaskPriority(0), TASK_PRIORITY.whenYouCan);
-    assert.equal(normalizeTaskPriority(9), TASK_PRIORITY.doNow);
+    assert.equal(normalizeTaskPriority(0), TASK_PRIORITY.low);
+    assert.equal(normalizeTaskPriority(9), TASK_PRIORITY.critical);
     assert.equal(normalizeTaskPriority("4.4"), TASK_PRIORITY.high);
   });
 

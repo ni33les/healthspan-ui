@@ -634,10 +634,10 @@ async function queueClientSafetyFollowupTask(
     where id = ${input.goalId}::uuid
     limit 1
   `;
-  const goalPriority = Number(goalRows[0]?.priority ?? 3);
+  const goalPriority = Number(goalRows[0]?.priority ?? 2);
   const priority = Math.min(
     5,
-    Math.max(4, Number.isFinite(goalPriority) ? goalPriority : 3)
+    Math.max(4, Number.isFinite(goalPriority) ? goalPriority : 2)
   );
   const taskId = randomUUID();
   const title = "Notify client about completed safety review";

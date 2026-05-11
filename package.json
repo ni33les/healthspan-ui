@@ -14,9 +14,7 @@
   "dependencies": {
     "@headlessui/react": "^2.2.10",
     "@heroicons/react": "^2.2.0",
-    "@radix-ui/react-slot": "latest",
     "@types/nodemailer": "^8.0.0",
-    "class-variance-authority": "latest",
     "clsx": "latest",
     "lucide-react": "latest",
     "mermaid": "^11.14.0",
@@ -25,8 +23,7 @@
     "postgres": "^3.4.9",
     "react": "latest",
     "react-dom": "latest",
-    "tailwind-merge": "latest",
-    "typeit-react": "^2.7.8"
+    "tailwind-merge": "latest"
   },
   "overrides": {
     "postcss": "$postcss"

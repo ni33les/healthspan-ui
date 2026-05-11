@@ -781,8 +781,8 @@ create table if not exists public.goals (
   status text not null default 'open' check (
     status in ('open', 'active', 'blocked', 'completed', 'cancelled', 'failed')
   ),
-  priority integer not null default 3 check (
-    priority >= 1 and priority <= 6
+  priority integer not null default 2 check (
+    priority >= 1 and priority <= 5
   ),
   plan_id uuid null references public.assessments(plan_id) on delete set null,
   email_hash text null,
@@ -799,7 +799,7 @@ alter table public.goals
   add column if not exists goal_type text default 'goal',
   add column if not exists title text,
   add column if not exists status text default 'open',
-  add column if not exists priority integer default 3,
+  add column if not exists priority integer default 2,
   add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
   add column if not exists email_hash text null,
   add column if not exists source text null,
@@ -822,7 +822,7 @@ set
       then status
     else 'open'
   end,
-  priority = greatest(1, least(coalesce(priority, 3), 6)),
+  priority = greatest(1, least(coalesce(priority, 2), 5)),
   context = coalesce(context, '{}'::jsonb),
   created_at = coalesce(created_at, now()),
   updated_at = coalesce(updated_at, now())
@@ -835,7 +835,7 @@ where ray is null
   or status not in ('open', 'active', 'blocked', 'completed', 'cancelled', 'failed')
   or priority is null
   or priority < 1
-  or priority > 6
+  or priority > 5
   or context is null
   or created_at is null
   or updated_at is null;
@@ -846,7 +846,7 @@ alter table public.goals
   alter column title set not null,
   alter column status set default 'open',
   alter column status set not null,
-  alter column priority set default 3,
+  alter column priority set default 2,
   alter column priority set not null,
   alter column context set default '{}'::jsonb,
   alter column context set not null,
@@ -884,7 +884,7 @@ begin
 
   alter table public.goals
     add constraint goals_priority_check
-    check (priority >= 1 and priority <= 6);
+    check (priority >= 1 and priority <= 5);
 end $$;
 
 create index if not exists goals_status_idx
@@ -927,8 +927,8 @@ create table if not exists public.tasks (
       'skipped'
     )
   ),
-  priority integer not null default 3 check (
-    priority >= 1 and priority <= 6
+  priority integer not null default 2 check (
+    priority >= 1 and priority <= 5
   ),
   required_capabilities text[] not null default '{}'::text[],
   reasoning_effort text not null default 'none' check (
@@ -960,7 +960,7 @@ alter table public.tasks
   add column if not exists description text null,
   add column if not exists actor_type text default 'system',
   add column if not exists status text default 'queued',
-  add column if not exists priority integer default 3,
+  add column if not exists priority integer default 2,
   add column if not exists required_capabilities text[] default '{}'::text[],
   add column if not exists reasoning_effort text default 'none',
   add column if not exists payload jsonb default '{}'::jsonb,
@@ -1003,7 +1003,7 @@ set
     ) then status
     else 'queued'
   end,
-  priority = greatest(1, least(coalesce(priority, 3), 6)),
+  priority = greatest(1, least(coalesce(priority, 2), 5)),
   required_capabilities = coalesce(required_capabilities, '{}'::text[]),
   reasoning_effort = case
     when reasoning_effort in ('none', 'low', 'medium', 'high', 'xhigh')
@@ -1038,7 +1038,7 @@ where task_type is null
   )
   or priority is null
   or priority < 1
-  or priority > 6
+  or priority > 5
   or required_capabilities is null
   or reasoning_effort is null
   or reasoning_effort not in ('none', 'low', 'medium', 'high', 'xhigh')
@@ -1060,7 +1060,7 @@ alter table public.tasks
   alter column actor_type set not null,
   alter column status set default 'queued',
   alter column status set not null,
-  alter column priority set default 3,
+  alter column priority set default 2,
   alter column priority set not null,
   alter column required_capabilities set default '{}'::text[],
   alter column required_capabilities set not null,
@@ -1123,7 +1123,7 @@ begin
 
   alter table public.tasks
     add constraint tasks_priority_check
-    check (priority >= 1 and priority <= 6);
+    check (priority >= 1 and priority <= 5);
 
   if not exists (
     select 1
@@ -1155,7 +1155,7 @@ comment on table public.goals is
 comment on table public.tasks is
   'Prioritised atomic work items. Tasks describe what must be done; agents describe who or what can do it.';
 comment on column public.tasks.priority is
-  'Higher numbers run first. Scale is 1-6: 6 means do now, 3 is normal, and 1 is when you can.';
+  'Higher numbers run first. Scale is 1-5: 5 is critical, 3 is expedited, 2 is normal, and 1 is low.';
 comment on column public.tasks.required_capabilities is
   'Capabilities required to reserve the task. This keeps task identity separate from any specific worker.';
 comment on column public.tasks.reasoning_effort is

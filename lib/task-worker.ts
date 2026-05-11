@@ -23,12 +23,12 @@ const globalWorker = globalThis as typeof globalThis & {
 };
 
 const TASK_PRIORITIES = {
-  exampleEmail: 3,
-  exampleFormulation: 5,
-  healthScoreAnalysis: 5,
-  precision: 5,
-  pro: 6,
-  reassessment: 3
+  exampleEmail: 2,
+  exampleFormulation: 3,
+  healthScoreAnalysis: 4,
+  precision: 4,
+  pro: 5,
+  reassessment: 2
 } as const;
 
 function priorityForPlan(plan: AssessmentPlan) {

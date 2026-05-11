@@ -248,16 +248,13 @@ function withReducedDose(
   };
 }
 
-async function enqueueSupplementReviewWork(
-  sql: postgres.Sql,
-  input: {
-    kind: ReviewKind;
-    normalizedSupplementName: string;
-    payload: Record<string, unknown>;
-    planId: string | null;
-    supplementName: string;
-  }
-): Promise<SupplementReviewWork> {
+async function enqueueSupplementReviewWork(input: {
+  kind: ReviewKind;
+  normalizedSupplementName: string;
+  payload: Record<string, unknown>;
+  planId: string | null;
+  supplementName: string;
+}): Promise<SupplementReviewWork> {
   const globalUnknown = input.kind === "unknown_supplement";
   const priority = reviewTaskPriority(input.kind);
   const goalId = deterministicUuid(
@@ -488,7 +485,7 @@ async function hideForReview(
 ) {
   const supplementName = match?.name ?? textFromLocalized(ingredient.supplement);
   const normalizedSupplementName = match?.normalized_name ?? normalizeName(supplementName);
-  const reviewWork = await enqueueSupplementReviewWork(sql, {
+  const reviewWork = await enqueueSupplementReviewWork({
     kind,
     normalizedSupplementName,
     payload: {
@@ -598,7 +595,7 @@ async function reduceDose(
 ) {
   const reason = `Dose reduced from ${dose.amount} ${dose.unit} to the configured maximum of ${formatDose(limit.amount, match.max_unit)}.`;
   const normalizedSupplementName = match.normalized_name;
-  const reviewWork = await enqueueSupplementReviewWork(sql, {
+  const reviewWork = await enqueueSupplementReviewWork({
     kind: "dose_reduced",
     normalizedSupplementName,
     payload: {

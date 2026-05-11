@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
-import { adminClawRequestAllowed } from "@/lib/admin-auth";
 import {
   archiveBlogPost,
   getBlogPostForApi,
   updateBlogPost
 } from "@/lib/blog";
 import { isLocale } from "@/lib/i18n";
+import {
+  openClawJson,
+  readJsonObject,
+  requireOpenClawRequest
+} from "@/lib/openclaw-api";
 
 export const runtime = "nodejs";
 
@@ -15,19 +18,6 @@ type BlogPostRouteProps = Readonly<{
   }>;
 }>;
 
-function unauthorized() {
-  return NextResponse.json(
-    { message: "Blog write access is not authorized" },
-    {
-      headers: {
-        "Cache-Control": "no-store",
-        "WWW-Authenticate": 'Bearer realm="mattanutra-openclaw-api"'
-      },
-      status: 401
-    }
-  );
-}
-
 function localeFromUrl(request: Request) {
   const value = new URL(request.url).searchParams.get("locale");
 
@@ -35,34 +25,32 @@ function localeFromUrl(request: Request) {
 }
 
 export async function GET(request: Request, { params }: BlogPostRouteProps) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { idOrSlug } = await params;
   const post = await getBlogPostForApi(idOrSlug, localeFromUrl(request));
 
   if (!post) {
-    return NextResponse.json(
+    return openClawJson(
       { message: "Blog post not found" },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 404
       }
     );
   }
 
-  return NextResponse.json(
-    { post },
-    {
-      headers: { "Cache-Control": "no-store" }
-    }
-  );
+  return openClawJson({ post });
 }
 
 export async function PATCH(request: Request, { params }: BlogPostRouteProps) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { idOrSlug } = await params;
@@ -70,34 +58,27 @@ export async function PATCH(request: Request, { params }: BlogPostRouteProps) {
   try {
     const post = await updateBlogPost(
       idOrSlug,
-      (await request.json()) as Record<string, unknown>,
+      await readJsonObject(request),
       localeFromUrl(request)
     );
 
     if (!post) {
-      return NextResponse.json(
+      return openClawJson(
         { message: "Blog post not found" },
         {
-          headers: { "Cache-Control": "no-store" },
           status: 404
         }
       );
     }
 
-    return NextResponse.json(
-      { post },
-      {
-        headers: { "Cache-Control": "no-store" }
-      }
-    );
+    return openClawJson({ post });
   } catch (error) {
-    return NextResponse.json(
+    return openClawJson(
       {
         message:
           error instanceof Error ? error.message : "Unable to update blog post"
       },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 400
       }
     );
@@ -105,27 +86,23 @@ export async function PATCH(request: Request, { params }: BlogPostRouteProps) {
 }
 
 export async function DELETE(request: Request, { params }: BlogPostRouteProps) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { idOrSlug } = await params;
   const post = await archiveBlogPost(idOrSlug, localeFromUrl(request));
 
   if (!post) {
-    return NextResponse.json(
+    return openClawJson(
       { message: "Blog post not found" },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 404
       }
     );
   }
 
-  return NextResponse.json(
-    { post },
-    {
-      headers: { "Cache-Control": "no-store" }
-    }
-  );
+  return openClawJson({ post });
 }

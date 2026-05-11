@@ -30,8 +30,3 @@ body {
     sans-serif;
   letter-spacing: 0;
 }
-
-.typeit-hero .ti-cursor {
-  color: var(--foreground);
-  margin-left: 0.08em;
-}

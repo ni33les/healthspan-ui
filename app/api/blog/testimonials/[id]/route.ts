@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
-import { adminClawRequestAllowed } from "@/lib/admin-auth";
 import {
   archiveTestimonial,
   getTestimonialForApi,
   updateTestimonial
 } from "@/lib/blog";
+import {
+  openClawJson,
+  readJsonObject,
+  requireOpenClawRequest
+} from "@/lib/openclaw-api";
 
 export const runtime = "nodejs";
 
@@ -14,54 +17,39 @@ type TestimonialRouteProps = Readonly<{
   }>;
 }>;
 
-function unauthorized() {
-  return NextResponse.json(
-    { message: "Testimonial write access is not authorized" },
-    {
-      headers: {
-        "Cache-Control": "no-store",
-        "WWW-Authenticate": 'Bearer realm="mattanutra-openclaw-api"'
-      },
-      status: 401
-    }
-  );
-}
-
 export async function GET(
   request: Request,
   { params }: TestimonialRouteProps
 ) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { id } = await params;
   const testimonial = await getTestimonialForApi(id);
 
   if (!testimonial) {
-    return NextResponse.json(
+    return openClawJson(
       { message: "Testimonial not found" },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 404
       }
     );
   }
 
-  return NextResponse.json(
-    { testimonial },
-    {
-      headers: { "Cache-Control": "no-store" }
-    }
-  );
+  return openClawJson({ testimonial });
 }
 
 export async function PATCH(
   request: Request,
   { params }: TestimonialRouteProps
 ) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { id } = await params;
@@ -69,27 +57,21 @@ export async function PATCH(
   try {
     const testimonial = await updateTestimonial(
       id,
-      (await request.json()) as Record<string, unknown>
+      await readJsonObject(request)
     );
 
     if (!testimonial) {
-      return NextResponse.json(
+      return openClawJson(
         { message: "Testimonial not found" },
         {
-          headers: { "Cache-Control": "no-store" },
           status: 404
         }
       );
     }
 
-    return NextResponse.json(
-      { testimonial },
-      {
-        headers: { "Cache-Control": "no-store" }
-      }
-    );
+    return openClawJson({ testimonial });
   } catch (error) {
-    return NextResponse.json(
+    return openClawJson(
       {
         message:
           error instanceof Error
@@ -97,7 +79,6 @@ export async function PATCH(
             : "Unable to update testimonial"
       },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 400
       }
     );
@@ -108,27 +89,23 @@ export async function DELETE(
   request: Request,
   { params }: TestimonialRouteProps
 ) {
-  if (!adminClawRequestAllowed(request)) {
-    return unauthorized();
+  const unauthorized = requireOpenClawRequest(request);
+
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const { id } = await params;
   const testimonial = await archiveTestimonial(id);
 
   if (!testimonial) {
-    return NextResponse.json(
+    return openClawJson(
       { message: "Testimonial not found" },
       {
-        headers: { "Cache-Control": "no-store" },
         status: 404
       }
     );
   }
 
-  return NextResponse.json(
-    { testimonial },
-    {
-      headers: { "Cache-Control": "no-store" }
-    }
-  );
+  return openClawJson({ testimonial });
 }
