@@ -64,16 +64,6 @@ function newUnsubscribeToken() {
   return crypto.randomUUID();
 }
 
-function hasHealthScoreAdvice(value: unknown) {
-  const advice = payloadRecord(payloadRecord(value).advice);
-  const overview = advice.overview;
-
-  return (
-    Boolean(overview && typeof overview === "object") ||
-    Array.isArray(advice.paywallFeatures)
-  );
-}
-
 async function createWorkTask(input: Readonly<{
   actorType: "ai" | "deterministic";
   description?: string;
@@ -168,7 +158,7 @@ export async function enqueueHealthScoreAnalysisTask({
     limit 1
   `;
 
-  if (!rows[0] || hasHealthScoreAdvice(rows[0].health_score)) {
+  if (!rows[0]) {
     return null;
   }
 

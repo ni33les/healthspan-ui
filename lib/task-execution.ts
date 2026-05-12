@@ -13,6 +13,12 @@ import {
 import { sendTransactionalEmail } from "@/lib/smtp-email";
 import type { TaskWorkItem } from "@/lib/task-work-items";
 
+function analysisErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "Unknown HealthScore analysis error";
+}
+
 function hasHealthScoreAdvice(value: unknown): value is HealthScoreResult {
   return (
     value !== null &&
@@ -24,21 +30,35 @@ function hasHealthScoreAdvice(value: unknown): value is HealthScoreResult {
 
 export async function executeTaskWorkItem(workItem: TaskWorkItem) {
   if (workItem.taskType === "analyze_healthscore") {
-    const healthScore = hasHealthScoreAdvice(workItem.healthScore)
-      ? workItem.healthScore
-      : (Object.assign({}, workItem.healthScore, {
-          advice: await analyzeHealthScoreAdvice({
-            answers: workItem.answers,
-            cache: false,
-            healthScore: workItem.healthScore,
-            locale: workItem.locale
-          })
-        }) satisfies HealthScoreResult);
+    if (hasHealthScoreAdvice(workItem.healthScore)) {
+      return {
+        cachedOrExisting: true,
+        healthScore: workItem.healthScore
+      };
+    }
 
-    return {
-      cachedOrExisting: hasHealthScoreAdvice(workItem.healthScore),
-      healthScore
-    };
+    try {
+      const advice = await analyzeHealthScoreAdvice({
+        answers: workItem.answers,
+        cache: false,
+        healthScore: workItem.healthScore,
+        locale: workItem.locale
+      });
+
+      return {
+        cachedOrExisting: false,
+        healthScore: Object.assign({}, workItem.healthScore, {
+          advice
+        }) satisfies HealthScoreResult
+      };
+    } catch (error) {
+      return {
+        cachedOrExisting: false,
+        errorMessage: analysisErrorMessage(error),
+        fallbackUsed: true,
+        healthScore: workItem.healthScore
+      };
+    }
   }
 
   if (

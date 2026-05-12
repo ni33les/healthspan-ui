@@ -74,9 +74,11 @@ async function applyHealthScoreResult(
   resultPayload: unknown
 ) {
   const sql = getSql();
-  const healthScore = objectValue(resultPayload).healthScore as
-    | HealthScoreResult
-    | undefined;
+  const payload = objectValue(resultPayload);
+  const healthScore = payload.healthScore as HealthScoreResult | undefined;
+  const fallbackUsed = payload.fallbackUsed === true;
+  const fallbackErrorMessage =
+    textValue(payload.errorMessage) || "HealthScore AI advice failed";
 
   if (!sql || !task.planId || !healthScore) {
     throw new Error("HealthScore completion result is incomplete");
@@ -103,10 +105,19 @@ async function applyHealthScoreResult(
     locale,
     planId: task.planId,
     properties: {
-      cachedOrExisting: objectValue(resultPayload).cachedOrExisting === true,
+      cachedOrExisting: payload.cachedOrExisting === true,
+      errorMessage: fallbackUsed ? fallbackErrorMessage : undefined,
+      fallbackUsed,
       taskId: task.id
     }
   });
+
+  if (fallbackUsed) {
+    await addWorkEvent(task, "healthscore_analysis_fallback_used", "high", {
+      errorMessage: fallbackErrorMessage,
+      fallback: "static_healthscore_copy"
+    });
+  }
 }
 
 async function applyPaidFormulationResult(
