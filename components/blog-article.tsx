@@ -1,4 +1,6 @@
 import Link from "next/link";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   CloudArrowUpIcon,
   LockClosedIcon,
@@ -7,6 +9,68 @@ import {
 import { HighlightedBrandText } from "@/components/highlighted-brand-text";
 import type { ComponentType } from "react";
 import type { BlogPost } from "@/lib/blog";
+
+const markdownComponents: Components = {
+  a: ({ children, href }) => (
+    <a
+      className="font-semibold text-[#126B4F] underline decoration-[#1FA77A]/30 underline-offset-4 transition hover:text-[#0F5A43] hover:decoration-[#1FA77A]"
+      href={href}
+      rel={href?.startsWith("http") ? "noreferrer" : undefined}
+      target={href?.startsWith("http") ? "_blank" : undefined}
+    >
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="mt-8 border-l-4 border-[#3A7BD5] pl-5 text-lg/8 font-medium text-gray-800">
+      {children}
+    </blockquote>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-gray-100 px-1.5 py-0.5 text-[0.9em] font-semibold text-gray-900">
+      {children}
+    </code>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-16 text-2xl font-bold tracking-tight text-gray-900">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mt-10 text-xl font-semibold tracking-tight text-gray-900">
+      {children}
+    </h3>
+  ),
+  hr: () => <hr className="my-10 border-gray-200" />,
+  img: ({ alt, src }) =>
+    src ? (
+      // Markdown-authored images are intentionally rendered directly.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        alt={alt ?? ""}
+        className="my-10 aspect-video w-full rounded-2xl bg-gray-50 object-cover outline-1 -outline-offset-1 outline-black/5"
+        src={String(src)}
+      />
+    ) : null,
+  li: ({ children }) => <li className="pl-1">{children}</li>,
+  ol: ({ children }) => (
+    <ol className="mt-6 list-decimal space-y-3 pl-6 text-gray-600">
+      {children}
+    </ol>
+  ),
+  p: ({ children }) => <p className="mt-6 first:mt-0">{children}</p>,
+  pre: ({ children }) => (
+    <pre className="mt-8 overflow-x-auto rounded-lg bg-gray-950 p-4 text-sm text-gray-100">
+      {children}
+    </pre>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-gray-900">{children}</strong>
+  ),
+  ul: ({ children }) => (
+    <ul className="mt-6 list-disc space-y-3 pl-6 text-gray-600">{children}</ul>
+  )
+};
 
 const pointIcons: ComponentType<{
   "aria-hidden": boolean;
@@ -94,11 +158,60 @@ function BlogAssessmentCta({
   );
 }
 
+function BlogMarkdownBody({ markdown }: Readonly<{ markdown: string }>) {
+  return (
+    <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+      {markdown}
+    </ReactMarkdown>
+  );
+}
+
+function StructuredBlogBody({ post }: Readonly<{ post: BlogPost }>) {
+  const points = post.body.points ?? [];
+
+  return (
+    <>
+      {post.body.intro ? <p>{post.body.intro}</p> : null}
+      {points.length > 0 ? (
+        <ul role="list" className="mt-8 max-w-xl space-y-8 text-gray-600">
+          {points.map((point, index) => {
+            const Icon = pointIcons[index] ?? ServerIcon;
+
+            return (
+              <li key={point.title} className="flex gap-x-3">
+                <Icon
+                  aria-hidden={true}
+                  className="mt-1 size-5 flex-none text-[#3A7BD5]"
+                />
+                <span>
+                  <strong className="font-semibold text-gray-900">
+                    {point.title}
+                  </strong>{" "}
+                  {point.body}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {post.body.sectionBody ? (
+        <p className="mt-8">{post.body.sectionBody}</p>
+      ) : null}
+      {post.body.sectionTitle ? (
+        <h2 className="mt-16 text-2xl font-bold tracking-tight text-gray-900">
+          {post.body.sectionTitle}
+        </h2>
+      ) : null}
+      {post.body.closing ? <p className="mt-6">{post.body.closing}</p> : null}
+    </>
+  );
+}
+
 export function BlogArticle({
   cta,
   post
 }: Readonly<{ cta: BlogArticleCta; post: BlogPost }>) {
-  const points = post.body.points ?? [];
+  const markdown = post.contentMarkdown.trim();
 
   return (
     <>
@@ -126,7 +239,7 @@ export function BlogArticle({
             <p className="mt-6 text-xl/8 text-gray-700">{post.subtitle}</p>
           </div>
           <div className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 lg:mx-0 lg:mt-10 lg:max-w-none lg:grid-cols-12">
-            <div className="relative lg:order-last lg:col-span-5">
+            <div className="relative space-y-10 lg:order-last lg:col-span-5">
               <svg
                 aria-hidden="true"
                 className="absolute -top-160 left-1 -z-10 h-256 w-702 -translate-x-1/2 mask-[radial-gradient(64rem_64rem_at_111.5rem_0%,white,transparent)] stroke-gray-900/10"
@@ -148,6 +261,17 @@ export function BlogArticle({
                   strokeWidth={0}
                 />
               </svg>
+              {post.imageUrl ? (
+                <figure className="relative mx-auto aspect-video w-full max-w-xl overflow-hidden rounded-2xl bg-gray-50 shadow-sm outline-1 -outline-offset-1 outline-black/5 sm:aspect-2/1 lg:aspect-[4/3] lg:max-w-none">
+                  {/* External CMS images are intentionally rendered directly. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt={post.imageAlt}
+                    src={post.imageUrl}
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                </figure>
+              ) : null}
               {post.testimonial ? (
                 <figure className="border-l border-[#3A7BD5] pl-8">
                   <blockquote className="text-xl/8 font-semibold tracking-tight text-gray-900">
@@ -184,53 +308,14 @@ export function BlogArticle({
                     </div>
                   </figcaption>
                 </figure>
-              ) : post.imageUrl ? (
-                <figure>
-                  {/* External CMS images are intentionally rendered directly. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt={post.imageAlt}
-                    src={post.imageUrl}
-                    className="aspect-[4/3] w-full rounded-2xl object-cover shadow-sm"
-                  />
-                </figure>
               ) : null}
             </div>
             <div className="max-w-xl text-base/7 text-gray-600 lg:col-span-7">
-              {post.body.intro ? <p>{post.body.intro}</p> : null}
-              {points.length > 0 ? (
-                <ul role="list" className="mt-8 max-w-xl space-y-8 text-gray-600">
-                  {points.map((point, index) => {
-                    const Icon = pointIcons[index] ?? ServerIcon;
-
-                    return (
-                      <li key={point.title} className="flex gap-x-3">
-                        <Icon
-                          aria-hidden={true}
-                          className="mt-1 size-5 flex-none text-[#3A7BD5]"
-                        />
-                        <span>
-                          <strong className="font-semibold text-gray-900">
-                            {point.title}
-                          </strong>{" "}
-                          {point.body}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              {post.body.sectionBody ? (
-                <p className="mt-8">{post.body.sectionBody}</p>
-              ) : null}
-              {post.body.sectionTitle ? (
-                <h2 className="mt-16 text-2xl font-bold tracking-tight text-gray-900">
-                  {post.body.sectionTitle}
-                </h2>
-              ) : null}
-              {post.body.closing ? (
-                <p className="mt-6">{post.body.closing}</p>
-              ) : null}
+              {markdown ? (
+                <BlogMarkdownBody markdown={markdown} />
+              ) : (
+                <StructuredBlogBody post={post} />
+              )}
             </div>
           </div>
         </div>

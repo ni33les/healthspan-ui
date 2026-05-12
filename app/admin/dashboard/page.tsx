@@ -42,6 +42,7 @@ export default async function AdminDashboardPage({
   const view =
     rawView === "alerts" ||
     rawView === "agents" ||
+    rawView === "blogs" ||
     rawView === "campaigns" ||
     rawView === "content" ||
     rawView === "communications" ||
@@ -52,6 +53,7 @@ export default async function AdminDashboardPage({
     rawView === "leads" ||
     rawView === "reviews" ||
     rawView === "supplements" ||
+    rawView === "testimonials" ||
     rawView === "visibility"
       ? rawView
       : "glance";

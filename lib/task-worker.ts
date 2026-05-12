@@ -832,8 +832,10 @@ async function runCronWorker() {
   return { queued };
 }
 
-export function kickTaskWorker() {
-  return kickInternalApiWorker();
+export function kickTaskWorker(
+  options?: Parameters<typeof kickInternalApiWorker>[0]
+) {
+  return kickInternalApiWorker(options);
 }
 
 export function kickCronWorker() {

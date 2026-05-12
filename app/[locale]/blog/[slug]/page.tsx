@@ -18,8 +18,7 @@ type BlogArticlePageProps = Readonly<{
   }>;
 }>;
 
-export const dynamic = "force-static";
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 async function getPagePost(params: BlogArticlePageProps["params"]) {
   const { locale: rawLocale, slug } = await params;

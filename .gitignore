@@ -9,6 +9,8 @@ out
 
 # production
 build
+public/uploads/*
+!public/uploads/.gitkeep
 
 # local env
 .env

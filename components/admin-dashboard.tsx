@@ -3,6 +3,7 @@
 import {
   useEffect,
   useState,
+  type ChangeEvent,
   type ComponentType,
   type FormEvent,
   type ReactNode,
@@ -13,7 +14,20 @@ import {
   ComboboxButton,
   ComboboxInput,
   ComboboxOption,
-  ComboboxOptions
+  ComboboxOptions,
+  Dialog,
+  DialogBackdrop,
+  DialogPanel,
+  DialogTitle,
+  Field,
+  Input,
+  Label,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuItems,
+  Select,
+  Textarea
 } from "@headlessui/react";
 import {
   BanknotesIcon,
@@ -29,9 +43,7 @@ import {
   FunnelIcon,
   HomeIcon,
   MegaphoneIcon,
-  PencilSquareIcon,
   PhotoIcon,
-  PlusIcon,
   QueueListIcon,
   SparklesIcon,
   XMarkIcon
@@ -104,6 +116,7 @@ import type { Locale } from "@/lib/i18n";
 type AdminDashboardView =
   | "agents"
   | "alerts"
+  | "blogs"
   | "campaigns"
   | "content"
   | "communications"
@@ -114,6 +127,7 @@ type AdminDashboardView =
   | "leads"
   | "reviews"
   | "supplements"
+  | "testimonials"
   | "visibility";
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 type GoalMetricId =
@@ -127,6 +141,8 @@ type ContentMetricId =
   | "contentBlogPosts"
   | "contentDeleted"
   | "contentDraft"
+  | "contentLocaleEn"
+  | "contentLocaleTh"
   | "contentPageViews"
   | "contentPublished"
   | "contentScheduled"
@@ -139,6 +155,7 @@ type ContentEditorState = Readonly<{
 }> | null;
 type ContentEditorForm = Readonly<{
   authorName: string;
+  contentMarkdown: string;
   contentType: ContentEditorType;
   excerpt: string;
   imageAlt: string;
@@ -207,12 +224,15 @@ type AdminContent = Readonly<{
     time: string;
     total: string;
   };
+  contentNavigation: AdminNavItem[];
+  contentTitle: string;
   contentPages: {
     actions: string;
     all: string;
     authorName: string;
     blogPosts: string;
     cancel: string;
+    contentMarkdown: string;
     created: string;
     deleted: string;
     deleteAction: string;
@@ -222,10 +242,14 @@ type AdminContent = Readonly<{
     editorError: string;
     editorRequiredError: string;
     empty: string;
+    en: string;
     excerpt: string;
     imageAlt: string;
     imageAltRequired: string;
     imagePreview: string;
+    imageUpload: string;
+    imageUploadError: string;
+    imageUploadHint: string;
     imageUrl: string;
     lastViewed: string;
     locale: string;
@@ -245,9 +269,11 @@ type AdminContent = Readonly<{
     source: string;
     status: string;
     testimonials: string;
+    th: string;
     title: string;
     total: string;
     type: string;
+    uploadingImage: string;
     updateError: string;
     updated: string;
     views: string;
@@ -543,6 +569,7 @@ const content = {
       authorName: "Author name",
       blogPosts: "Blog posts",
       cancel: "Cancel",
+      contentMarkdown: "Markdown",
       created: "Created",
       deleted: "Deleted",
       deleteAction: "Delete",
@@ -552,10 +579,14 @@ const content = {
       editorError: "Could not save this content item.",
       editorRequiredError: "Fill in the required fields before saving.",
       empty: "No content matches this view.",
+      en: "EN",
       excerpt: "Excerpt",
       imageAlt: "Image alt text",
       imageAltRequired: "Add image alt text before saving.",
       imagePreview: "Image preview",
+      imageUpload: "Upload image",
+      imageUploadError: "Could not upload this image.",
+      imageUploadHint: "JPG, PNG, WebP or GIF, up to 6 MB.",
       imageUrl: "Image URL",
       lastViewed: "Last viewed",
       locale: "Locale",
@@ -575,9 +606,11 @@ const content = {
       source: "Source",
       status: "Status",
       testimonials: "Testimonials",
+      th: "TH",
       title: "Title",
       total: "Total",
       type: "Type",
+      uploadingImage: "Uploading...",
       updateError: "Could not update this content item.",
       updated: "Updated",
       views: "Views"
@@ -745,10 +778,14 @@ const content = {
         icon: ChatBubbleLeftRightIcon,
         name: "Communications",
         view: "communications"
-      },
-      { icon: DocumentTextIcon, name: "Content", view: "content" }
+      }
     ],
     marketingTitle: "Marketing",
+    contentNavigation: [
+      { icon: DocumentTextIcon, name: "Blogs", view: "blogs" },
+      { icon: SparklesIcon, name: "Testimonials", view: "testimonials" }
+    ],
+    contentTitle: "Content",
     governance: [
       { icon: ExclamationTriangleIcon, name: "Reviews", view: "reviews" },
       { icon: BeakerIcon, name: "Supplements", view: "supplements" }
@@ -765,6 +802,7 @@ const content = {
     pageTitles: {
       agents: "Agents",
       alerts: "Technical Alerts",
+      blogs: "Blogs",
       campaigns: "Campaigns",
       content: "Content",
       communications: "Communications",
@@ -775,6 +813,7 @@ const content = {
       leads: "Leads",
       reviews: "Reviews",
       supplements: "Supplements",
+      testimonials: "Testimonials",
       visibility: "Tasks"
     },
     ranges: {
@@ -946,6 +985,7 @@ const content = {
       authorName: "ชื่อผู้เขียน",
       blogPosts: "บทความ",
       cancel: "ยกเลิก",
+      contentMarkdown: "Markdown",
       created: "สร้างเมื่อ",
       deleted: "ลบแล้ว",
       deleteAction: "ลบ",
@@ -955,10 +995,14 @@ const content = {
       editorError: "ไม่สามารถบันทึกคอนเทนต์นี้ได้",
       editorRequiredError: "กรอกข้อมูลที่จำเป็นก่อนบันทึก",
       empty: "ไม่มีคอนเทนต์ที่ตรงกับมุมมองนี้",
+      en: "EN",
       excerpt: "สรุป",
       imageAlt: "คำอธิบายรูปภาพ",
       imageAltRequired: "เพิ่มคำอธิบายรูปภาพก่อนบันทึก",
       imagePreview: "ตัวอย่างรูปภาพ",
+      imageUpload: "อัปโหลดรูปภาพ",
+      imageUploadError: "ไม่สามารถอัปโหลดรูปภาพนี้ได้",
+      imageUploadHint: "JPG, PNG, WebP หรือ GIF ขนาดไม่เกิน 6 MB",
       imageUrl: "URL รูปภาพ",
       lastViewed: "ดูล่าสุด",
       locale: "ภาษา",
@@ -978,9 +1022,11 @@ const content = {
       source: "แหล่งที่มา",
       status: "สถานะ",
       testimonials: "คำรับรอง",
+      th: "TH",
       title: "ชื่อ",
       total: "ทั้งหมด",
       type: "ประเภท",
+      uploadingImage: "กำลังอัปโหลด...",
       updateError: "ไม่สามารถอัปเดตคอนเทนต์นี้ได้",
       updated: "อัปเดต",
       views: "ยอดดู"
@@ -1148,10 +1194,14 @@ const content = {
         icon: ChatBubbleLeftRightIcon,
         name: "การสื่อสาร",
         view: "communications"
-      },
-      { icon: DocumentTextIcon, name: "คอนเทนต์", view: "content" }
+      }
     ],
     marketingTitle: "การตลาด",
+    contentNavigation: [
+      { icon: DocumentTextIcon, name: "บทความ", view: "blogs" },
+      { icon: SparklesIcon, name: "คำรับรอง", view: "testimonials" }
+    ],
+    contentTitle: "คอนเทนต์",
     governance: [
       { icon: ExclamationTriangleIcon, name: "รีวิว", view: "reviews" },
       { icon: BeakerIcon, name: "อาหารเสริม", view: "supplements" }
@@ -1168,6 +1218,7 @@ const content = {
     pageTitles: {
       agents: "Agents",
       alerts: "การแจ้งเตือนทางเทคนิค",
+      blogs: "บทความ",
       campaigns: "แคมเปญ",
       content: "คอนเทนต์",
       communications: "การสื่อสาร",
@@ -1178,6 +1229,7 @@ const content = {
       leads: "ลีด",
       reviews: "รีวิว",
       supplements: "อาหารเสริม",
+      testimonials: "คำรับรอง",
       visibility: "Tasks"
     },
     ranges: {
@@ -1648,6 +1700,16 @@ function SidebarContent({
             onNavigate={onNavigate}
             range={range}
             title={labels.marketingTitle}
+            view={view}
+          />
+          <SidebarNavList
+            accessToken={accessToken}
+            filters={filters}
+            items={labels.contentNavigation}
+            locale={locale}
+            onNavigate={onNavigate}
+            range={range}
+            title={labels.contentTitle}
             view={view}
           />
           <SidebarNavList
@@ -3170,51 +3232,6 @@ function contentWorkflowStatusClass(status: AdminContentWorkflowStatus) {
   return "bg-amber-50 text-amber-800 ring-amber-200";
 }
 
-function contentWorkflowActionButtonClass(
-  status: AdminContentWorkflowStatus,
-  position: "left" | "middle" | "right" | "single"
-) {
-  const positionClass =
-    position === "left"
-      ? "rounded-l-md"
-      : position === "right"
-        ? "rounded-r-md"
-        : position === "single"
-          ? "rounded-md"
-          : "";
-  const baseClass = classNames(
-    "relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset transition focus:z-10 disabled:cursor-not-allowed disabled:opacity-50",
-    position !== "left" && "-ml-px",
-    positionClass
-  );
-
-  if (status === "published") {
-    return classNames(
-      baseClass,
-      "bg-emerald-50 text-emerald-800 ring-emerald-200 hover:bg-emerald-100"
-    );
-  }
-
-  if (status === "scheduled") {
-    return classNames(
-      baseClass,
-      "bg-blue-50 text-blue-800 ring-blue-200 hover:bg-blue-100"
-    );
-  }
-
-  if (status === "deleted") {
-    return classNames(
-      baseClass,
-      "bg-gray-50 text-gray-700 ring-gray-200 hover:bg-gray-100"
-    );
-  }
-
-  return classNames(
-    baseClass,
-    "bg-amber-50 text-amber-800 ring-amber-200 hover:bg-amber-100"
-  );
-}
-
 function contentMatchesMetric(
   row: AdminContentInventoryRow,
   metricId: ContentMetricId
@@ -3229,6 +3246,14 @@ function contentMatchesMetric(
 
   if (metricId === "contentDraft") {
     return row.workflowStatus === "draft";
+  }
+
+  if (metricId === "contentLocaleEn") {
+    return row.locale === "en";
+  }
+
+  if (metricId === "contentLocaleTh") {
+    return row.locale === "th";
   }
 
   if (metricId === "contentDeleted") {
@@ -3268,6 +3293,20 @@ function defaultContentScheduleValue() {
   return localDateTimeInputValue(date);
 }
 
+function contentTypeForView(
+  view: AdminDashboardView
+): AdminContentInventoryRow["contentType"] | null {
+  if (view === "blogs") {
+    return "blog_post";
+  }
+
+  if (view === "testimonials") {
+    return "testimonial";
+  }
+
+  return null;
+}
+
 function contentHref(row: AdminContentInventoryRow, accessToken: string) {
   const locale = row.locale === "th" ? "th" : "en";
 
@@ -3299,6 +3338,13 @@ function slugFromTitle(value: string) {
     .slice(0, 90);
 }
 
+function imageAltFromFileName(value: string) {
+  const stem = value.replace(/\.[^/.]+$/, "");
+  const text = stem.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+  return text ? text.slice(0, 120) : "";
+}
+
 function formLocale(value?: string | null): Locale {
   return value === "th" ? "th" : "en";
 }
@@ -3309,6 +3355,7 @@ function contentEditorForm(editor: NonNullable<ContentEditorState>): ContentEdit
 
   return {
     authorName: !blogPost && row ? row.title : "",
+    contentMarkdown: blogPost && row?.contentMarkdown ? row.contentMarkdown : "",
     contentType: editor.contentType,
     excerpt: blogPost && row?.summary ? row.summary : "",
     imageAlt: row?.imageAlt ?? "",
@@ -3322,11 +3369,13 @@ function contentEditorForm(editor: NonNullable<ContentEditorState>): ContentEdit
 
 function AdminContentView({
   accessToken,
+  contentTypeFilter,
   data,
   labels,
   locale
 }: Readonly<{
   accessToken: string;
+  contentTypeFilter?: AdminContentInventoryRow["contentType"] | null;
   data: AdminContentInventoryData;
   labels: AdminContent;
   locale: Locale;
@@ -3341,10 +3390,14 @@ function AdminContentView({
   const [scheduleValues, setScheduleValues] = useState<Record<string, string>>({});
   const [selectedMetricId, setSelectedMetricId] =
     useState<ContentMetricId>("contentTotal");
-  const rows = [...createdRows, ...data.rows].map((row) => ({
-    ...row,
-    ...(rowOverrides[row.id] ?? {})
-  }));
+  const rows = [...createdRows, ...data.rows]
+    .map((row) => ({
+      ...row,
+      ...(rowOverrides[row.id] ?? {})
+    }))
+    .filter(
+      (row) => !contentTypeFilter || row.contentType === contentTypeFilter
+    );
 
   const summary = rows.reduce(
     (counts, row) => {
@@ -3357,6 +3410,14 @@ function AdminContentView({
         counts.testimonials += 1;
       }
 
+      if (row.locale === "en") {
+        counts.en += 1;
+      }
+
+      if (row.locale === "th") {
+        counts.th += 1;
+      }
+
       counts[row.workflowStatus] += 1;
 
       return counts;
@@ -3365,10 +3426,12 @@ function AdminContentView({
       blogPosts: 0,
       deleted: 0,
       draft: 0,
+      en: 0,
       pageViews: 0,
       published: 0,
       scheduled: 0,
       testimonials: 0,
+      th: 0,
       total: 0
     }
   );
@@ -3382,6 +3445,20 @@ function AdminContentView({
       label: labels.contentPages.total,
       series: [],
       value: formatNumber(summary.total, locale)
+    },
+    {
+      color: businessMetricColors.total,
+      id: "contentLocaleTh",
+      label: labels.contentPages.th,
+      series: [],
+      value: formatNumber(summary.th, locale)
+    },
+    {
+      color: businessMetricColors.total,
+      id: "contentLocaleEn",
+      label: labels.contentPages.en,
+      series: [],
+      value: formatNumber(summary.en, locale)
     },
     {
       color: businessMetricColors.contentPublished,
@@ -3404,20 +3481,24 @@ function AdminContentView({
       series: [],
       value: formatNumber(summary.pageViews, locale)
     },
-    {
-      color: businessMetricColors.landingVisitors,
-      id: "contentBlogPosts",
-      label: labels.contentPages.blogPosts,
-      series: [],
-      value: formatNumber(summary.blogPosts, locale)
-    },
-    {
-      color: businessMetricColors.healthScoreViews,
-      id: "contentTestimonials",
-      label: labels.contentPages.testimonials,
-      series: [],
-      value: formatNumber(summary.testimonials, locale)
-    },
+    ...(!contentTypeFilter
+      ? [
+          {
+            color: businessMetricColors.landingVisitors,
+            id: "contentBlogPosts",
+            label: labels.contentPages.blogPosts,
+            series: [],
+            value: formatNumber(summary.blogPosts, locale)
+          },
+          {
+            color: businessMetricColors.healthScoreViews,
+            id: "contentTestimonials",
+            label: labels.contentPages.testimonials,
+            series: [],
+            value: formatNumber(summary.testimonials, locale)
+          }
+        ]
+      : []),
     {
       color: businessMetricColors.contentDraft,
       id: "contentDraft",
@@ -3537,22 +3618,26 @@ function AdminContentView({
       />
 
       <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button
-          className="inline-flex items-center gap-2 rounded-md bg-[#126B4F] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#0F5A43] focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
-          onClick={() => setEditorState({ contentType: "blog_post" })}
-          type="button"
-        >
-          <PlusIcon aria-hidden="true" className="size-4" />
-          {labels.contentPages.newBlogPost}
-        </button>
-        <button
-          className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
-          onClick={() => setEditorState({ contentType: "testimonial" })}
-          type="button"
-        >
-          <SparklesIcon aria-hidden="true" className="size-4 text-[#126B4F]" />
-          {labels.contentPages.newTestimonial}
-        </button>
+        {contentTypeFilter !== "testimonial" ? (
+          <button
+            aria-label={labels.contentPages.newBlogPost}
+            className="inline-flex size-9 items-center justify-center rounded-md bg-[#126B4F] text-lg font-semibold text-white shadow-sm hover:bg-[#0F5A43] focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+            onClick={() => setEditorState({ contentType: "blog_post" })}
+            type="button"
+          >
+            +
+          </button>
+        ) : null}
+        {contentTypeFilter !== "blog_post" ? (
+          <button
+            aria-label={labels.contentPages.newTestimonial}
+            className="inline-flex size-9 items-center justify-center rounded-md bg-white text-lg font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+            onClick={() => setEditorState({ contentType: "testimonial" })}
+            type="button"
+          >
+            +
+          </button>
+        ) : null}
       </div>
 
       {filteredRows.length > 0 ? (
@@ -3639,6 +3724,15 @@ function ContentThumbnail({ row }: Readonly<{ row: AdminContentInventoryRow }>) 
   );
 }
 
+function contentWorkflowMenuItemClass(tone: "default" | "danger" = "default") {
+  return classNames(
+    "block w-full px-4 py-2 text-left text-sm data-focus:outline-hidden",
+    tone === "danger"
+      ? "text-red-700 data-focus:bg-red-50 data-focus:text-red-800"
+      : "text-gray-700 data-focus:bg-gray-100 data-focus:text-gray-900"
+  );
+}
+
 function ContentCard({
   accessToken,
   busy,
@@ -3666,6 +3760,15 @@ function ContentCard({
   scheduleValue: string;
 }>) {
   const href = contentHref(row, accessToken);
+  const draftMode = row.workflowStatus === "draft";
+  const showMoveToDraft = row.workflowStatus !== "draft";
+  const showPublish =
+    row.workflowStatus !== "published" && row.workflowStatus !== "deleted";
+  const showSchedule = draftMode;
+  const scheduledPublishDate =
+    row.workflowStatus === "scheduled" && row.scheduledFor
+      ? formatGeneratedAt(row.scheduledFor, locale)
+      : null;
 
   return (
     <article className="flex h-full flex-col rounded-lg bg-white p-5 shadow-sm ring-1 ring-gray-200 transition hover:shadow-md">
@@ -3710,15 +3813,6 @@ function ContentCard({
                   {labels.contentPages.views}
                 </div>
               </div>
-              <button
-                aria-label={labels.contentPages.edit}
-                className="inline-flex size-9 items-center justify-center rounded-md bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 hover:text-gray-900 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
-                onClick={() => onEdit(row)}
-                title={labels.contentPages.edit}
-                type="button"
-              >
-                <PencilSquareIcon aria-hidden="true" className="size-4" />
-              </button>
             </div>
           </div>
 
@@ -3731,50 +3825,97 @@ function ContentCard({
       </div>
 
       <div className="mt-auto pt-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="isolate inline-flex rounded-md shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Menu as="div" className="relative inline-block text-left">
+              <MenuButton
+                className="inline-flex items-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+                disabled={busy}
+              >
+                {contentWorkflowStatusLabel(labels, row.workflowStatus)}
+                <ChevronDownSolidIcon
+                  aria-hidden="true"
+                  className="-mr-1 size-4 text-gray-400"
+                />
+              </MenuButton>
+              <MenuItems
+                className="absolute left-0 z-20 mt-2 w-44 origin-top-left rounded-md bg-white py-1 shadow-lg outline-1 outline-black/5 transition data-closed:scale-95 data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+                transition
+              >
+                {showMoveToDraft ? (
+                  <MenuItem>
+                    <button
+                      className={contentWorkflowMenuItemClass()}
+                      onClick={() => onWorkflow(row, "draft")}
+                      type="button"
+                    >
+                      {labels.contentPages.draftAction}
+                    </button>
+                  </MenuItem>
+                ) : null}
+                {showPublish ? (
+                  <MenuItem>
+                    <button
+                      className={contentWorkflowMenuItemClass()}
+                      onClick={() => onWorkflow(row, "published")}
+                      type="button"
+                    >
+                      {labels.contentPages.publishAction}
+                    </button>
+                  </MenuItem>
+                ) : null}
+                {showSchedule ? (
+                  <MenuItem>
+                    <button
+                      className={contentWorkflowMenuItemClass()}
+                      onClick={() => onWorkflow(row, "scheduled")}
+                      type="button"
+                    >
+                      {labels.contentPages.scheduleAction}
+                    </button>
+                  </MenuItem>
+                ) : null}
+              </MenuItems>
+            </Menu>
+
+            {scheduledPublishDate ? (
+              <span className="text-sm font-medium text-gray-500">
+                {scheduledPublishDate}
+              </span>
+            ) : null}
+
+            {showSchedule ? (
+              <input
+                aria-label={labels.contentPages.scheduledFor}
+                className="min-w-0 rounded-md bg-white px-3 py-2 text-xs text-gray-900 shadow-sm ring-1 ring-inset ring-blue-200 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]"
+                onChange={(event) => onScheduleChange(event.target.value)}
+                type="datetime-local"
+                value={scheduleValue}
+              />
+            ) : null}
+
+            {draftMode ? (
+              <button
+                className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+                disabled={busy}
+                onClick={() => onEdit(row)}
+                type="button"
+              >
+                {labels.contentPages.edit}
+              </button>
+            ) : null}
+          </div>
+
+          {draftMode ? (
             <button
-              className={contentWorkflowActionButtonClass("draft", "left")}
-              disabled={busy || row.workflowStatus === "draft"}
-              onClick={() => onWorkflow(row, "draft")}
-              type="button"
-            >
-              {labels.contentPages.draftAction}
-            </button>
-            <button
-              className={contentWorkflowActionButtonClass("published", "middle")}
-              disabled={busy || row.workflowStatus === "published"}
-              onClick={() => onWorkflow(row, "published")}
-              type="button"
-            >
-              {labels.contentPages.publishAction}
-            </button>
-            <button
-              className={contentWorkflowActionButtonClass("deleted", "right")}
-              disabled={busy || row.workflowStatus === "deleted"}
+              className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-2 focus:outline-offset-2 focus:outline-red-300"
+              disabled={busy}
               onClick={() => onWorkflow(row, "deleted")}
               type="button"
             >
               {labels.contentPages.deleteAction}
             </button>
-          </span>
-          <span className="isolate inline-flex max-w-full rounded-md shadow-xs">
-            <input
-              aria-label={labels.contentPages.scheduledFor}
-              className="relative inline-flex min-w-0 rounded-l-md bg-white px-3 py-2 text-xs text-gray-900 ring-1 ring-inset ring-blue-200 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]"
-              onChange={(event) => onScheduleChange(event.target.value)}
-              type="datetime-local"
-              value={scheduleValue}
-            />
-            <button
-              className={contentWorkflowActionButtonClass("scheduled", "right")}
-              disabled={busy}
-              onClick={() => onWorkflow(row, "scheduled")}
-              type="button"
-            >
-              {labels.contentPages.scheduleAction}
-            </button>
-          </span>
+          ) : null}
         </div>
         {error ? (
           <p className="mt-2 text-xs font-medium text-red-600">
@@ -3803,14 +3944,22 @@ function ContentEditorModal({
 }>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [form, setForm] = useState<ContentEditorForm>(() =>
     contentEditorForm(editor)
   );
   const editing = Boolean(editor.row);
   const blogPost = form.contentType === "blog_post";
   const inputClass =
-    "block w-full rounded-md border-0 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]";
-  const labelClass = "block text-xs font-semibold uppercase text-gray-500";
+    "block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#1FA77A] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500";
+  const labelClass = "block text-sm font-medium text-gray-900";
+  const modalTitle = blogPost
+    ? editing
+      ? labels.contentPages.blogPosts
+      : labels.contentPages.newBlogPost
+    : editing
+      ? labels.contentPages.testimonials
+      : labels.contentPages.newTestimonial;
 
   function updateForm(patch: Partial<ContentEditorForm>) {
     setForm((current) => ({
@@ -3833,6 +3982,53 @@ function ContentEditorModal({
         title: value
       };
     });
+  }
+
+  async function uploadImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setUploadingImage(true);
+    setError(null);
+
+    try {
+      const uploadBody = new FormData();
+      uploadBody.set("accessToken", accessToken);
+      uploadBody.set("file", file);
+
+      const response = await fetch("/api/admin/content/uploads", {
+        body: uploadBody,
+        method: "POST"
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        url?: string;
+      };
+
+      if (!response.ok || !result.url) {
+        throw new Error(result.message ?? labels.contentPages.imageUploadError);
+      }
+
+      const uploadedUrl = result.url;
+
+      setForm((current) => ({
+        ...current,
+        imageAlt: current.imageAlt || imageAltFromFileName(file.name),
+        imageUrl: uploadedUrl
+      }));
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : labels.contentPages.imageUploadError
+      );
+    } finally {
+      setUploadingImage(false);
+      event.target.value = "";
+    }
   }
 
   async function submitEditor(event: FormEvent<HTMLFormElement>) {
@@ -3859,6 +4055,7 @@ function ContentEditorModal({
       const response = await fetch("/api/admin/content/editor", {
         body: JSON.stringify({
           accessToken,
+          contentMarkdown: blogPost ? form.contentMarkdown : undefined,
           contentId: editor.row?.id,
           contentType: form.contentType,
           currentStatus: editor.row?.status,
@@ -3898,20 +4095,24 @@ function ContentEditorModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900/30 px-4 py-6 sm:py-10">
-      <div className="mx-auto max-w-2xl rounded-lg bg-white shadow-xl ring-1 ring-gray-200">
+    <Dialog className="relative z-50" onClose={onClose} open>
+      <DialogBackdrop
+        className="fixed inset-0 bg-gray-500/75 transition-opacity data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in"
+        transition
+      />
+
+      <div className="fixed inset-0 z-50 w-screen overflow-y-auto">
+        <div className="flex min-h-full items-end justify-center p-4 text-left sm:items-center sm:p-0">
+          <DialogPanel
+            className="relative w-full transform overflow-hidden rounded-lg bg-white shadow-xl transition-all data-closed:translate-y-4 data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in sm:my-8 sm:max-w-2xl data-closed:sm:translate-y-0 data-closed:sm:scale-95"
+            transition
+          >
         <form onSubmit={submitEditor}>
           <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
             <div className="min-w-0">
-              <p className="text-base font-semibold text-gray-900">
-                {blogPost
-                  ? editing
-                    ? labels.contentPages.blogPosts
-                    : labels.contentPages.newBlogPost
-                  : editing
-                    ? labels.contentPages.testimonials
-                    : labels.contentPages.newTestimonial}
-              </p>
+              <DialogTitle className="text-base font-semibold text-gray-900">
+                {modalTitle}
+              </DialogTitle>
               <p className="mt-1 text-xs font-medium text-gray-500">
                 {editing ? labels.contentPages.edit : labels.contentPages.draft}
               </p>
@@ -3928,43 +4129,49 @@ function ContentEditorModal({
 
           <div className="space-y-5 px-5 py-5">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_9rem]">
-              <div>
-                <label className={labelClass} htmlFor="content-locale">
+              <Field>
+                <Label className={labelClass}>
                   {labels.contentPages.locale}
-                </label>
-                <select
-                  className={classNames(inputClass, "mt-2")}
-                  id="content-locale"
-                  onChange={(event) =>
-                    updateForm({ locale: formLocale(event.target.value) })
-                  }
-                  value={form.locale}
-                >
-                  <option value="en">EN</option>
-                  <option value="th">TH</option>
-                </select>
-              </div>
+                </Label>
+                <div className="relative mt-2">
+                  <Select
+                    className={classNames(inputClass, "appearance-none pr-9")}
+                    id="content-locale"
+                    onChange={(event) =>
+                      updateForm({ locale: formLocale(event.target.value) })
+                    }
+                    value={form.locale}
+                  >
+                    <option value="en">EN</option>
+                    <option value="th">TH</option>
+                  </Select>
+                  <ChevronDownSolidIcon
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+                  />
+                </div>
+              </Field>
             </div>
 
             {blogPost ? (
               <>
-                <div>
-                  <label className={labelClass} htmlFor="content-title">
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.title}
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     className={classNames(inputClass, "mt-2")}
                     id="content-title"
                     onChange={(event) => updateTitle(event.target.value)}
                     type="text"
                     value={form.title}
                   />
-                </div>
-                <div>
-                  <label className={labelClass} htmlFor="content-slug">
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.slug}
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     className={classNames(inputClass, "mt-2")}
                     id="content-slug"
                     onChange={(event) =>
@@ -3973,12 +4180,12 @@ function ContentEditorModal({
                     type="text"
                     value={form.slug}
                   />
-                </div>
-                <div>
-                  <label className={labelClass} htmlFor="content-excerpt">
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.excerpt}
-                  </label>
-                  <textarea
+                  </Label>
+                  <Textarea
                     className={classNames(inputClass, "mt-2 min-h-28")}
                     id="content-excerpt"
                     onChange={(event) =>
@@ -3986,15 +4193,31 @@ function ContentEditorModal({
                     }
                     value={form.excerpt}
                   />
-                </div>
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
+                    {labels.contentPages.contentMarkdown}
+                  </Label>
+                  <Textarea
+                    className={classNames(
+                      inputClass,
+                      "mt-2 min-h-80 font-mono text-[13px] leading-6"
+                    )}
+                    id="content-markdown"
+                    onChange={(event) =>
+                      updateForm({ contentMarkdown: event.target.value })
+                    }
+                    value={form.contentMarkdown}
+                  />
+                </Field>
               </>
             ) : (
               <>
-                <div>
-                  <label className={labelClass} htmlFor="content-author">
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.authorName}
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     className={classNames(inputClass, "mt-2")}
                     id="content-author"
                     onChange={(event) =>
@@ -4003,23 +4226,23 @@ function ContentEditorModal({
                     type="text"
                     value={form.authorName}
                   />
-                </div>
-                <div>
-                  <label className={labelClass} htmlFor="content-quote">
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.quote}
-                  </label>
-                  <textarea
+                  </Label>
+                  <Textarea
                     className={classNames(inputClass, "mt-2 min-h-32")}
                     id="content-quote"
                     onChange={(event) => updateForm({ quote: event.target.value })}
                     value={form.quote}
                   />
-                </div>
+                </Field>
               </>
             )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[6rem_1fr]">
-              <div className="flex size-24 items-center justify-center overflow-hidden rounded-lg bg-gray-50 ring-1 ring-gray-200">
+              <div className="flex size-24 items-center justify-center overflow-hidden rounded-lg bg-gray-50 outline-1 -outline-offset-1 outline-gray-200">
                 {form.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary image URLs.
                   <img
@@ -4032,25 +4255,46 @@ function ContentEditorModal({
                 )}
               </div>
               <div className="space-y-4">
-                <div>
-                  <label className={labelClass} htmlFor="content-image-url">
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.imageUrl}
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     className={classNames(inputClass, "mt-2")}
                     id="content-image-url"
                     onChange={(event) =>
                       updateForm({ imageUrl: event.target.value })
                     }
-                    type="url"
+                    type="text"
                     value={form.imageUrl}
                   />
-                </div>
-                <div>
-                  <label className={labelClass} htmlFor="content-image-alt">
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
+                    {labels.contentPages.imageUpload}
+                  </Label>
+                  <Input
+                    accept="image/gif,image/jpeg,image/png,image/webp"
+                    className={classNames(
+                      inputClass,
+                      "mt-2 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200"
+                    )}
+                    disabled={busy || uploadingImage}
+                    id="content-image-upload"
+                    onChange={uploadImage}
+                    type="file"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">
+                    {uploadingImage
+                      ? labels.contentPages.uploadingImage
+                      : labels.contentPages.imageUploadHint}
+                  </p>
+                </Field>
+                <Field>
+                  <Label className={labelClass}>
                     {labels.contentPages.imageAlt}
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     className={classNames(inputClass, "mt-2")}
                     id="content-image-alt"
                     onChange={(event) =>
@@ -4059,7 +4303,7 @@ function ContentEditorModal({
                     type="text"
                     value={form.imageAlt}
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
@@ -4070,9 +4314,10 @@ function ContentEditorModal({
             ) : null}
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4">
+          <div className="flex items-center justify-end gap-3 bg-gray-50 px-5 py-4">
             <button
-              className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-200 hover:bg-gray-50"
+              className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              data-autofocus
               disabled={busy}
               onClick={onClose}
               type="button"
@@ -4081,15 +4326,17 @@ function ContentEditorModal({
             </button>
             <button
               className="rounded-md bg-[#126B4F] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#0F5A43] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={busy}
+              disabled={busy || uploadingImage}
               type="submit"
             >
               {busy ? labels.contentPages.saving : labels.contentPages.save}
             </button>
           </div>
         </form>
+          </DialogPanel>
+        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
 const supplementListStatuses: SupplementListStatus[] = [
@@ -8096,7 +8343,7 @@ function adminViewDatabaseAvailable({
     return campaignsData.databaseAvailable;
   }
 
-  if (view === "content") {
+  if (view === "blogs" || view === "content" || view === "testimonials") {
     return contentData.databaseAvailable;
   }
 
@@ -8175,6 +8422,8 @@ export function AdminDashboard({
   view: AdminDashboardView;
 }>) {
   const labels = content[locale];
+  const contentManagementView =
+    view === "blogs" || view === "content" || view === "testimonials";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const goalsStreamKey = `${view}:${data.range}:${goalsData.selectedGoalId ?? ""}`;
   const liveGoalsData = useLiveAdminData({
@@ -8319,16 +8568,16 @@ export function AdminDashboard({
             </div>
           ) : null}
 
-          {view === "agents" ||
+          {!contentManagementView &&
+          (view === "agents" ||
           view === "alerts" ||
           view === "campaigns" ||
-          view === "content" ||
           view === "communications" ||
           view === "flow" ||
           view === "glance" ||
           view === "goals" ||
           view === "leads" ||
-          view === "visibility" ? (
+          view === "visibility") ? (
             <>
               <div className="mt-6">
                 <TimeframeSelector
@@ -8340,7 +8589,6 @@ export function AdminDashboard({
                   view={view}
                 />
                 {view === "campaigns" ||
-                view === "content" ||
                 view === "flow" ||
                 view === "glance" ||
                 view === "leads" ? (
@@ -8376,9 +8624,12 @@ export function AdminDashboard({
               labels={labels}
               locale={locale}
             />
-          ) : view === "content" ? (
+          ) : view === "blogs" ||
+            view === "content" ||
+            view === "testimonials" ? (
             <AdminContentView
               accessToken={accessToken}
+              contentTypeFilter={contentTypeForView(view)}
               data={contentData}
               labels={labels}
               locale={locale}

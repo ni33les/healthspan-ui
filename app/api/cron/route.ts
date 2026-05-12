@@ -1,19 +1,36 @@
 import { NextResponse } from "next/server";
-import { kickCronWorker } from "@/lib/task-worker";
+import { requireOpenClawRequest } from "@/lib/openclaw-api";
+import { kickCronWorker, kickTaskWorker } from "@/lib/task-worker";
 
 export const runtime = "nodejs";
 
-async function runDueCron() {
-  try {
-    const result = await kickCronWorker();
+async function runDueWork(request: Request) {
+  const unauthorized = requireOpenClawRequest(request);
 
-    return NextResponse.json(result ?? { queued: 0 }, {
-      headers: {
-        "Cache-Control": "no-store"
+  if (unauthorized) {
+    return unauthorized;
+  }
+
+  try {
+    const baseUrl = new URL(request.url).origin;
+    const result = await kickCronWorker();
+    void kickTaskWorker({ baseUrl });
+
+    return NextResponse.json(
+      {
+        ...(result ?? { queued: 0 }),
+        taskWorker: {
+          kicked: true
+        }
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store"
+        }
       }
-    });
+    );
   } catch (error) {
-    console.error("Unable to run cron worker", error);
+    console.error("Unable to run scheduled workers", error);
 
     return NextResponse.json(
       { message: "Unable to run scheduled actions" },
@@ -27,10 +44,10 @@ async function runDueCron() {
   }
 }
 
-export async function GET() {
-  return runDueCron();
+export async function GET(request: Request) {
+  return runDueWork(request);
 }
 
-export async function POST() {
-  return runDueCron();
+export async function POST(request: Request) {
+  return runDueWork(request);
 }

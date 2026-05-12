@@ -65,6 +65,7 @@ export default async function LocalizedAdminDashboardPage({
   const view =
     rawView === "alerts" ||
     rawView === "agents" ||
+    rawView === "blogs" ||
     rawView === "campaigns" ||
     rawView === "content" ||
     rawView === "communications" ||
@@ -75,6 +76,7 @@ export default async function LocalizedAdminDashboardPage({
     rawView === "leads" ||
     rawView === "reviews" ||
     rawView === "supplements" ||
+    rawView === "testimonials" ||
     rawView === "visibility"
       ? rawView
       : "glance";

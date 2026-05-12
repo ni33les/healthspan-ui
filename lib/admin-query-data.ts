@@ -23,6 +23,7 @@ import { getAdminReviewQueueData } from "@/lib/admin-review-queue";
 import { getAdminSupplementsData } from "@/lib/admin-supplements";
 import { getAdminTechnicalAlertsData } from "@/lib/admin-technical";
 import { getSql } from "@/lib/db";
+import type { BlogArticleBody } from "@/lib/blog";
 
 export type AdminExternalQueryView =
   | "agents"
@@ -139,6 +140,7 @@ export type AdminContentWorkflowStatus =
   | "scheduled";
 
 export type AdminContentInventoryRow = Readonly<{
+  contentMarkdown: string | null;
   contentType: "blog_post" | "testimonial";
   createdAt: string;
   id: string;
@@ -209,6 +211,27 @@ const paidEventStatuses = new Set([
   "success",
   "succeeded"
 ]);
+
+function markdownFromBlogBody(body?: BlogArticleBody | null) {
+  if (!body) {
+    return null;
+  }
+
+  const points =
+    body.points
+      ?.map((point) => `- **${point.title}** ${point.body}`.trim())
+      .filter(Boolean)
+      .join("\n") ?? "";
+  const sections = [
+    body.intro,
+    points,
+    body.sectionTitle ? `## ${body.sectionTitle}` : "",
+    body.sectionBody,
+    body.closing
+  ].filter((section): section is string => Boolean(section?.trim()));
+
+  return sections.length > 0 ? sections.join("\n\n") : null;
+}
 
 const leadEventNames = new Set([
   "assessment_started",
@@ -810,6 +833,8 @@ async function getContentInventory(params: QueryParams) {
   const [postRows, testimonialRows, scheduledTaskRows] = await Promise.all([
     sql<
       Array<{
+        body: BlogArticleBody | null;
+        content_markdown: string | null;
         created_at: Date | string;
         excerpt: string | null;
         id: string;
@@ -837,6 +862,8 @@ async function getContentInventory(params: QueryParams) {
         slug,
         title,
         excerpt,
+        content_markdown,
+        body,
         image_alt,
         image_url,
         source_agent,
@@ -948,6 +975,8 @@ async function getContentInventory(params: QueryParams) {
   };
   const rows: AdminContentInventoryRow[] = [
     ...postRows.map((row) => ({
+      contentMarkdown:
+        row.content_markdown ?? markdownFromBlogBody(row.body),
       contentType: "blog_post" as const,
       createdAt: new Date(row.created_at).toISOString(),
       id: row.id,
@@ -975,6 +1004,7 @@ async function getContentInventory(params: QueryParams) {
       workflowStatus: workflowStatus("blog_post", row.id, row.status)
     })),
     ...testimonialRows.map((row) => ({
+      contentMarkdown: null,
       contentType: "testimonial" as const,
       createdAt: new Date(row.created_at).toISOString(),
       id: row.id,

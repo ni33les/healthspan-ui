@@ -44,6 +44,7 @@ export type BlogPostSummary = Readonly<{
 export type BlogPost = BlogPostSummary &
   Readonly<{
     body: BlogArticleBody;
+    contentMarkdown: string;
     locale: Locale;
     seoDescription: string;
     seoTitle: string;
@@ -54,6 +55,7 @@ export type BlogPost = BlogPostSummary &
 
 type BlogPostRow = {
   body: BlogArticleBody | null;
+  content_markdown: string | null;
   created_at?: Date | string | null;
   excerpt: string | null;
   id: string;
@@ -186,6 +188,13 @@ function toBody(value: unknown): BlogArticleBody {
   };
 }
 
+function hasInputValue(input: BlogPostInput, camelKey: string, snakeKey: string) {
+  return (
+    Object.prototype.hasOwnProperty.call(input, camelKey) ||
+    Object.prototype.hasOwnProperty.call(input, snakeKey)
+  );
+}
+
 export function slugify(value: string) {
   return value
     .toLowerCase()
@@ -262,6 +271,7 @@ function mapPost(row: BlogPostRow, localeOverride?: Locale): BlogPost {
 
   return {
     body,
+    contentMarkdown: row.content_markdown ?? "",
     date: published.date,
     datetime: published.datetime,
     excerpt: row.excerpt ?? "",
@@ -291,6 +301,7 @@ function blogSelectSql() {
       p.title,
       p.subtitle,
       p.excerpt,
+      p.content_markdown,
       p.body,
       p.image_url,
       p.image_alt,
@@ -443,6 +454,7 @@ function normalizePostInput(input: BlogPostInput, existing?: BlogPostRow) {
   const slug = slugify(toStringValue(input.slug, existing?.slug ?? title));
   const locale = toLocale(input.locale ?? existing?.locale);
   const status = toStatus(input.status ?? existing?.status ?? "draft");
+  const contentMarkdownValue = input.contentMarkdown ?? input.content_markdown;
   const publishedAtValue = input.publishedAt ?? input.published_at;
   const publishedAt =
     publishedAtValue === null
@@ -452,6 +464,9 @@ function normalizePostInput(input: BlogPostInput, existing?: BlogPostRow) {
 
   return {
     body: toBody(input.body ?? existing?.body),
+    contentMarkdown: hasInputValue(input, "contentMarkdown", "content_markdown")
+      ? toOptionalString(contentMarkdownValue)
+      : existing?.content_markdown ?? null,
     excerpt: toStringValue(input.excerpt, existing?.excerpt ?? ""),
     id: toStringValue(input.id, existing?.id ?? randomUUID()),
     imageAlt: toOptionalString(input.imageAlt ?? input.image_alt) ?? existing?.image_alt ?? null,
@@ -621,6 +636,7 @@ export async function createBlogPost(input: BlogPostInput) {
       title,
       subtitle,
       excerpt,
+      content_markdown,
       body,
       image_url,
       image_alt,
@@ -646,6 +662,7 @@ export async function createBlogPost(input: BlogPostInput) {
       ${post.title},
       ${post.subtitle},
       ${post.excerpt},
+      ${post.contentMarkdown},
       ${sql.json(post.body)},
       ${post.imageUrl},
       ${post.imageAlt},
@@ -720,6 +737,7 @@ export async function updateBlogPost(
       title = ${post.title},
       subtitle = ${post.subtitle},
       excerpt = ${post.excerpt},
+      content_markdown = ${post.contentMarkdown},
       body = ${sql.json(post.body)},
       image_url = ${post.imageUrl},
       image_alt = ${post.imageAlt},

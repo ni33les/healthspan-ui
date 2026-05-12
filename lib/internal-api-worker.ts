@@ -23,6 +23,10 @@ type ReserveResponse = Readonly<{
   workItem?: TaskWorkItem;
 }>;
 
+type InternalApiWorkerOptions = Readonly<{
+  baseUrl?: string | null;
+}>;
+
 const DEFAULT_MAX_TASKS_PER_TICK = 25;
 const DEFAULT_WORKER_CONCURRENCY = 1;
 const DEFAULT_WORKER_GROUPS: readonly WorkerGroup[] = [
@@ -65,8 +69,9 @@ function positiveInteger(value: string | undefined, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function apiBaseUrl() {
+function apiBaseUrl(baseUrl?: string | null) {
   const configured =
+    baseUrl?.trim() ||
     process.env.MATTANUTRA_API_BASE_URL ||
     process.env.APP_BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL;
@@ -88,9 +93,10 @@ function apiToken() {
 
 async function requestJson<T>(
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  options: InternalApiWorkerOptions = {}
 ): Promise<T> {
-  const baseUrl = apiBaseUrl();
+  const baseUrl = apiBaseUrl(options.baseUrl);
   const token = apiToken();
 
   if (!baseUrl) {
@@ -129,39 +135,52 @@ async function requestJson<T>(
 async function addWorkerComment(
   reserved: ReserveResponse,
   body: string,
-  metadata: Record<string, unknown> = {}
+  metadata: Record<string, unknown> = {},
+  options: InternalApiWorkerOptions = {}
 ) {
   if (!reserved.task?.id || !reserved.agent?.id) {
     return;
   }
 
   try {
-    await requestJson(`/api/tasks/${reserved.task.id}/comment`, {
-      agentId: reserved.agent.id,
-      authorName: "Internal API worker",
-      authorType: "worker",
-      body,
-      commentType: "status",
-      metadata,
-      visibility: "worker"
-    });
+    await requestJson(
+      `/api/tasks/${reserved.task.id}/comment`,
+      {
+        agentId: reserved.agent.id,
+        authorName: "Internal API worker",
+        authorType: "worker",
+        body,
+        commentType: "status",
+        metadata,
+        visibility: "worker"
+      },
+      options
+    );
   } catch {
     // Progress notes are useful but should never block task execution.
   }
 }
 
-async function reserveTask(group: WorkerGroup) {
-  return requestJson<ReserveResponse>("/api/tasks/reserve", {
-    agent: group.agent,
-    leaseSeconds: group.leaseSeconds,
-    mustRequireCapability: group.mustRequireCapability,
-    taskTypes: [...group.taskTypes]
-  });
+async function reserveTask(
+  group: WorkerGroup,
+  options: InternalApiWorkerOptions = {}
+) {
+  return requestJson<ReserveResponse>(
+    "/api/tasks/reserve",
+    {
+      agent: group.agent,
+      leaseSeconds: group.leaseSeconds,
+      mustRequireCapability: group.mustRequireCapability,
+      taskTypes: [...group.taskTypes]
+    },
+    options
+  );
 }
 
 async function failReservedTask(
   reserved: ReserveResponse,
-  error: unknown
+  error: unknown,
+  options: InternalApiWorkerOptions = {}
 ) {
   if (!reserved.task?.id || !reserved.reservationId || !reserved.agent?.id) {
     return;
@@ -169,21 +188,28 @@ async function failReservedTask(
 
   const message = error instanceof Error ? error.message : "Unknown task error";
 
-  await requestJson(`/api/tasks/${reserved.task.id}/fail`, {
-    agentId: reserved.agent.id,
-    errorMessage: message,
-    reservationId: reserved.reservationId,
-    resultPayload: {
-      taskType: reserved.task.taskType
-    }
-  });
+  await requestJson(
+    `/api/tasks/${reserved.task.id}/fail`,
+    {
+      agentId: reserved.agent.id,
+      errorMessage: message,
+      reservationId: reserved.reservationId,
+      resultPayload: {
+        taskType: reserved.task.taskType
+      }
+    },
+    options
+  );
 }
 
-async function processGroup(group: WorkerGroup) {
+async function processGroup(
+  group: WorkerGroup,
+  options: InternalApiWorkerOptions = {}
+) {
   let reserved: ReserveResponse;
 
   try {
-    reserved = await reserveTask(group);
+    reserved = await reserveTask(group, options);
   } catch (error) {
     console.error("Unable to reserve worker task", error);
     return false;
@@ -194,20 +220,29 @@ async function processGroup(group: WorkerGroup) {
   }
 
   try {
-    await addWorkerComment(reserved, "Task execution started.", {
-      workerMode: "internal_api"
-    });
+    await addWorkerComment(
+      reserved,
+      "Task execution started.",
+      {
+        workerMode: "internal_api"
+      },
+      options
+    );
     const resultPayload = await executeTaskWorkItem(reserved.workItem);
 
-    await requestJson(`/api/tasks/${reserved.task.id}/complete`, {
-      agentId: reserved.agent?.id,
-      reservationId: reserved.reservationId,
-      resultPayload
-    });
+    await requestJson(
+      `/api/tasks/${reserved.task.id}/complete`,
+      {
+        agentId: reserved.agent?.id,
+        reservationId: reserved.reservationId,
+        resultPayload
+      },
+      options
+    );
     return true;
   } catch (error) {
     try {
-      await failReservedTask(reserved, error);
+      await failReservedTask(reserved, error, options);
     } catch (failureError) {
       console.error("Unable to report worker task failure", failureError);
     }
@@ -215,7 +250,10 @@ async function processGroup(group: WorkerGroup) {
   }
 }
 
-async function runWorkerLane(maxTasks: number) {
+async function runWorkerLane(
+  maxTasks: number,
+  options: InternalApiWorkerOptions = {}
+) {
   let processed = 0;
 
   while (processed < maxTasks) {
@@ -226,7 +264,7 @@ async function runWorkerLane(maxTasks: number) {
         break;
       }
 
-      const worked = await processGroup(group);
+      const worked = await processGroup(group, options);
 
       if (worked) {
         processed += 1;
@@ -240,7 +278,9 @@ async function runWorkerLane(maxTasks: number) {
   }
 }
 
-export async function runInternalApiWorker() {
+export async function runInternalApiWorker(
+  options: InternalApiWorkerOptions = {}
+) {
   const maxTasks = positiveInteger(
     process.env.WORKER_MAX_TASKS_PER_TICK,
     DEFAULT_MAX_TASKS_PER_TICK
@@ -251,16 +291,16 @@ export async function runInternalApiWorker() {
   );
 
   await Promise.all(
-    Array.from({ length: concurrency }, () => runWorkerLane(maxTasks))
+    Array.from({ length: concurrency }, () => runWorkerLane(maxTasks, options))
   );
 }
 
-export function kickInternalApiWorker() {
+export function kickInternalApiWorker(options: InternalApiWorkerOptions = {}) {
   if (globalWorker.mattanutraInternalApiWorker) {
     return globalWorker.mattanutraInternalApiWorker;
   }
 
-  globalWorker.mattanutraInternalApiWorker = runInternalApiWorker()
+  globalWorker.mattanutraInternalApiWorker = runInternalApiWorker(options)
     .catch((error) => {
       console.error("Internal API worker failed", error);
     })

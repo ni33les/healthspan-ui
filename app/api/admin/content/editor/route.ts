@@ -10,6 +10,7 @@ import {
   type BlogStatus,
   type BlogTestimonial
 } from "@/lib/blog";
+import { getSql } from "@/lib/db";
 import { defaultLocale, isLocale, type Locale } from "@/lib/i18n";
 
 export const runtime = "nodejs";
@@ -95,12 +96,57 @@ function errorDetails(error: unknown) {
   };
 }
 
+async function contentEditableAsDraft(contentType: ContentType, contentId: string) {
+  const sql = getSql();
+
+  if (!sql) {
+    return false;
+  }
+
+  const statusRows =
+    contentType === "blog_post"
+      ? await sql<Array<{ status: string | null }>>`
+          select status
+          from public.blog_posts
+          where id::text = ${contentId}
+          limit 1
+        `
+      : await sql<Array<{ status: string | null }>>`
+          select status
+          from public.testimonials
+          where id::text = ${contentId}
+          limit 1
+        `;
+  const storageStatus = statusRows[0]?.status;
+
+  if (storageStatus !== "draft") {
+    return false;
+  }
+
+  const scheduledRows = await sql<Array<{ exists: boolean }>>`
+    select exists(
+      select 1
+      from public.tasks
+      where task_type = 'content_status_change'
+        and payload ->> 'contentId' = ${contentId}
+        and payload ->> 'contentType' = ${contentType}
+        and payload ->> 'targetStatus' = 'published'
+        and scheduled_for > now()
+        and status not in ('completed', 'failed', 'cancelled', 'skipped')
+      limit 1
+    ) as exists
+  `;
+
+  return !scheduledRows[0]?.exists;
+}
+
 function blogRow(
   post: BlogPost,
   status: BlogStatus,
   timestamp: string
 ): AdminContentInventoryRow {
   return {
+    contentMarkdown: post.contentMarkdown || null,
     contentType: "blog_post",
     createdAt: timestamp,
     id: post.id,
@@ -132,6 +178,7 @@ function testimonialRow(
   timestamp: string
 ): AdminContentInventoryRow {
   return {
+    contentMarkdown: null,
     contentType: "testimonial",
     createdAt: timestamp,
     id: testimonial.id,
@@ -173,6 +220,10 @@ function editorInput(body: Record<string, unknown>, creating: boolean) {
     const title = textOrNull(body.title);
     const slug = textOrNull(body.slug);
     const excerpt = textOrNull(body.excerpt, 1200);
+    const contentMarkdown =
+      body.contentMarkdown === undefined && body.content_markdown === undefined
+        ? undefined
+        : textOrNull(body.contentMarkdown ?? body.content_markdown, 100000);
 
     if (creating && (!title || !slug || !excerpt)) {
       return { error: "Blog posts require title, slug, and excerpt" } as const;
@@ -184,6 +235,7 @@ function editorInput(body: Record<string, unknown>, creating: boolean) {
 
     return {
       input: {
+        ...(contentMarkdown !== undefined ? { contentMarkdown } : {}),
         excerpt,
         imageAlt,
         imageUrl,
@@ -294,6 +346,10 @@ export async function PATCH(request: Request) {
   }
 
   try {
+    if (!(await contentEditableAsDraft(parsed.type, contentId))) {
+      return badRequest("Only draft content can be edited");
+    }
+
     const timestamp = new Date().toISOString();
     const content =
       parsed.type === "blog_post"

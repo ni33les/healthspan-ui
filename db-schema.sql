@@ -3815,6 +3815,7 @@ create table if not exists public.blog_posts (
   title text not null,
   subtitle text null,
   excerpt text not null,
+  content_markdown text null,
   body jsonb not null default '{}'::jsonb,
   image_url text null,
   image_alt text null,
@@ -3843,6 +3844,7 @@ alter table public.blog_posts
   add column if not exists title text,
   add column if not exists subtitle text null,
   add column if not exists excerpt text,
+  add column if not exists content_markdown text null,
   add column if not exists body jsonb default '{}'::jsonb,
   add column if not exists image_url text null,
   add column if not exists image_alt text null,
@@ -4351,6 +4353,35 @@ set
   metadata = excluded.metadata,
   published_at = excluded.published_at,
   updated_at = now();
+
+update public.blog_posts
+set content_markdown = nullif(
+  concat_ws(
+    E'\n\n',
+    nullif(body->>'intro', ''),
+    nullif(
+      (
+        select string_agg(
+          concat('- **', point->>'title', '** ', point->>'body'),
+          E'\n'
+        )
+        from jsonb_array_elements(coalesce(body->'points', '[]'::jsonb)) as point
+      ),
+      ''
+    ),
+    case
+      when nullif(body->>'sectionTitle', '') is not null
+        then concat('## ', body->>'sectionTitle')
+      else null
+    end,
+    nullif(body->>'sectionBody', ''),
+    nullif(body->>'closing', '')
+  ),
+  ''
+)
+where content_markdown is null
+  and body is not null
+  and body <> '{}'::jsonb;
 
 -- DOADMIN can apply this script in UAT. If a lower-privilege user reapplies it
 -- locally, ownership changes are skipped with notices rather than aborting.

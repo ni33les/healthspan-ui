@@ -42,6 +42,17 @@ npm run start
 
 The optional app spec example lives at `.do/app.yaml.example`; copy it to `.do/app.yaml` and replace the placeholder GitHub repo before using it directly.
 
+## Scheduled Work
+
+Configure the DigitalOcean scheduler to call the app every 15 minutes:
+
+```txt
+POST /api/cron
+Authorization: Bearer <ADMIN_CLAW_TOKEN>
+```
+
+The cron endpoint scans due cron actions and wakes the task worker. Scheduled content publishing runs through the normal `content_status_change` task queue once its `scheduled_for` time is due.
+
 ## Admin Machine APIs
 
 OpenClaw, external agents, and remote workers use protected server-to-server APIs. They require `ADMIN_CLAW_TOKEN`.
