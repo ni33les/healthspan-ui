@@ -142,6 +142,8 @@ export type AdminContentInventoryRow = Readonly<{
   contentType: "blog_post" | "testimonial";
   createdAt: string;
   id: string;
+  imageAlt: string | null;
+  imageUrl: string | null;
   lastViewedAt: string | null;
   locale: string;
   pageViews: number;
@@ -811,6 +813,8 @@ async function getContentInventory(params: QueryParams) {
         created_at: Date | string;
         excerpt: string | null;
         id: string;
+        image_alt: string | null;
+        image_url: string | null;
         last_viewed_at: Date | string | null;
         locale: string;
         page_views: number | string;
@@ -833,6 +837,8 @@ async function getContentInventory(params: QueryParams) {
         slug,
         title,
         excerpt,
+        image_alt,
+        image_url,
         source_agent,
         source_channel,
         source_ref,
@@ -860,6 +866,8 @@ async function getContentInventory(params: QueryParams) {
     `,
     sql<
       Array<{
+        author_image_alt: string | null;
+        author_image_url: string | null;
         author_name: string | null;
         created_at: Date | string;
         id: string;
@@ -875,6 +883,8 @@ async function getContentInventory(params: QueryParams) {
         locale,
         status,
         quote,
+        author_image_alt,
+        author_image_url,
         author_name,
         source_agent,
         created_at,
@@ -941,6 +951,8 @@ async function getContentInventory(params: QueryParams) {
       contentType: "blog_post" as const,
       createdAt: new Date(row.created_at).toISOString(),
       id: row.id,
+      imageAlt: row.image_alt,
+      imageUrl: row.image_url,
       lastViewedAt: row.last_viewed_at
         ? new Date(row.last_viewed_at).toISOString()
         : null,
@@ -966,6 +978,8 @@ async function getContentInventory(params: QueryParams) {
       contentType: "testimonial" as const,
       createdAt: new Date(row.created_at).toISOString(),
       id: row.id,
+      imageAlt: row.author_image_alt,
+      imageUrl: row.author_image_url,
       lastViewedAt: null,
       locale: row.locale,
       pageViews: 0,

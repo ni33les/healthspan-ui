@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   type ComponentType,
+  type FormEvent,
   type ReactNode,
   type SVGProps
 } from "react";
@@ -28,6 +29,9 @@ import {
   FunnelIcon,
   HomeIcon,
   MegaphoneIcon,
+  PencilSquareIcon,
+  PhotoIcon,
+  PlusIcon,
   QueueListIcon,
   SparklesIcon,
   XMarkIcon
@@ -128,6 +132,22 @@ type ContentMetricId =
   | "contentScheduled"
   | "contentTestimonials"
   | "contentTotal";
+type ContentEditorType = "blog_post" | "testimonial";
+type ContentEditorState = Readonly<{
+  contentType: ContentEditorType;
+  row?: AdminContentInventoryRow;
+}> | null;
+type ContentEditorForm = Readonly<{
+  authorName: string;
+  contentType: ContentEditorType;
+  excerpt: string;
+  imageAlt: string;
+  imageUrl: string;
+  locale: Locale;
+  quote: string;
+  slug: string;
+  title: string;
+}>;
 type TaskMetricId =
   | "tasksActive"
   | "tasksBlocked"
@@ -190,21 +210,38 @@ type AdminContent = Readonly<{
   contentPages: {
     actions: string;
     all: string;
+    authorName: string;
     blogPosts: string;
+    cancel: string;
     created: string;
     deleted: string;
     deleteAction: string;
     draft: string;
     draftAction: string;
+    edit: string;
+    editorError: string;
+    editorRequiredError: string;
     empty: string;
+    excerpt: string;
+    imageAlt: string;
+    imageAltRequired: string;
+    imagePreview: string;
+    imageUrl: string;
     lastViewed: string;
+    locale: string;
+    newBlogPost: string;
+    newTestimonial: string;
     pageViews: string;
     publishAction: string;
     published: string;
+    quote: string;
+    save: string;
+    saving: string;
     scheduleAction: string;
     scheduled: string;
     scheduledFor: string;
     scheduleError: string;
+    slug: string;
     source: string;
     status: string;
     testimonials: string;
@@ -503,21 +540,38 @@ const content = {
     contentPages: {
       actions: "Actions",
       all: "All",
+      authorName: "Author name",
       blogPosts: "Blog posts",
+      cancel: "Cancel",
       created: "Created",
       deleted: "Deleted",
       deleteAction: "Delete",
       draft: "Draft",
       draftAction: "Draft",
+      edit: "Edit",
+      editorError: "Could not save this content item.",
+      editorRequiredError: "Fill in the required fields before saving.",
       empty: "No content matches this view.",
+      excerpt: "Excerpt",
+      imageAlt: "Image alt text",
+      imageAltRequired: "Add image alt text before saving.",
+      imagePreview: "Image preview",
+      imageUrl: "Image URL",
       lastViewed: "Last viewed",
+      locale: "Locale",
+      newBlogPost: "New blog post",
+      newTestimonial: "New testimonial",
       pageViews: "Page views",
       publishAction: "Publish",
       published: "Published",
+      quote: "Quote",
+      save: "Save",
+      saving: "Saving...",
       scheduleAction: "Schedule",
       scheduled: "Scheduled",
       scheduledFor: "Scheduled for",
       scheduleError: "Choose a future publish date.",
+      slug: "Slug",
       source: "Source",
       status: "Status",
       testimonials: "Testimonials",
@@ -889,21 +943,38 @@ const content = {
     contentPages: {
       actions: "การดำเนินการ",
       all: "ทั้งหมด",
+      authorName: "ชื่อผู้เขียน",
       blogPosts: "บทความ",
+      cancel: "ยกเลิก",
       created: "สร้างเมื่อ",
       deleted: "ลบแล้ว",
       deleteAction: "ลบ",
       draft: "ฉบับร่าง",
       draftAction: "ฉบับร่าง",
+      edit: "แก้ไข",
+      editorError: "ไม่สามารถบันทึกคอนเทนต์นี้ได้",
+      editorRequiredError: "กรอกข้อมูลที่จำเป็นก่อนบันทึก",
       empty: "ไม่มีคอนเทนต์ที่ตรงกับมุมมองนี้",
+      excerpt: "สรุป",
+      imageAlt: "คำอธิบายรูปภาพ",
+      imageAltRequired: "เพิ่มคำอธิบายรูปภาพก่อนบันทึก",
+      imagePreview: "ตัวอย่างรูปภาพ",
+      imageUrl: "URL รูปภาพ",
       lastViewed: "ดูล่าสุด",
+      locale: "ภาษา",
+      newBlogPost: "บทความใหม่",
+      newTestimonial: "คำรับรองใหม่",
       pageViews: "ยอดดูหน้า",
       publishAction: "เผยแพร่",
       published: "เผยแพร่แล้ว",
+      quote: "คำรับรอง",
+      save: "บันทึก",
+      saving: "กำลังบันทึก...",
       scheduleAction: "ตั้งเวลา",
       scheduled: "ตั้งเวลาแล้ว",
       scheduledFor: "ตั้งเวลา",
       scheduleError: "เลือกเวลาเผยแพร่ในอนาคต",
+      slug: "Slug",
       source: "แหล่งที่มา",
       status: "สถานะ",
       testimonials: "คำรับรอง",
@@ -3218,6 +3289,37 @@ function contentHref(row: AdminContentInventoryRow, accessToken: string) {
   return `/${locale}/admin/content/preview/${encodeURIComponent(row.id)}?${params.toString()}`;
 }
 
+function slugFromTitle(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90);
+}
+
+function formLocale(value?: string | null): Locale {
+  return value === "th" ? "th" : "en";
+}
+
+function contentEditorForm(editor: NonNullable<ContentEditorState>): ContentEditorForm {
+  const row = editor.row;
+  const blogPost = editor.contentType === "blog_post";
+
+  return {
+    authorName: !blogPost && row ? row.title : "",
+    contentType: editor.contentType,
+    excerpt: blogPost && row?.summary ? row.summary : "",
+    imageAlt: row?.imageAlt ?? "",
+    imageUrl: row?.imageUrl ?? "",
+    locale: formLocale(row?.locale),
+    quote: !blogPost && row?.summary ? row.summary : "",
+    slug: blogPost && row?.slug ? row.slug : "",
+    title: blogPost && row ? row.title : ""
+  };
+}
+
 function AdminContentView({
   accessToken,
   data,
@@ -3230,6 +3332,8 @@ function AdminContentView({
   locale: Locale;
 }>) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [createdRows, setCreatedRows] = useState<AdminContentInventoryRow[]>([]);
+  const [editorState, setEditorState] = useState<ContentEditorState>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
   const [rowOverrides, setRowOverrides] = useState<
     Record<string, Partial<AdminContentInventoryRow>>
@@ -3237,7 +3341,7 @@ function AdminContentView({
   const [scheduleValues, setScheduleValues] = useState<Record<string, string>>({});
   const [selectedMetricId, setSelectedMetricId] =
     useState<ContentMetricId>("contentTotal");
-  const rows = data.rows.map((row) => ({
+  const rows = [...createdRows, ...data.rows].map((row) => ({
     ...row,
     ...(rowOverrides[row.id] ?? {})
   }));
@@ -3404,6 +3508,26 @@ function AdminContentView({
     }
   }
 
+  function saveContentRow(row: AdminContentInventoryRow) {
+    const rowInServerData = data.rows.some((item) => item.id === row.id);
+
+    setCreatedRows((current) => {
+      if (current.some((item) => item.id === row.id)) {
+        return current.map((item) => (item.id === row.id ? row : item));
+      }
+
+      return rowInServerData ? current : [row, ...current];
+    });
+    setRowOverrides((current) => ({
+      ...current,
+      [row.id]: {
+        ...(current[row.id] ?? {}),
+        ...row
+      }
+    }));
+    setEditorState(null);
+  }
+
   return (
     <section className="mt-8">
       <BusinessStatsGrid
@@ -3411,6 +3535,25 @@ function AdminContentView({
         onMetricSelect={(metricId) => setSelectedMetricId(metricId as ContentMetricId)}
         selectedMetricId={selectedMetricId}
       />
+
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <button
+          className="inline-flex items-center gap-2 rounded-md bg-[#126B4F] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#0F5A43] focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+          onClick={() => setEditorState({ contentType: "blog_post" })}
+          type="button"
+        >
+          <PlusIcon aria-hidden="true" className="size-4" />
+          {labels.contentPages.newBlogPost}
+        </button>
+        <button
+          className="inline-flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+          onClick={() => setEditorState({ contentType: "testimonial" })}
+          type="button"
+        >
+          <SparklesIcon aria-hidden="true" className="size-4 text-[#126B4F]" />
+          {labels.contentPages.newTestimonial}
+        </button>
+      </div>
 
       {filteredRows.length > 0 ? (
         <div className="mt-8 grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -3428,6 +3571,12 @@ function AdminContentView({
                   [row.id]: value
                 }))
               }
+              onEdit={(selectedRow) =>
+                setEditorState({
+                  contentType: selectedRow.contentType,
+                  row: selectedRow
+                })
+              }
               onWorkflow={runWorkflow}
               row={row}
               scheduleValue={
@@ -3444,7 +3593,49 @@ function AdminContentView({
           {labels.contentPages.empty}
         </div>
       )}
+
+      {editorState ? (
+        <ContentEditorModal
+          accessToken={accessToken}
+          editor={editorState}
+          key={`${editorState.contentType}:${editorState.row?.id ?? "new"}`}
+          labels={labels}
+          onClose={() => setEditorState(null)}
+          onSaved={saveContentRow}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function ContentThumbnail({ row }: Readonly<{ row: AdminContentInventoryRow }>) {
+  const fallbackInitials = row.title
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  return (
+    <div
+      className={classNames(
+        "flex size-20 shrink-0 items-center justify-center overflow-hidden bg-gray-50 text-sm font-semibold text-gray-500 ring-1 ring-gray-200 sm:size-24",
+        row.contentType === "testimonial" ? "rounded-full" : "rounded-lg"
+      )}
+    >
+      {row.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary image URLs.
+        <img
+          alt={row.imageAlt ?? row.title}
+          className="size-full object-cover"
+          src={row.imageUrl}
+        />
+      ) : row.contentType === "testimonial" && fallbackInitials ? (
+        <span aria-hidden="true">{fallbackInitials}</span>
+      ) : (
+        <PhotoIcon aria-hidden="true" className="size-7 text-gray-400" />
+      )}
+    </div>
   );
 }
 
@@ -3454,6 +3645,7 @@ function ContentCard({
   error,
   labels,
   locale,
+  onEdit,
   onScheduleChange,
   onWorkflow,
   row,
@@ -3464,6 +3656,7 @@ function ContentCard({
   error: boolean;
   labels: AdminContent;
   locale: Locale;
+  onEdit: (row: AdminContentInventoryRow) => void;
   onScheduleChange: (value: string) => void;
   onWorkflow: (
     row: AdminContentInventoryRow,
@@ -3476,50 +3669,66 @@ function ContentCard({
 
   return (
     <article className="flex h-full flex-col rounded-lg bg-white p-5 shadow-sm ring-1 ring-gray-200 transition hover:shadow-md">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <a
-            className="block text-[#20343A] hover:text-[#126B4F]"
-            href={href}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <span className="line-clamp-2 text-base font-semibold">
-              {row.title}
-            </span>
-          </a>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span
-              className={classNames(
-                contentWorkflowStatusClass(row.workflowStatus),
-                "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-              )}
-            >
-              {contentWorkflowStatusLabel(labels, row.workflowStatus)}
-            </span>
-            <span className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
-              {contentTypeLabel(row.contentType)}
-            </span>
-            <span className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
-              {row.locale.toUpperCase()}
-            </span>
+      <div className="flex gap-4">
+        <ContentThumbnail row={row} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <a
+                className="block text-[#20343A] hover:text-[#126B4F]"
+                href={href}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="line-clamp-2 text-base font-semibold">
+                  {row.title}
+                </span>
+              </a>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={classNames(
+                    contentWorkflowStatusClass(row.workflowStatus),
+                    "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+                  )}
+                >
+                  {contentWorkflowStatusLabel(labels, row.workflowStatus)}
+                </span>
+                <span className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
+                  {contentTypeLabel(row.contentType)}
+                </span>
+                <span className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200">
+                  {row.locale.toUpperCase()}
+                </span>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-start gap-3 text-left sm:text-right">
+              <div>
+                <div className="text-xl font-semibold tabular-nums text-gray-900">
+                  {formatNumber(row.pageViews, locale)}
+                </div>
+                <div className="text-xs font-medium text-gray-500">
+                  {labels.contentPages.views}
+                </div>
+              </div>
+              <button
+                aria-label={labels.contentPages.edit}
+                className="inline-flex size-9 items-center justify-center rounded-md bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 hover:text-gray-900 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+                onClick={() => onEdit(row)}
+                title={labels.contentPages.edit}
+                type="button"
+              >
+                <PencilSquareIcon aria-hidden="true" className="size-4" />
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="shrink-0 text-left sm:text-right">
-          <div className="text-xl font-semibold tabular-nums text-gray-900">
-            {formatNumber(row.pageViews, locale)}
-          </div>
-          <div className="text-xs font-medium text-gray-500">
-            {labels.contentPages.views}
-          </div>
+
+          {row.summary ? (
+            <p className="mt-4 line-clamp-3 text-sm text-gray-600">
+              {row.summary}
+            </p>
+          ) : null}
         </div>
       </div>
-
-      {row.summary ? (
-        <p className="mt-4 line-clamp-3 text-sm text-gray-600">
-          {row.summary}
-        </p>
-      ) : null}
 
       <div className="mt-auto pt-5">
         <div className="flex flex-wrap items-center gap-3">
@@ -3576,6 +3785,311 @@ function ContentCard({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function ContentEditorModal({
+  accessToken,
+  editor,
+  labels,
+  onClose,
+  onSaved
+}: Readonly<{
+  accessToken: string;
+  editor: NonNullable<ContentEditorState>;
+  labels: AdminContent;
+  onClose: () => void;
+  onSaved: (row: AdminContentInventoryRow) => void;
+}>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<ContentEditorForm>(() =>
+    contentEditorForm(editor)
+  );
+  const editing = Boolean(editor.row);
+  const blogPost = form.contentType === "blog_post";
+  const inputClass =
+    "block w-full rounded-md border-0 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-[#1FA77A]";
+  const labelClass = "block text-xs font-semibold uppercase text-gray-500";
+
+  function updateForm(patch: Partial<ContentEditorForm>) {
+    setForm((current) => ({
+      ...current,
+      ...patch
+    }));
+  }
+
+  function updateTitle(value: string) {
+    setForm((current) => {
+      const currentSlug = slugFromTitle(current.title);
+      const nextSlug =
+        !editing && (!current.slug || current.slug === currentSlug)
+          ? slugFromTitle(value)
+          : current.slug;
+
+      return {
+        ...current,
+        slug: nextSlug,
+        title: value
+      };
+    });
+  }
+
+  async function submitEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (
+      (blogPost &&
+        (!form.title.trim() || !form.slug.trim() || !form.excerpt.trim())) ||
+      (!blogPost && (!form.authorName.trim() || !form.quote.trim()))
+    ) {
+      setError(labels.contentPages.editorRequiredError);
+      return;
+    }
+
+    if (form.imageUrl.trim() && !form.imageAlt.trim()) {
+      setError(labels.contentPages.imageAltRequired);
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/admin/content/editor", {
+        body: JSON.stringify({
+          accessToken,
+          contentId: editor.row?.id,
+          contentType: form.contentType,
+          currentStatus: editor.row?.status,
+          excerpt: form.excerpt,
+          imageAlt: form.imageAlt,
+          imageUrl: form.imageUrl,
+          locale: form.locale,
+          quote: form.quote,
+          slug: form.slug,
+          title: form.title,
+          authorName: form.authorName
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: editing ? "PATCH" : "POST"
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        content?: AdminContentInventoryRow;
+        message?: string;
+      };
+
+      if (!response.ok || !result.content) {
+        throw new Error(result.message ?? labels.contentPages.editorError);
+      }
+
+      onSaved(result.content);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : labels.contentPages.editorError
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900/30 px-4 py-6 sm:py-10">
+      <div className="mx-auto max-w-2xl rounded-lg bg-white shadow-xl ring-1 ring-gray-200">
+        <form onSubmit={submitEditor}>
+          <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+            <div className="min-w-0">
+              <p className="text-base font-semibold text-gray-900">
+                {blogPost
+                  ? editing
+                    ? labels.contentPages.blogPosts
+                    : labels.contentPages.newBlogPost
+                  : editing
+                    ? labels.contentPages.testimonials
+                    : labels.contentPages.newTestimonial}
+              </p>
+              <p className="mt-1 text-xs font-medium text-gray-500">
+                {editing ? labels.contentPages.edit : labels.contentPages.draft}
+              </p>
+            </div>
+            <button
+              aria-label={labels.contentPages.cancel}
+              className="inline-flex size-9 items-center justify-center rounded-md bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 focus:outline-2 focus:outline-offset-2 focus:outline-[#1FA77A]"
+              onClick={onClose}
+              type="button"
+            >
+              <XMarkIcon aria-hidden="true" className="size-5" />
+            </button>
+          </div>
+
+          <div className="space-y-5 px-5 py-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_9rem]">
+              <div>
+                <label className={labelClass} htmlFor="content-locale">
+                  {labels.contentPages.locale}
+                </label>
+                <select
+                  className={classNames(inputClass, "mt-2")}
+                  id="content-locale"
+                  onChange={(event) =>
+                    updateForm({ locale: formLocale(event.target.value) })
+                  }
+                  value={form.locale}
+                >
+                  <option value="en">EN</option>
+                  <option value="th">TH</option>
+                </select>
+              </div>
+            </div>
+
+            {blogPost ? (
+              <>
+                <div>
+                  <label className={labelClass} htmlFor="content-title">
+                    {labels.contentPages.title}
+                  </label>
+                  <input
+                    className={classNames(inputClass, "mt-2")}
+                    id="content-title"
+                    onChange={(event) => updateTitle(event.target.value)}
+                    type="text"
+                    value={form.title}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="content-slug">
+                    {labels.contentPages.slug}
+                  </label>
+                  <input
+                    className={classNames(inputClass, "mt-2")}
+                    id="content-slug"
+                    onChange={(event) =>
+                      updateForm({ slug: slugFromTitle(event.target.value) })
+                    }
+                    type="text"
+                    value={form.slug}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="content-excerpt">
+                    {labels.contentPages.excerpt}
+                  </label>
+                  <textarea
+                    className={classNames(inputClass, "mt-2 min-h-28")}
+                    id="content-excerpt"
+                    onChange={(event) =>
+                      updateForm({ excerpt: event.target.value })
+                    }
+                    value={form.excerpt}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className={labelClass} htmlFor="content-author">
+                    {labels.contentPages.authorName}
+                  </label>
+                  <input
+                    className={classNames(inputClass, "mt-2")}
+                    id="content-author"
+                    onChange={(event) =>
+                      updateForm({ authorName: event.target.value })
+                    }
+                    type="text"
+                    value={form.authorName}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="content-quote">
+                    {labels.contentPages.quote}
+                  </label>
+                  <textarea
+                    className={classNames(inputClass, "mt-2 min-h-32")}
+                    id="content-quote"
+                    onChange={(event) => updateForm({ quote: event.target.value })}
+                    value={form.quote}
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[6rem_1fr]">
+              <div className="flex size-24 items-center justify-center overflow-hidden rounded-lg bg-gray-50 ring-1 ring-gray-200">
+                {form.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- Admin previews accept arbitrary image URLs.
+                  <img
+                    alt={form.imageAlt || labels.contentPages.imagePreview}
+                    className="size-full object-cover"
+                    src={form.imageUrl}
+                  />
+                ) : (
+                  <PhotoIcon aria-hidden="true" className="size-7 text-gray-400" />
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className={labelClass} htmlFor="content-image-url">
+                    {labels.contentPages.imageUrl}
+                  </label>
+                  <input
+                    className={classNames(inputClass, "mt-2")}
+                    id="content-image-url"
+                    onChange={(event) =>
+                      updateForm({ imageUrl: event.target.value })
+                    }
+                    type="url"
+                    value={form.imageUrl}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="content-image-alt">
+                    {labels.contentPages.imageAlt}
+                  </label>
+                  <input
+                    className={classNames(inputClass, "mt-2")}
+                    id="content-image-alt"
+                    onChange={(event) =>
+                      updateForm({ imageAlt: event.target.value })
+                    }
+                    type="text"
+                    value={form.imageAlt}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {error ? (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-700 ring-1 ring-red-100">
+                {error}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-5 py-4">
+            <button
+              className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-200 hover:bg-gray-50"
+              disabled={busy}
+              onClick={onClose}
+              type="button"
+            >
+              {labels.contentPages.cancel}
+            </button>
+            <button
+              className="rounded-md bg-[#126B4F] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#0F5A43] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy}
+              type="submit"
+            >
+              {busy ? labels.contentPages.saving : labels.contentPages.save}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 const supplementListStatuses: SupplementListStatus[] = [
