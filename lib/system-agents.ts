@@ -14,6 +14,7 @@ export const AGENT_CAPABILITIES = {
   freeEmailSend: "free_email_send",
   freeExampleFormulation: "free_example_formulation",
   healthScoreAnalysis: "healthscore_analysis",
+  hostingCostSync: "hosting_cost_sync",
   humanReview: "human_review",
   internalWorker: "mattanutra_internal_worker",
   lineSend: "line_send",
@@ -174,6 +175,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
   scheduler: {
     capabilities: [
       AGENT_CAPABILITIES.communicationDispatch,
+      AGENT_CAPABILITIES.hostingCostSync,
       AGENT_CAPABILITIES.internalWorker,
       AGENT_CAPABILITIES.scheduler
     ],
@@ -195,7 +197,8 @@ export const WORK_TASK_AGENT_KEYS: Readonly<Record<string, SystemAgentKey>> = {
   generate_formulation: "formulationWorker",
   content_status_change: "contentPublisher",
   send_example_email: "emailDispatcher",
-  send_reassessment_email: "emailDispatcher"
+  send_reassessment_email: "emailDispatcher",
+  sync_digitalocean_billing: "scheduler"
 } as const;
 
 export function systemAgentForKey(key: SystemAgentKey) {
@@ -215,7 +218,8 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
     generate_formulation: [AGENT_CAPABILITIES.formulationGeneration],
     content_status_change: [AGENT_CAPABILITIES.contentPublish],
     send_example_email: [AGENT_CAPABILITIES.freeEmailSend],
-    send_reassessment_email: [AGENT_CAPABILITIES.reassessmentEmailSend]
+    send_reassessment_email: [AGENT_CAPABILITIES.reassessmentEmailSend],
+    sync_digitalocean_billing: [AGENT_CAPABILITIES.hostingCostSync]
   };
 
   return normalizeCapabilities(

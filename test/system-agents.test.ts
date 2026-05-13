@@ -36,7 +36,8 @@ describe("system agents", () => {
       "generate_example_formulation",
       "generate_formulation",
       "send_example_email",
-      "send_reassessment_email"
+      "send_reassessment_email",
+      "sync_digitalocean_billing"
     ]) {
       const agent = systemAgentForWorkTaskType(taskType);
       const required = requiredCapabilitiesForWorkTaskType(taskType);

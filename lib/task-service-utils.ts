@@ -8,6 +8,33 @@ export const TASK_PRIORITY = {
 
 export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 export type TaskDependencyType = "approved" | "complete" | "successful";
+export type TaskIdempotencyScope = "active" | "successful";
+
+export type TaskRetryPolicyInput =
+  | false
+  | null
+  | undefined
+  | Readonly<{
+      backoffMultiplier?: unknown;
+      initialDelaySeconds?: unknown;
+      maxDelaySeconds?: unknown;
+      maxRetries?: unknown;
+    }>;
+
+export type NormalizedTaskRetryPolicy = Readonly<{
+  backoffMultiplier: number;
+  initialDelaySeconds: number;
+  maxDelaySeconds: number;
+  maxRetries: number;
+}>;
+
+const TERMINAL_TASK_STATUSES = new Set([
+  "cancelled",
+  "completed",
+  "failed",
+  "skipped"
+]);
+const SUCCESSFUL_TASK_STATUSES = new Set(["completed", "skipped"]);
 
 export type TaskSequenceDependencyInput = Readonly<{
   key?: string | null;
@@ -52,6 +79,93 @@ export function normalizeTaskPriority(value: unknown): TaskPriority {
   }
 
   return Math.max(1, Math.min(5, Math.round(numeric))) as TaskPriority;
+}
+
+function boundedNumber(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number
+) {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : fallback;
+
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.max(minimum, Math.min(maximum, numeric));
+}
+
+function boundedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number
+) {
+  return Math.round(boundedNumber(value, fallback, minimum, maximum));
+}
+
+export function normalizeTaskIdempotencyScope(
+  value: unknown
+): TaskIdempotencyScope {
+  return value === "successful" ? "successful" : "active";
+}
+
+export function taskStatusMatchesIdempotencyScope(
+  status: string,
+  scope: TaskIdempotencyScope
+) {
+  if (!TERMINAL_TASK_STATUSES.has(status)) {
+    return true;
+  }
+
+  return scope === "successful" && SUCCESSFUL_TASK_STATUSES.has(status);
+}
+
+export function normalizeTaskRetryPolicy(
+  value: TaskRetryPolicyInput
+): NormalizedTaskRetryPolicy | null {
+  if (value === false || value === null || value === undefined) {
+    return null;
+  }
+
+  const maxRetries = boundedInteger(value.maxRetries, 0, 0, 10);
+
+  if (maxRetries < 1) {
+    return null;
+  }
+
+  return {
+    backoffMultiplier: boundedNumber(value.backoffMultiplier, 2, 1, 5),
+    initialDelaySeconds: boundedInteger(
+      value.initialDelaySeconds,
+      300,
+      30,
+      86_400
+    ),
+    maxDelaySeconds: Math.max(
+      boundedInteger(value.initialDelaySeconds, 300, 30, 86_400),
+      boundedInteger(value.maxDelaySeconds, 3_600, 30, 86_400)
+    ),
+    maxRetries
+  };
+}
+
+export function taskRetryDelaySeconds(
+  retryAttempt: number,
+  policy: NormalizedTaskRetryPolicy
+) {
+  const retryNumber = Math.max(1, Math.round(retryAttempt));
+  const delay =
+    policy.initialDelaySeconds *
+    Math.pow(policy.backoffMultiplier, retryNumber - 1);
+
+  return Math.round(Math.min(policy.maxDelaySeconds, delay));
 }
 
 export function normalizeCapabilities(value: unknown): string[] {

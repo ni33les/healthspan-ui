@@ -4,6 +4,7 @@ import {
   buildExampleEmailSubject
 } from "@/lib/example-email";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
+import { syncDigitalOceanBillingCosts } from "@/lib/finance-ledger";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { analyzeHealthScoreAdvice } from "@/lib/health-score-analysis";
 import {
@@ -42,7 +43,8 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
         answers: workItem.answers,
         cache: false,
         healthScore: workItem.healthScore,
-        locale: workItem.locale
+        locale: workItem.locale,
+        taskId: workItem.taskId
       });
 
       return {
@@ -70,7 +72,8 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
       audit: async () => undefined,
       locale: workItem.locale,
       plan: workItem.plan,
-      planId: workItem.planId
+      planId: workItem.planId,
+      taskId: workItem.taskId
     });
 
     return { analysis };
@@ -150,6 +153,17 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
       contentId: workItem.contentId,
       contentType: workItem.contentType,
       targetStatus: workItem.targetStatus
+    };
+  }
+
+  if (workItem.taskType === "sync_digitalocean_billing") {
+    const digitalOcean = await syncDigitalOceanBillingCosts({
+      taskId: workItem.taskId
+    });
+
+    return {
+      digitalOcean,
+      projectNames: workItem.projectNames
     };
   }
 

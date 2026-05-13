@@ -12,6 +12,7 @@ import {
   getAdminTaskVisibilityData
 } from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
+import { getAdminFinancialsData } from "@/lib/admin-financials";
 import { getAdminGoalsData } from "@/lib/admin-goals";
 import {
   getAdminCampaignsData,
@@ -61,6 +62,7 @@ export default async function AdminDashboardPage({
   const selectedGoalFilter = firstParam(params.goalFilter);
   const selectedGoalId = firstParam(params.goal);
   const selectedReviewTaskId = firstParam(params.review);
+  const selectedTaskId = firstParam(params.task);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
@@ -73,6 +75,7 @@ export default async function AdminDashboardPage({
     contentData,
     communicationsData,
     data,
+    financialsData,
     flowData,
     goalsData,
     leadsData,
@@ -86,12 +89,13 @@ export default async function AdminDashboardPage({
     getAdminContentData(range, filters),
     getAdminCommunicationsData(range),
     getAdminDashboardData(range, filters),
+    getAdminFinancialsData(range),
     getAdminFlowData(range, filters),
     getAdminGoalsData(range, selectedGoalId),
     getAdminLeadsData(range, filters),
     getAdminReviewQueueData(),
     getAdminSupplementsData(),
-    getAdminTaskVisibilityData(range)
+    getAdminTaskVisibilityData(range, selectedTaskId)
   ]);
 
   return (
@@ -103,6 +107,7 @@ export default async function AdminDashboardPage({
       contentData={contentData}
       communicationsData={communicationsData}
       data={data}
+      financialsData={financialsData}
       filters={filters}
       flowData={flowData}
       goalsData={goalsData}
@@ -111,6 +116,7 @@ export default async function AdminDashboardPage({
       selectedGoalFilter={selectedGoalFilter}
       reviewQueueData={reviewQueueData}
       selectedReviewTaskId={selectedReviewTaskId}
+      selectedTaskId={selectedTaskId}
       supplementsData={supplementsData}
       visibilityData={visibilityData}
       view={view}

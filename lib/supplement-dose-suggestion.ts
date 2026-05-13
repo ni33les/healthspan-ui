@@ -11,6 +11,7 @@ import {
   supplementSafetyFlags,
   type SupplementSafetyFlag
 } from "@/lib/supplement-safety-flags";
+import { recordXaiUsageCost } from "@/lib/finance-ledger";
 
 type XaiChatCompletion = {
   choices?: Array<{
@@ -19,6 +20,8 @@ type XaiChatCompletion = {
     };
   }>;
   id?: string;
+  model?: string;
+  usage?: unknown;
 };
 
 export type SupplementDoseSuggestionInput = Readonly<{
@@ -238,7 +241,20 @@ async function callGrok(input: SupplementDoseSuggestionInput) {
       );
     }
 
-    return (await response.json()) as XaiChatCompletion;
+    const completion = (await response.json()) as XaiChatCompletion;
+    await recordXaiUsageCost({
+      metadata: {
+        category: input.category,
+        supplementName: input.supplementName
+      },
+      model: completion.model ?? grok.model,
+      purpose: "supplement_dose_suggestion",
+      reasoningEffort: grok.reasoningEffort,
+      responseId: completion.id,
+      usage: completion.usage
+    });
+
+    return completion;
   } finally {
     clearTimeout(timeout);
   }

@@ -640,6 +640,37 @@ async function applyContentStatusChangeResult(task: TaskRecord) {
   };
 }
 
+async function applyDigitalOceanBillingSyncResult(
+  task: TaskRecord,
+  resultPayload: unknown
+) {
+  const payload = objectValue(resultPayload);
+  const digitalOcean = objectValue(payload.digitalOcean);
+  const synced = Number(digitalOcean.synced ?? 0);
+  const skipped = digitalOcean.skipped === true;
+  const errorMessage = textValue(digitalOcean.error);
+  const reason = textValue(digitalOcean.reason);
+
+  await addWorkEvent(
+    task,
+    skipped
+      ? "digitalocean_billing_sync_skipped"
+      : "digitalocean_billing_sync_completed",
+    errorMessage ? "medium" : "low",
+    {
+      error: errorMessage || undefined,
+      projectNames: Array.isArray(payload.projectNames)
+        ? payload.projectNames
+        : [],
+      reason: reason || undefined,
+      skipped,
+      synced: Number.isFinite(synced) ? synced : 0
+    }
+  );
+
+  return resultPayload;
+}
+
 export async function applyTaskCompletionResult({
   reservationId,
   resultPayload,
@@ -683,6 +714,10 @@ export async function applyTaskCompletionResult({
 
   if (task.taskType === "content_status_change") {
     return applyContentStatusChangeResult(task);
+  }
+
+  if (task.taskType === "sync_digitalocean_billing") {
+    return applyDigitalOceanBillingSyncResult(task, resultPayload);
   }
 
   return resultPayload;

@@ -5,6 +5,7 @@ import { isUuid, toJsonValue } from "@/lib/assessment-store";
 import { writeBpmEvent } from "@/lib/bpm";
 import { getSql } from "@/lib/db";
 import { validateLeadEmail } from "@/lib/email-validation";
+import { digitalOceanBillingSyncConfiguration } from "@/lib/finance-ledger";
 import { isLocale, type Locale } from "@/lib/i18n";
 import { kickInternalApiWorker } from "@/lib/internal-api-worker";
 import { requiredCapabilitiesForWorkTaskType } from "@/lib/system-agents";
@@ -16,13 +17,15 @@ type WorkTaskType =
   | "generate_example_formulation"
   | "generate_formulation"
   | "send_example_email"
-  | "send_reassessment_email";
+  | "send_reassessment_email"
+  | "sync_digitalocean_billing";
 
 const globalWorker = globalThis as typeof globalThis & {
   mattanutraCronWorker?: Promise<{ queued: number }>;
 };
 
 const TASK_PRIORITIES = {
+  billingSync: 1,
   exampleEmail: 2,
   exampleFormulation: 3,
   healthScoreAnalysis: 4,
@@ -54,10 +57,61 @@ function deterministicUuid(seed: string) {
   ].join("-");
 }
 
+function fifteenMinuteBucket(date = new Date()) {
+  const bucketMs = 15 * 60 * 1000;
+
+  return new Date(
+    Math.floor(date.getTime() / bucketMs) * bucketMs
+  ).toISOString();
+}
+
 function payloadRecord(payload: unknown) {
   return payload && typeof payload === "object" && !Array.isArray(payload)
     ? (payload as Record<string, unknown>)
     : {};
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, stableValue(item)])
+    );
+  }
+
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  return null;
+}
+
+function stableHash(value: unknown) {
+  return createHash("sha256")
+    .update(JSON.stringify(stableValue(value)))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function healthScoreInputForIdempotency(healthScore: unknown) {
+  const record = payloadRecord(healthScore);
+  const input = { ...record };
+
+  delete input.advice;
+  return input;
 }
 
 function newUnsubscribeToken() {
@@ -70,10 +124,17 @@ async function createWorkTask(input: Readonly<{
   goalId: string;
   goalTitle: string;
   idempotencyKey: string;
+  idempotencyScope?: "active" | "successful";
   maxAttempts?: number;
   payload?: Record<string, unknown>;
   planId?: string | null;
   priority: number;
+  retryPolicy?: false | {
+    backoffMultiplier?: number;
+    initialDelaySeconds?: number;
+    maxDelaySeconds?: number;
+    maxRetries?: number;
+  };
   reasoningEffort: "medium" | "none";
   source: string;
   taskTitle: string;
@@ -85,6 +146,7 @@ async function createWorkTask(input: Readonly<{
     return null;
   }
 
+  const maxAttempts = input.maxAttempts ?? 3;
   const goal = await createGoal({
     context: {
       source: input.source,
@@ -98,11 +160,12 @@ async function createWorkTask(input: Readonly<{
     title: input.goalTitle,
     type: "goal"
   });
-  const { task } = await createTask({
+  const { created, task } = await createTask({
     actorType: input.actorType,
     description: input.description,
     goalId: goal.id,
     idempotencyKey: input.idempotencyKey,
+    idempotencyScope: input.idempotencyScope,
     initialComment: {
       authorName: "MattaNutra worker",
       authorType: "system",
@@ -114,7 +177,7 @@ async function createWorkTask(input: Readonly<{
       },
       visibility: "worker"
     },
-    maxAttempts: input.maxAttempts ?? 3,
+    maxAttempts,
     payload: {
       planId: input.planId,
       source: input.source,
@@ -124,20 +187,77 @@ async function createWorkTask(input: Readonly<{
     priority: input.priority,
     reasoningEffort: input.reasoningEffort,
     requiredCapabilities: requiredCapabilitiesForWorkTaskType(input.taskType),
+    retryPolicy:
+      input.retryPolicy === false
+        ? false
+        : (input.retryPolicy ?? {
+            backoffMultiplier: 2,
+            initialDelaySeconds: 300,
+            maxDelaySeconds: 3600,
+            maxRetries: Math.max(0, maxAttempts - 1)
+          }),
     taskType: input.taskType,
     title: input.taskTitle
   });
 
-  await sql`
-    update public.goals
-    set
-      status = case when status = 'completed' then 'open' else status end,
-      completed_at = case when status = 'completed' then null else completed_at end,
-      updated_at = now()
-    where id = ${goal.id}::uuid
-  `;
+  if (created) {
+    await sql`
+      update public.goals
+      set
+        status = case when status = 'completed' then 'open' else status end,
+        completed_at = case when status = 'completed' then null else completed_at end,
+        updated_at = now()
+      where id = ${goal.id}::uuid
+    `;
+  }
 
   return task.id;
+}
+
+export async function enqueueDigitalOceanBillingSyncTask(date = new Date()) {
+  const config = digitalOceanBillingSyncConfiguration();
+
+  if (!config.configured) {
+    return {
+      projects: config.projects,
+      reason: config.reason,
+      skipped: true,
+      taskId: null
+    };
+  }
+
+  const bucket = fifteenMinuteBucket(date);
+  const goalId = deterministicUuid(
+    `mattanutra:goal:digitalocean-billing-sync:${bucket}`
+  );
+  const idempotencyKey = `digitalocean-billing-sync:${bucket}`;
+  const taskId = await createWorkTask({
+    actorType: "deterministic",
+    description:
+      "Fetch DigitalOcean invoice-preview costs and write nominal hosting ledger rows.",
+    goalId,
+    goalTitle: "Sync DigitalOcean billing costs",
+    idempotencyKey,
+    idempotencyScope: "successful",
+    maxAttempts: 2,
+    payload: {
+      bucket,
+      projectNames: config.projects
+    },
+    priority: TASK_PRIORITIES.billingSync,
+    reasoningEffort: "none",
+    source: "cron",
+    taskTitle: "Sync DigitalOcean billing costs",
+    taskType: "sync_digitalocean_billing"
+  });
+
+  return {
+    bucket,
+    projects: config.projects,
+    queued: Boolean(taskId),
+    skipped: false,
+    taskId
+  };
 }
 
 export async function enqueueHealthScoreAnalysisTask({
@@ -162,11 +282,16 @@ export async function enqueueHealthScoreAnalysisTask({
     return null;
   }
 
+  const inputHash = stableHash(
+    healthScoreInputForIdempotency(rows[0].health_score)
+  );
+
   return createWorkTask({
     actorType: "ai",
     goalId: deterministicUuid(`mattanutra:goal:healthscore:${planId}`),
     goalTitle: "Analyze HealthScore",
-    idempotencyKey: `healthscore-analysis:${planId}`,
+    idempotencyKey: `healthscore-analysis:${planId}:${inputHash}`,
+    idempotencyScope: "successful",
     payload: {},
     planId,
     priority: TASK_PRIORITIES.healthScoreAnalysis,
@@ -212,7 +337,12 @@ export async function enqueueFormulationTask({
       plan === "pro"
         ? "Prepare Pro nutrition plan"
         : "Prepare Precision nutrition plan",
-    idempotencyKey: `formulation:${planId}`,
+    idempotencyKey: `formulation:${planId}:${stableHash({
+      answers,
+      locale,
+      plan
+    })}`,
+    idempotencyScope: "successful",
     payload: { answers, locale, plan },
     planId,
     priority: priorityForPlan(plan),
@@ -255,6 +385,7 @@ async function enqueueExampleFormulationTask(
     goalId: deterministicUuid(`mattanutra:goal:free-example:${requestId}`),
     goalTitle: "Prepare Free nutrition plan email",
     idempotencyKey: `example-formulation:${requestId}`,
+    idempotencyScope: "successful",
     payload: { priorityClass: "free_example", requestId },
     planId,
     priority: TASK_PRIORITIES.exampleFormulation,
@@ -288,6 +419,7 @@ export async function enqueueExampleEmailTask(planId: string, requestId: string)
     goalId: deterministicUuid(`mattanutra:goal:free-example:${requestId}`),
     goalTitle: "Prepare Free nutrition plan email",
     idempotencyKey: `example-email:${requestId}`,
+    idempotencyScope: "successful",
     maxAttempts: 2,
     payload: { priorityClass: "free_example", requestId },
     planId,

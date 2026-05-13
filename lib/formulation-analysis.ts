@@ -6,6 +6,7 @@ import type {
   LocalizedText,
   FormulationStatus
 } from "@/lib/formulation-types";
+import { recordXaiUsageCost } from "@/lib/finance-ledger";
 
 type AnalysisAuditEvent = {
   eventType: string;
@@ -19,6 +20,7 @@ type AnalysisInput = Readonly<{
   locale: Locale;
   plan: AssessmentPlan;
   planId: string;
+  taskId?: string | null;
 }>;
 
 type AnalysisResult = Readonly<{
@@ -169,12 +171,16 @@ async function callGrok({
   apiKey,
   messages,
   model,
-  reasoningEffort
+  reasoningEffort,
+  taskId,
+  usageContext
 }: Readonly<{
   apiKey: string;
   messages: Array<{ content: string; role: "assistant" | "system" | "user" }>;
   model: string;
   reasoningEffort?: string;
+  taskId?: string | null;
+  usageContext?: Record<string, unknown>;
 }>) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -204,7 +210,18 @@ async function callGrok({
       );
     }
 
-    return (await response.json()) as XaiChatCompletion;
+    const completion = (await response.json()) as XaiChatCompletion;
+    await recordXaiUsageCost({
+      metadata: usageContext,
+      model: completion.model ?? model,
+      purpose: "formulation_analysis",
+      reasoningEffort,
+      responseId: completion.id,
+      taskId,
+      usage: completion.usage
+    });
+
+    return completion;
   } finally {
     clearTimeout(timeout);
   }
@@ -463,7 +480,15 @@ export async function analyzeFormulationWithGrok(
         apiKey: config.apiKey,
         messages,
         model: config.model,
-        reasoningEffort: config.reasoningEffort
+        reasoningEffort: config.reasoningEffort,
+        taskId: input.taskId,
+        usageContext: {
+          attempt,
+          plan: input.plan,
+          planId: input.planId,
+          promptVersion: config.promptVersion,
+          taskId: input.taskId
+        }
       });
       const content = completion.choices?.[0]?.message?.content;
       const parsed = parseJsonObject(content);

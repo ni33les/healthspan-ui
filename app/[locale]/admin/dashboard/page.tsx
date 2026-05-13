@@ -13,6 +13,7 @@ import {
   getAdminTaskVisibilityData
 } from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
+import { getAdminFinancialsData } from "@/lib/admin-financials";
 import { getAdminGoalsData } from "@/lib/admin-goals";
 import {
   getAdminCampaignsData,
@@ -84,6 +85,7 @@ export default async function LocalizedAdminDashboardPage({
   const selectedGoalFilter = firstParam(query.goalFilter);
   const selectedGoalId = firstParam(query.goal);
   const selectedReviewTaskId = firstParam(query.review);
+  const selectedTaskId = firstParam(query.task);
 
   if (!adminDashboardTokenAllowed(accessToken)) {
     notFound();
@@ -96,6 +98,7 @@ export default async function LocalizedAdminDashboardPage({
     contentData,
     communicationsData,
     data,
+    financialsData,
     flowData,
     goalsData,
     leadsData,
@@ -109,12 +112,13 @@ export default async function LocalizedAdminDashboardPage({
     getAdminContentData(range, filters),
     getAdminCommunicationsData(range),
     getAdminDashboardData(range, filters),
+    getAdminFinancialsData(range),
     getAdminFlowData(range, filters),
     getAdminGoalsData(range, selectedGoalId),
     getAdminLeadsData(range, filters),
     getAdminReviewQueueData(),
     getAdminSupplementsData(),
-    getAdminTaskVisibilityData(range)
+    getAdminTaskVisibilityData(range, selectedTaskId)
   ]);
 
   return (
@@ -126,6 +130,7 @@ export default async function LocalizedAdminDashboardPage({
       contentData={contentData}
       communicationsData={communicationsData}
       data={data}
+      financialsData={financialsData}
       filters={filters}
       flowData={flowData}
       goalsData={goalsData}
@@ -134,6 +139,7 @@ export default async function LocalizedAdminDashboardPage({
       selectedGoalFilter={selectedGoalFilter}
       reviewQueueData={reviewQueueData}
       selectedReviewTaskId={selectedReviewTaskId}
+      selectedTaskId={selectedTaskId}
       supplementsData={supplementsData}
       visibilityData={visibilityData}
       view={view}

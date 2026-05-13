@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { recordXaiUsageCost } from "@/lib/finance-ledger";
 import type {
   HealthScoreAdvice,
   HealthScorePaywallFeature,
@@ -512,12 +513,16 @@ async function callGrok({
   apiKey,
   messages,
   model,
-  reasoningEffort
+  reasoningEffort,
+  taskId,
+  usageContext
 }: Readonly<{
   apiKey: string;
   messages: Array<{ content: string; role: "assistant" | "system" | "user" }>;
   model: string;
   reasoningEffort?: string;
+  taskId?: string | null;
+  usageContext?: Record<string, unknown>;
 }>) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -547,7 +552,18 @@ async function callGrok({
       );
     }
 
-    return (await response.json()) as XaiChatCompletion;
+    const completion = (await response.json()) as XaiChatCompletion;
+    await recordXaiUsageCost({
+      metadata: usageContext,
+      model: completion.model ?? model,
+      purpose: "healthscore_advice",
+      reasoningEffort,
+      responseId: completion.id,
+      taskId,
+      usage: completion.usage
+    });
+
+    return completion;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
@@ -912,12 +928,14 @@ export async function analyzeHealthScoreAdvice({
   answers,
   cache = true,
   healthScore,
-  locale
+  locale,
+  taskId
 }: Readonly<{
   answers: unknown;
   cache?: boolean;
   healthScore: HealthScoreResult;
   locale: Locale;
+  taskId?: string | null;
 }>) {
   const config = grokConfig();
   const key = cacheKey({
@@ -948,7 +966,13 @@ export async function analyzeHealthScoreAdvice({
         apiKey: config.apiKey,
         messages,
         model: config.model,
-        reasoningEffort: config.reasoningEffort
+        reasoningEffort: config.reasoningEffort,
+        taskId,
+        usageContext: {
+          attempt,
+          promptVersion: config.promptVersion,
+          taskId
+        }
       });
       const content = completion.choices?.[0]?.message?.content;
       const validation = validateAdvice(parseJsonObject(content));

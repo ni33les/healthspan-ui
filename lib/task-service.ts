@@ -6,10 +6,15 @@ import {
   buildTaskSequenceDependencyPlan,
   normalizeCapabilities,
   normalizeLeaseSeconds,
+  normalizeTaskIdempotencyScope,
   normalizeTaskDependencyType,
   normalizeTaskPriority,
+  normalizeTaskRetryPolicy,
   TASK_PRIORITY,
+  taskRetryDelaySeconds,
   type TaskDependencyType,
+  type TaskIdempotencyScope,
+  type TaskRetryPolicyInput,
   type TaskPriority
 } from "@/lib/task-service-utils";
 
@@ -273,6 +278,8 @@ type ExpiredReservationRow = {
   task_id: string;
 };
 
+const TASK_RETRY_METADATA_KEY = "__taskRetry";
+
 export type CreateGoalInput = Readonly<{
   context?: Record<string, unknown>;
   createdByAgentId?: string | null;
@@ -298,6 +305,7 @@ export type CreateTaskInput = Readonly<{
   description?: string | null;
   id?: string | null;
   idempotencyKey?: string | null;
+  idempotencyScope?: TaskIdempotencyScope;
   initialComment?: Omit<AddTaskCommentInput, "taskId">;
   maxAttempts?: number;
   parentTaskId?: string | null;
@@ -307,6 +315,7 @@ export type CreateTaskInput = Readonly<{
   goalId: string;
   reasoningEffort?: TaskReasoningEffort;
   requiredCapabilities?: unknown;
+  retryPolicy?: TaskRetryPolicyInput;
   scheduledFor?: Date | string | null;
   taskType: string;
   title: string;
@@ -463,6 +472,50 @@ function positiveInteger(value: unknown, fallback: number) {
   }
 
   return Math.max(1, Math.round(numeric));
+}
+
+function payloadRecord(payload: unknown) {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {};
+}
+
+function retryMetadataRecord(payload: unknown) {
+  return payloadRecord(payloadRecord(payload)[TASK_RETRY_METADATA_KEY]);
+}
+
+function retryPolicyFromTask(task: Pick<TaskRecord, "payload">) {
+  return normalizeTaskRetryPolicy(
+    retryMetadataRecord(task.payload).policy as TaskRetryPolicyInput
+  );
+}
+
+function retryAttemptFromTask(task: Pick<TaskRecord, "payload">) {
+  const value = retryMetadataRecord(task.payload).retryAttempt;
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : 0;
+
+  return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : 0;
+}
+
+function withRetryMetadata(
+  payload: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown>
+) {
+  const base = { ...(payload ?? {}) };
+  const existing = retryMetadataRecord(base);
+
+  return {
+    ...base,
+    [TASK_RETRY_METADATA_KEY]: {
+      ...existing,
+      ...metadata
+    }
+  };
 }
 
 function mapAgent(row: AgentRow): TaskAgent {
@@ -632,7 +685,18 @@ async function refreshGoalStateInTransaction(sql: Db, goalId: string) {
           'waiting_approval'
         )
       )::int as active_count,
-      count(*) filter (where status = 'failed')::int as failed_count
+      count(*) filter (
+        where status = 'failed'
+          and not exists (
+            select 1
+            from public.tasks as successful_retry
+            where successful_retry.goal_id = tasks.goal_id
+              and successful_retry.status in ('completed', 'skipped')
+              and successful_retry.created_at > tasks.created_at
+              and tasks.idempotency_key is not null
+              and successful_retry.idempotency_key = tasks.idempotency_key
+          )
+      )::int as failed_count
     from public.tasks
     where goal_id = ${goalId}::uuid
   `;
@@ -958,6 +1022,18 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
   }
 
   const idempotencyKey = optionalText(input.idempotencyKey);
+  const idempotencyScope = normalizeTaskIdempotencyScope(
+    input.idempotencyScope
+  );
+  const includeSuccessfulIdempotencyMatches =
+    idempotencyScope === "successful";
+  const retryPolicy = normalizeTaskRetryPolicy(input.retryPolicy);
+  const payload = retryPolicy
+    ? withRetryMetadata(input.payload, {
+        policy: retryPolicy,
+        retryAttempt: retryMetadataRecord(input.payload).retryAttempt ?? 0
+      })
+    : (input.payload ?? {});
 
   if (idempotencyKey) {
     const existing = await sql<TaskRow[]>`
@@ -965,8 +1041,17 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       from public.tasks
       where goal_id = ${goalId}::uuid
         and idempotency_key = ${idempotencyKey}
-        and status not in ('completed', 'failed', 'cancelled', 'skipped')
-      order by created_at desc
+        and (
+          status not in ('completed', 'failed', 'cancelled', 'skipped')
+          or (
+            ${includeSuccessfulIdempotencyMatches}
+            and status in ('completed', 'skipped')
+          )
+        )
+      order by
+        (status not in ('completed', 'failed', 'cancelled', 'skipped')) desc,
+        (status in ('completed', 'skipped')) desc,
+        created_at desc
       limit 1
     `;
 
@@ -1032,7 +1117,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       ${taskPriority},
       ${normalizeCapabilities(input.requiredCapabilities)},
       ${input.reasoningEffort ?? "none"},
-      ${sql.json(toJsonValue(input.payload ?? {}))},
+      ${sql.json(toJsonValue(payload))},
       '{}'::jsonb,
       ${idempotencyKey},
       ${input.scheduledFor ? new Date(input.scheduledFor) : new Date()},
@@ -1055,8 +1140,17 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
         from public.tasks
         where goal_id = ${goalId}::uuid
           and idempotency_key = ${idempotencyKey}
-          and status not in ('completed', 'failed', 'cancelled', 'skipped')
-        order by created_at desc
+          and (
+            status not in ('completed', 'failed', 'cancelled', 'skipped')
+            or (
+              ${includeSuccessfulIdempotencyMatches}
+              and status in ('completed', 'skipped')
+            )
+          )
+        order by
+          (status not in ('completed', 'failed', 'cancelled', 'skipped')) desc,
+          (status in ('completed', 'skipped')) desc,
+          created_at desc
         limit 1
       `
     )[0];
@@ -1080,9 +1174,11 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
     eventPayload: {
       goalPriority,
       idempotencyKey,
+      idempotencyScope,
       priority: task.priority,
       prioritySource: hasExplicitPriority ? "explicit" : "goal",
-      requiredCapabilities: task.requiredCapabilities
+      requiredCapabilities: task.requiredCapabilities,
+      retryPolicy
     },
     eventType: "task_created",
     goalId,
@@ -1408,7 +1504,7 @@ async function releaseExpiredReservationsInTransaction(sql: Db) {
       where id = ${row.reservation_id}::uuid
     `;
 
-    await sql`
+    const updatedTasks = await sql<TaskRow[]>`
       update public.tasks set
         status = ${exhausted ? "failed" : "queued"},
         reserved_by_agent_id = null,
@@ -1417,6 +1513,7 @@ async function releaseExpiredReservationsInTransaction(sql: Db) {
         updated_at = now()
       where id = ${row.task_id}::uuid
         and status in ('reserved', 'running')
+      returning *
     `;
 
     await addTaskEventInTransaction(sql, {
@@ -1431,10 +1528,152 @@ async function releaseExpiredReservationsInTransaction(sql: Db) {
       severity: exhausted ? "high" : "medium",
       taskId: row.task_id
     });
+
+    if (exhausted && updatedTasks[0]) {
+      await scheduleRetryForFailedTaskInTransaction(sql, {
+        errorMessage: "Task lease expired after maximum attempts.",
+        failedByAgentId: row.agent_id,
+        resultPayload: {},
+        task: mapTask(updatedTasks[0])
+      });
+    }
+
     await refreshGoalStateInTransaction(sql, row.goal_id);
   }
 
   return expired.length;
+}
+
+async function taskHasSuccessfulRetryInTransaction(sql: Db, task: TaskRecord) {
+  if (!task.idempotencyKey) {
+    return false;
+  }
+
+  const rows = await sql<Array<{ id: string }>>`
+    select id::text
+    from public.tasks
+    where goal_id = ${task.goalId}::uuid
+      and idempotency_key = ${task.idempotencyKey}
+      and status in ('completed', 'skipped')
+      and created_at > ${new Date(task.createdAt)}
+    order by created_at desc
+    limit 1
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function scheduleRetryForFailedTaskInTransaction(
+  sql: Db,
+  input: Readonly<{
+    errorMessage: string;
+    failedByAgentId?: string | null;
+    resultPayload?: Record<string, unknown>;
+    task: TaskRecord;
+  }>
+) {
+  const policy = retryPolicyFromTask(input.task);
+
+  if (!policy || !input.task.idempotencyKey) {
+    return null;
+  }
+
+  if (await taskHasSuccessfulRetryInTransaction(sql, input.task)) {
+    await addTaskEventInTransaction(sql, {
+      agentId: input.failedByAgentId,
+      eventPayload: {
+        idempotencyKey: input.task.idempotencyKey,
+        retryReason: "successful_retry_exists"
+      },
+      eventStatus: "observed",
+      eventType: "task_retry_not_needed",
+      goalId: input.task.goalId,
+      taskId: input.task.id
+    });
+
+    return null;
+  }
+
+  const retryAttempt = retryAttemptFromTask(input.task) + 1;
+
+  if (retryAttempt > policy.maxRetries) {
+    await addTaskEventInTransaction(sql, {
+      agentId: input.failedByAgentId,
+      eventPayload: {
+        maxRetries: policy.maxRetries,
+        retryAttempt
+      },
+      eventStatus: "failed",
+      eventType: "task_retry_exhausted",
+      goalId: input.task.goalId,
+      severity: "high",
+      taskId: input.task.id
+    });
+
+    return null;
+  }
+
+  const delaySeconds = taskRetryDelaySeconds(retryAttempt, policy);
+  const scheduledFor = new Date(Date.now() + delaySeconds * 1000);
+  const payload = withRetryMetadata(payloadRecord(input.task.payload), {
+    failureMessage: input.errorMessage,
+    failureResultPayload: input.resultPayload ?? {},
+    policy,
+    retryAttempt,
+    retryOfTaskId: input.task.id,
+    rootTaskId: retryMetadataRecord(input.task.payload).rootTaskId ?? input.task.id,
+    scheduledAt: scheduledFor.toISOString()
+  });
+  const created = await createTaskInTransaction(sql, {
+    actorType: input.task.actorType,
+    createdByAgentId: input.failedByAgentId,
+    createdByTaskId: input.task.id,
+    description: input.task.description,
+    goalId: input.task.goalId,
+    idempotencyKey: input.task.idempotencyKey,
+    idempotencyScope: "active",
+    initialComment: {
+      authorName: "MattaNutra worker",
+      authorType: "system",
+      body: `Retry ${retryAttempt} of ${policy.maxRetries} scheduled after task failure.`,
+      commentType: "status",
+      metadata: {
+        failedTaskId: input.task.id,
+        retryAttempt
+      },
+      visibility: "worker"
+    },
+    maxAttempts: input.task.maxAttempts,
+    payload,
+    planId: input.task.planId,
+    priority: input.task.priority,
+    reasoningEffort: input.task.reasoningEffort,
+    requiredCapabilities: input.task.requiredCapabilities,
+    retryPolicy: policy,
+    scheduledFor,
+    taskType: input.task.taskType,
+    title: input.task.title
+  });
+
+  await addTaskEventInTransaction(sql, {
+    agentId: input.failedByAgentId,
+    eventPayload: {
+      delaySeconds,
+      maxRetries: policy.maxRetries,
+      retryAttempt,
+      retryTaskId: created.task.id,
+      scheduledFor: scheduledFor.toISOString()
+    },
+    eventStatus: created.created ? "requested" : "observed",
+    eventType: created.created
+      ? "task_retry_scheduled"
+      : "task_retry_already_scheduled",
+    goalId: input.task.goalId,
+    severity: "medium",
+    taskId: input.task.id
+  });
+
+  return created.task;
 }
 
 export async function reserveNextTask(
@@ -1786,6 +2025,14 @@ export async function failTask(input: FailTaskInput) {
       severity: "high",
       taskId: task.id
     });
+
+    await scheduleRetryForFailedTaskInTransaction(tx, {
+      errorMessage: input.errorMessage,
+      failedByAgentId: input.agentId ?? activeReservation?.agent_id,
+      resultPayload: input.resultPayload ?? {},
+      task
+    });
+
     await refreshGoalStateInTransaction(tx, task.goalId);
 
     return task;

@@ -11,6 +11,7 @@ export type HealthScoreWorkItem = Readonly<{
   healthScore: HealthScoreResult;
   locale: Locale;
   planId: string;
+  taskId: string;
   taskType: "analyze_healthscore";
 }>;
 
@@ -20,6 +21,7 @@ export type FormulationWorkItem = Readonly<{
   plan: AssessmentPlan;
   planId: string;
   requestId?: string;
+  taskId: string;
   taskType: "generate_example_formulation" | "generate_formulation";
 }>;
 
@@ -58,9 +60,16 @@ export type ContentStatusChangeWorkItem = Readonly<{
   taskType: "content_status_change";
 }>;
 
+export type DigitalOceanBillingSyncWorkItem = Readonly<{
+  projectNames: string[];
+  taskId: string;
+  taskType: "sync_digitalocean_billing";
+}>;
+
 export type TaskWorkItem =
   | CommunicationFollowupWorkItem
   | ContentStatusChangeWorkItem
+  | DigitalOceanBillingSyncWorkItem
   | ExampleEmailWorkItem
   | FormulationWorkItem
   | HealthScoreWorkItem
@@ -82,6 +91,14 @@ function payloadText(payload: unknown, key: string) {
   const value = payloadRecord(payload)[key];
 
   return typeof value === "string" ? value : "";
+}
+
+function payloadTextArray(payload: unknown, key: string) {
+  const value = payloadRecord(payload)[key];
+
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function newUnsubscribeToken() {
@@ -119,6 +136,7 @@ async function buildHealthScoreWorkItem(task: TaskRecord) {
     healthScore: healthScore as HealthScoreResult,
     locale: isLocale(row.locale) ? row.locale : "en",
     planId: task.planId,
+    taskId: task.id,
     taskType: "analyze_healthscore"
   } satisfies HealthScoreWorkItem;
 }
@@ -160,6 +178,7 @@ async function buildFormulationWorkItem(task: TaskRecord) {
     plan: normalizeAssessmentPlan(row.selected_plan),
     planId: task.planId,
     requestId: payloadText(task.payload, "requestId") || undefined,
+    taskId: task.id,
     taskType: task.taskType as
       | "generate_example_formulation"
       | "generate_formulation"
@@ -336,6 +355,14 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
       targetStatus,
       taskType: "content_status_change"
     } satisfies ContentStatusChangeWorkItem;
+  }
+
+  if (task.taskType === "sync_digitalocean_billing") {
+    return {
+      projectNames: payloadTextArray(task.payload, "projectNames"),
+      taskId: task.id,
+      taskType: "sync_digitalocean_billing"
+    } satisfies DigitalOceanBillingSyncWorkItem;
   }
 
   return {

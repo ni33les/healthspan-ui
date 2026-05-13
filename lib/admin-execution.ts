@@ -2,6 +2,7 @@ import {
   adminDashboardRangeStart,
   type AdminDashboardRange
 } from "@/lib/admin-dashboard-data";
+import { isUuid } from "@/lib/assessment-store";
 import { getSql } from "@/lib/db";
 
 export type AdminTaskVisibilityRow = Readonly<{
@@ -287,7 +288,8 @@ function agentRowFromDb(row: AgentDbRow): AdminAgentRow {
 }
 
 export async function getAdminTaskVisibilityData(
-  range: AdminDashboardRange
+  range: AdminDashboardRange,
+  selectedTaskId?: string | null
 ): Promise<AdminTaskVisibilityData> {
   const sql = getSql();
 
@@ -305,11 +307,16 @@ export async function getAdminTaskVisibilityData(
       "running",
       "waiting_approval"
     ];
+    const taskId = selectedTaskId && isUuid(selectedTaskId) ? selectedTaskId : null;
     const whereClause = sql`
       (${start}::timestamptz is null
         or tasks.created_at >= ${start}
         or tasks.updated_at >= ${start}
         or tasks.status = any(${liveStatuses}))
+    `;
+    const taskRowsWhereClause = sql`
+      (${whereClause}
+        or (${taskId}::uuid is not null and tasks.id = ${taskId}::uuid))
     `;
     const [summaryRows, taskRows] = await Promise.all([
       sql<VisibilitySummaryDbRow[]>`
@@ -371,8 +378,12 @@ export async function getAdminTaskVisibilityData(
         from public.tasks
         inner join public.goals on goals.id = tasks.goal_id
         left join public.agents on agents.id = tasks.reserved_by_agent_id
-        where ${whereClause}
+        where ${taskRowsWhereClause}
         order by
+          case
+            when ${taskId}::uuid is not null and tasks.id = ${taskId}::uuid then -1
+            else 0
+          end,
           case
             when tasks.status in (
               'queued',

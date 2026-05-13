@@ -56,6 +56,12 @@ const DEFAULT_WORKER_GROUPS: readonly WorkerGroup[] = [
     agent: taskReservationAgent(SYSTEM_AGENTS.emailDispatcher),
     leaseSeconds: 600,
     taskTypes: ["send_example_email", "send_reassessment_email"]
+  },
+  {
+    agent: taskReservationAgent(SYSTEM_AGENTS.scheduler),
+    leaseSeconds: 300,
+    mustRequireCapability: AGENT_CAPABILITIES.hostingCostSync,
+    taskTypes: ["sync_digitalocean_billing"]
   }
 ];
 

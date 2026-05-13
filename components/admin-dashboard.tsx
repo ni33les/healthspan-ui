@@ -97,6 +97,12 @@ import type {
   AdminFlowNodeId
 } from "@/lib/admin-flow-data";
 import type {
+  AdminFinancialCategory,
+  AdminFinancialMetricId,
+  AdminFinancialTransactionRow,
+  AdminFinancialsData
+} from "@/lib/admin-financials";
+import type {
   AdminGoalsData,
   AdminGoalRow,
   AdminGoalStatus
@@ -298,6 +304,25 @@ type AdminContent = Readonly<{
     working: string;
   };
   generated: string;
+  financials: {
+    aiCost: string;
+    amount: string;
+    category: string;
+    description: string;
+    details: string;
+    empty: string;
+    entryType: string;
+    from: string;
+    hostingCost: string;
+    provider: string;
+    source: string;
+    task: string;
+    time: string;
+    to: string;
+    totalCost: string;
+    transactions: string;
+    usd: string;
+  };
   atAGlance: {
     assessmentCompletions: string;
     assessmentStarts: string;
@@ -635,6 +660,25 @@ const content = {
       working: "Working"
     },
     generated: "Generated",
+    financials: {
+      aiCost: "AI cost",
+      amount: "Amount",
+      category: "Category",
+      description: "Description",
+      details: "Details",
+      empty: "No cost entries in this timeframe.",
+      entryType: "Basis",
+      from: "Cost center",
+      hostingCost: "Hosting cost",
+      provider: "Provider",
+      source: "Source",
+      task: "Task",
+      time: "Time",
+      to: "Provider",
+      totalCost: "Total cost",
+      transactions: "Cost entries",
+      usd: "USD"
+    },
     atAGlance: {
       assessmentCompletions: "Assessment completions",
       assessmentStarts: "Assessment starts",
@@ -1051,6 +1095,25 @@ const content = {
       working: "กำลังทำ"
     },
     generated: "สร้างเมื่อ",
+    financials: {
+      aiCost: "ค่า AI",
+      amount: "จำนวนเงิน",
+      category: "หมวดหมู่",
+      description: "รายละเอียด",
+      details: "รายละเอียด",
+      empty: "ไม่มีรายการต้นทุนในช่วงเวลานี้",
+      entryType: "ฐานรายการ",
+      from: "ศูนย์ต้นทุน",
+      hostingCost: "ค่าโฮสติ้ง",
+      provider: "ผู้ให้บริการ",
+      source: "แหล่งข้อมูล",
+      task: "งาน",
+      time: "เวลา",
+      to: "ผู้ให้บริการ",
+      totalCost: "ต้นทุนรวม",
+      transactions: "รายการต้นทุน",
+      usd: "USD"
+    },
     atAGlance: {
       assessmentCompletions: "ทำแบบประเมินเสร็จ",
       assessmentStarts: "เริ่มแบบประเมิน",
@@ -1358,6 +1421,18 @@ function classNames(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function buttonGroupItemClasses(active: boolean, index: number, total: number) {
+  return classNames(
+    "relative inline-flex items-center px-3 py-2 text-sm font-semibold ring-1 ring-inset transition focus:z-10 focus:outline-2 focus:-outline-offset-2 focus:outline-[#1FA77A]",
+    index === 0 && "rounded-l-md",
+    index > 0 && "-ml-px",
+    index === total - 1 && "rounded-r-md",
+    active
+      ? "z-10 bg-[#1FA77A] text-white ring-[#1FA77A]"
+      : "bg-white text-gray-900 ring-gray-300 hover:bg-gray-50"
+  );
+}
+
 function adminHref(
   locale: Locale,
   accessToken: string,
@@ -1449,6 +1524,27 @@ function adminReviewTaskHref({
 
   adminDashboardFilterEntries(filters).forEach(([key, value]) => {
     params.set(key, value);
+  });
+
+  return `/${locale}/admin/dashboard?${params.toString()}`;
+}
+
+function adminTaskVisibilityHref({
+  accessToken,
+  locale,
+  range,
+  taskId
+}: Readonly<{
+  accessToken: string;
+  locale: Locale;
+  range: AdminDashboardRange;
+  taskId: string;
+}>) {
+  const params = new URLSearchParams({
+    access_token: accessToken,
+    range,
+    task: taskId,
+    view: "visibility"
   });
 
   return `/${locale}/admin/dashboard?${params.toString()}`;
@@ -1553,6 +1649,22 @@ function formatGeneratedAt(value: string, locale: Locale) {
 
 function formatNumber(value: number, locale: Locale) {
   return new Intl.NumberFormat(formatLocale(locale)).format(value);
+}
+
+function formatMoneyNumber(value: number, locale: Locale) {
+  return new Intl.NumberFormat(formatLocale(locale), {
+    maximumFractionDigits: value >= 100 ? 0 : 4,
+    minimumFractionDigits: value === 0 ? 0 : 2
+  }).format(value);
+}
+
+function formatMoney(value: number, currency: string, locale: Locale) {
+  return new Intl.NumberFormat(formatLocale(locale), {
+    currency,
+    maximumFractionDigits: value >= 100 ? 0 : 4,
+    minimumFractionDigits: value === 0 ? 0 : 2,
+    style: "currency"
+  }).format(value);
 }
 
 function formatTaskDuration(ms: number, locale: Locale) {
@@ -1740,7 +1852,7 @@ function SidebarContent({
 
 type BusinessMetric = Readonly<{
   color: string;
-  format?: "number" | "percent";
+  format?: "currency" | "number" | "percent";
   id: string;
   label: string;
   series: number[];
@@ -1930,6 +2042,10 @@ function formatBusinessMetricAxisValue(
   value: number,
   locale: Locale
 ) {
+  if (metric.format === "currency") {
+    return formatMoneyNumber(value, locale);
+  }
+
   return metric.format === "percent"
     ? formatPercent(value, locale)
     : formatNumber(Math.round(value), locale);
@@ -6217,6 +6333,10 @@ function AdminReviewQueueView({
 }
 
 function readableToken(value: string) {
+  if (value === "completed") {
+    return "Succeeded";
+  }
+
   return value
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -6902,14 +7022,20 @@ function CapabilityList({ values }: Readonly<{ values: string[] }>) {
 function AdminVisibilityView({
   data,
   labels,
-  locale
+  locale,
+  selectedTaskId
 }: Readonly<{
   data: AdminTaskVisibilityData;
   labels: AdminContent;
   locale: Locale;
+  selectedTaskId?: string | null;
 }>) {
   const [selectedTask, setSelectedTask] =
-    useState<AdminTaskVisibilityRow | null>(null);
+    useState<AdminTaskVisibilityRow | null>(() =>
+      selectedTaskId
+        ? data.rows.find((row) => row.id === selectedTaskId) ?? null
+        : null
+    );
   const [selectedMetricId, setSelectedMetricId] =
     useState<TaskMetricId>("tasksTotal");
   const visibleRows = data.rows.filter((row) =>
@@ -7981,6 +8107,308 @@ function AdminFlowView({
   );
 }
 
+function AdminFinancialsView({
+  accessToken,
+  data,
+  labels,
+  locale
+}: Readonly<{
+  accessToken: string;
+  data: AdminFinancialsData;
+  labels: AdminContent;
+  locale: Locale;
+}>) {
+  const metrics: BusinessMetric[] = [
+    {
+      color: businessMetricColors.total,
+      format: "currency",
+      id: "totalCost",
+      label: `${labels.financials.totalCost} (USD)`,
+      series: data.series.totalCost,
+      value: formatMoneyNumber(data.summary.totalCostUsd, locale)
+    },
+    {
+      color: businessMetricColors.healthScoreViews,
+      format: "currency",
+      id: "aiCost",
+      label: `${labels.financials.aiCost} (USD)`,
+      series: data.series.aiCost,
+      value: formatMoneyNumber(data.summary.aiCostUsd, locale)
+    },
+    {
+      color: businessMetricColors.contentScheduled,
+      format: "currency",
+      id: "hostingCost",
+      label: `${labels.financials.hostingCost} (USD)`,
+      series: data.series.hostingCost,
+      value: formatMoneyNumber(data.summary.hostingCostUsd, locale)
+    },
+    {
+      color: businessMetricColors.queued,
+      id: "transactions",
+      label: labels.financials.transactions,
+      series: data.series.transactions,
+      value: formatNumber(data.summary.transactions, locale)
+    }
+  ];
+  const [selectedMetricId, setSelectedMetricId] =
+    useState<AdminFinancialMetricId>("totalCost");
+  const [selectedRow, setSelectedRow] =
+    useState<AdminFinancialTransactionRow | null>(null);
+  const selectedMetric =
+    metrics.find((metric) => metric.id === selectedMetricId) ?? metrics[0];
+  const categoryLabel = (category: AdminFinancialCategory) =>
+    category === "ai" ? "AI" : readableToken(category);
+
+  return (
+    <>
+      <BusinessStatsGrid
+        metrics={metrics}
+        onMetricSelect={(metricId) =>
+          setSelectedMetricId(metricId as AdminFinancialMetricId)
+        }
+        selectedMetricId={selectedMetric.id}
+      />
+
+      <BusinessTrendChart
+        bucketLabels={data.bucketLabels}
+        locale={locale}
+        metric={selectedMetric}
+      />
+
+      <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+        <div className="border-b border-gray-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-gray-900">
+            {labels.financials.transactions}
+          </h2>
+        </div>
+        {data.rows.length > 0 ? (
+          <div className="overflow-x-auto px-5">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr>
+                  <th
+                    className="py-3.5 pr-3 text-left text-sm font-semibold text-gray-900"
+                    scope="col"
+                  >
+                    {labels.financials.time}
+                  </th>
+                  <th
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    scope="col"
+                  >
+                    {labels.financials.description}
+                  </th>
+                  <th
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    scope="col"
+                  >
+                    {labels.financials.category}
+                  </th>
+                  <th
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                    scope="col"
+                  >
+                    {labels.financials.entryType}
+                  </th>
+                  <th
+                    className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900"
+                    scope="col"
+                  >
+                    {labels.financials.usd}
+                  </th>
+                  <th className="py-3.5 pl-3 text-right" scope="col">
+                    <span className="sr-only">{labels.financials.details}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="whitespace-nowrap py-4 pr-3 text-sm text-gray-500">
+                      {formatGeneratedAt(row.occurredAt, locale)}
+                    </td>
+                    <td className="min-w-96 px-3 py-4 text-sm">
+                      <div className="font-medium text-gray-900">
+                        {row.description}
+                      </div>
+                      <div className="mt-1 max-w-xl truncate text-xs text-gray-400">
+                        {row.sourceRef ?? row.source}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-600">
+                      {categoryLabel(row.category)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm">
+                      <span
+                        className={classNames(
+                          row.entryType === "actual"
+                            ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                            : "bg-gray-50 text-gray-600 ring-gray-200",
+                          "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+                        )}
+                      >
+                        {readableToken(row.entryType)}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-right text-sm font-semibold text-gray-900">
+                      {formatMoney(row.amountUsd, "USD", locale)}
+                    </td>
+                    <td className="whitespace-nowrap py-4 pl-3 text-right text-sm font-medium">
+                      <button
+                        className="text-[#1FA77A] hover:text-[#126B4F]"
+                        onClick={() => setSelectedRow(row)}
+                        type="button"
+                      >
+                        {labels.financials.details}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="px-5 py-8 text-sm font-medium text-gray-400">
+            {labels.financials.empty}
+          </p>
+        )}
+      </section>
+
+      {selectedRow ? (
+        <FinancialTransactionDetailModal
+          accessToken={accessToken}
+          categoryLabel={categoryLabel}
+          labels={labels}
+          locale={locale}
+          onClose={() => setSelectedRow(null)}
+          range={data.range}
+          row={selectedRow}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function FinancialTransactionDetailModal({
+  accessToken,
+  categoryLabel,
+  labels,
+  locale,
+  onClose,
+  range,
+  row
+}: Readonly<{
+  accessToken: string;
+  categoryLabel: (category: AdminFinancialCategory) => string;
+  labels: AdminContent;
+  locale: Locale;
+  onClose: () => void;
+  range: AdminDashboardRange;
+  row: AdminFinancialTransactionRow;
+}>) {
+  return (
+    <Dialog className="relative z-50" onClose={onClose} open={true}>
+      <DialogBackdrop className="fixed inset-0 bg-gray-900/40" />
+      <div className="fixed inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+          <DialogPanel className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-900/10">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+              <div className="min-w-0">
+                <DialogTitle className="text-base font-semibold text-gray-900">
+                  {row.description}
+                </DialogTitle>
+                <p className="mt-1 break-all text-xs text-gray-400">
+                  {row.sourceRef ?? row.source}
+                </p>
+              </div>
+              <button
+                aria-label={labels.supplements.close}
+                className="rounded-md p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A]"
+                onClick={onClose}
+                type="button"
+              >
+                <XMarkIcon aria-hidden={true} className="size-5" />
+              </button>
+            </div>
+
+            <dl className="divide-y divide-gray-100 px-6 text-sm">
+              <FinancialDetailRow
+                label={labels.financials.time}
+                value={formatGeneratedAt(row.occurredAt, locale)}
+              />
+              <FinancialDetailRow
+                label={labels.financials.category}
+                value={categoryLabel(row.category)}
+              />
+              <FinancialDetailRow
+                label={labels.financials.entryType}
+                value={readableToken(row.entryType)}
+              />
+              <FinancialDetailRow
+                label={labels.financials.amount}
+                value={formatMoney(row.amount / 1_000_000, row.currency, locale)}
+              />
+              <FinancialDetailRow
+                label={labels.financials.usd}
+                value={formatMoney(row.amountUsd, "USD", locale)}
+              />
+              <FinancialDetailRow
+                label={labels.financials.provider}
+                value={row.provider ?? row.source}
+              />
+              <FinancialDetailRow label={labels.financials.from} value={row.from} />
+              <FinancialDetailRow label={labels.financials.to} value={row.to} />
+              <FinancialDetailRow
+                label={labels.financials.source}
+                value={
+                  <span className="break-all">{row.sourceRef ?? row.source}</span>
+                }
+              />
+              <FinancialDetailRow
+                label={labels.financials.task}
+                value={
+                  row.taskId ? (
+                    <a
+                      className="font-semibold text-[#1FA77A] underline-offset-2 hover:underline"
+                      href={adminTaskVisibilityHref({
+                        accessToken,
+                        locale,
+                        range,
+                        taskId: row.taskId
+                      })}
+                      title={row.taskId}
+                    >
+                      {compactId(row.taskId)}
+                    </a>
+                  ) : (
+                    <span className="text-gray-300">-</span>
+                  )
+                }
+              />
+            </dl>
+          </DialogPanel>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function FinancialDetailRow({
+  label,
+  value
+}: Readonly<{
+  label: string;
+  value: ReactNode;
+}>) {
+  return (
+    <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4">
+      <dt className="font-medium text-gray-900">{label}</dt>
+      <dd className="mt-1 text-gray-700 sm:col-span-2 sm:mt-0">{value}</dd>
+    </div>
+  );
+}
+
 function TimeframeSelector({
   accessToken,
   data,
@@ -7997,17 +8425,16 @@ function TimeframeSelector({
   view: AdminDashboardView;
 }>) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {rangeOrder.map((range) => (
+    <div className="isolate inline-flex rounded-md shadow-sm">
+      {rangeOrder.map((range, index) => (
         <a
           key={range}
           href={adminHref(locale, accessToken, range, view, filters)}
           aria-current={data.range === range ? "page" : undefined}
-          className={classNames(
-            data.range === range
-              ? "bg-[#1FA77A] text-white"
-              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50",
-            "rounded-full px-3 py-1.5 text-sm font-semibold transition"
+          className={buttonGroupItemClasses(
+            data.range === range,
+            index,
+            rangeOrder.length
           )}
         >
           {labels.ranges[range]}
@@ -8064,8 +8491,8 @@ function LocaleFilterSelector({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {localeOptions.map((option) => {
+    <div className="isolate inline-flex rounded-md shadow-sm">
+      {localeOptions.map((option, index) => {
         const active = activeLocales.has(option.value);
 
         return (
@@ -8076,11 +8503,10 @@ function LocaleFilterSelector({
               locale: toggledLocaleFilter(option.value)
             })}
             aria-current={active ? "page" : undefined}
-            className={classNames(
-              active
-                ? "bg-[#1FA77A] text-white"
-                : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50",
-              "rounded-full px-3 py-1.5 text-sm font-semibold transition"
+            className={buttonGroupItemClasses(
+              active,
+              index,
+              localeOptions.length
             )}
           >
             {option.label}
@@ -8299,6 +8725,7 @@ function adminViewDatabaseAvailable({
   contentData,
   communicationsData,
   data,
+  financialsData,
   flowData,
   goalsData,
   leadsData,
@@ -8313,6 +8740,7 @@ function adminViewDatabaseAvailable({
   contentData: AdminContentInventoryData;
   communicationsData: AdminCommunicationsData;
   data: AdminDashboardData;
+  financialsData: AdminFinancialsData;
   flowData: AdminFlowData;
   goalsData: AdminGoalsData;
   leadsData: AdminLeadsData;
@@ -8356,7 +8784,7 @@ function adminViewDatabaseAvailable({
   }
 
   if (view === "financials") {
-    return true;
+    return financialsData.databaseAvailable;
   }
 
   if (view === "goals") {
@@ -8390,6 +8818,7 @@ export function AdminDashboard({
   contentData,
   communicationsData,
   data,
+  financialsData,
   filters,
   flowData,
   goalsData,
@@ -8398,6 +8827,7 @@ export function AdminDashboard({
   reviewQueueData,
   selectedReviewTaskId,
   selectedGoalFilter,
+  selectedTaskId,
   supplementsData,
   visibilityData,
   view
@@ -8409,6 +8839,7 @@ export function AdminDashboard({
   contentData: AdminContentInventoryData;
   communicationsData: AdminCommunicationsData;
   data: AdminDashboardData;
+  financialsData: AdminFinancialsData;
   filters: AdminDashboardFilters;
   flowData: AdminFlowData;
   goalsData: AdminGoalsData;
@@ -8417,6 +8848,7 @@ export function AdminDashboard({
   reviewQueueData: AdminReviewQueueData;
   selectedGoalFilter?: string | null;
   selectedReviewTaskId?: string | null;
+  selectedTaskId?: string | null;
   supplementsData: AdminSupplementsData;
   visibilityData: AdminTaskVisibilityData;
   view: AdminDashboardView;
@@ -8478,6 +8910,7 @@ export function AdminDashboard({
     contentData,
     communicationsData,
     data,
+    financialsData,
     flowData,
     goalsData: liveGoalsData,
     leadsData,
@@ -8573,13 +9006,14 @@ export function AdminDashboard({
           view === "alerts" ||
           view === "campaigns" ||
           view === "communications" ||
+          view === "financials" ||
           view === "flow" ||
           view === "glance" ||
           view === "goals" ||
           view === "leads" ||
           view === "visibility") ? (
             <>
-              <div className="mt-6">
+              <div className="mt-6 flex flex-wrap items-center gap-4">
                 <TimeframeSelector
                   accessToken={accessToken}
                   data={data}
@@ -8638,6 +9072,13 @@ export function AdminDashboard({
             <AdminFlowView
               accessToken={accessToken}
               flowData={flowData}
+              labels={labels}
+              locale={locale}
+            />
+          ) : view === "financials" ? (
+            <AdminFinancialsView
+              accessToken={accessToken}
+              data={financialsData}
               labels={labels}
               locale={locale}
             />
@@ -8709,6 +9150,7 @@ export function AdminDashboard({
               data={liveVisibilityData}
               labels={labels}
               locale={locale}
+              selectedTaskId={selectedTaskId}
             />
           ) : null}
         </div>
