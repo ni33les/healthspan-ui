@@ -49,6 +49,7 @@ export async function PATCH(request: Request, { params }: ChannelRouteProps) {
 
   const { id } = await params;
   const body = await readJsonObject(request);
+  const workerOptions = { baseUrl: new URL(request.url).origin };
 
   try {
     const channel = await updateCommunicationChannel({
@@ -60,7 +61,7 @@ export async function PATCH(request: Request, { params }: ChannelRouteProps) {
       status: statusValue(body.status)
     });
 
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
 
     return openClawJson({ channel });
   } catch (error) {

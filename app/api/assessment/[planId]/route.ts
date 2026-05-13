@@ -72,6 +72,7 @@ export async function GET(
 ) {
   const { planId } = await params;
   const url = new URL(request.url);
+  const workerOptions = { baseUrl: url.origin };
   const scoreMode = url.searchParams.get("mode") === "score";
   const snapshot = scoreMode
     ? await getStoredHealthScoreAnalysisSnapshot(planId)
@@ -94,9 +95,9 @@ export async function GET(
   }
 
   if (snapshot.status !== "ready") {
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
   }
-  void kickCronWorker();
+  void kickCronWorker(workerOptions);
 
   return NextResponse.json(snapshot, {
     headers: {
@@ -110,6 +111,7 @@ export async function PATCH(
   { params }: AssessmentStatusRouteProps
 ) {
   const { planId } = await params;
+  const workerOptions = { baseUrl: new URL(request.url).origin };
   let body: {
     answers?: unknown;
     intent?: "capture" | "process";
@@ -201,7 +203,7 @@ export async function PATCH(
     });
 
     if (analysisTaskId) {
-      void kickTaskWorker();
+      void kickTaskWorker(workerOptions);
     }
 
     const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
@@ -212,7 +214,7 @@ export async function PATCH(
         locale: body.locale,
         planId: snapshot.planId
       });
-      void kickCronWorker();
+      void kickCronWorker(workerOptions);
       await writeBpmEvent({
         actorType: "visitor",
         attribution: bpm.attribution,
@@ -273,7 +275,7 @@ export async function PATCH(
       throw new Error("Unable to queue assessment processing");
     }
 
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
     await writeBpmEvent({
       actorType: "system",
       attribution: bpm.attribution,

@@ -106,7 +106,9 @@ async function requestJson<T>(
   const token = apiToken();
 
   if (!baseUrl) {
-    throw new Error("MATTANUTRA_API_BASE_URL is required for API workers");
+    throw new Error(
+      "Internal API workers require a request baseUrl or MATTANUTRA_API_BASE_URL/APP_BASE_URL/NEXT_PUBLIC_SITE_URL"
+    );
   }
 
   if (!token) {

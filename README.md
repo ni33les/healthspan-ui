@@ -53,6 +53,8 @@ Authorization: Bearer <ADMIN_CLAW_TOKEN>
 
 The cron endpoint scans due cron actions and wakes the task worker. Scheduled content publishing runs through the normal `content_status_change` task queue once its `scheduled_for` time is due.
 
+Request-triggered worker kicks pass the current request origin through to the internal task APIs. In production, also set `MATTANUTRA_API_BASE_URL=https://mattanutra.com` as a fallback for any worker kicked outside a request context.
+
 The same tick queues a `sync_digitalocean_billing` worker task when `DIGITALOCEAN_ACCESS_TOKEN` and `DIGITALOCEAN_PROJECT_NAME` are configured. The worker calls `/v2/customers/my/invoices/preview`, filters invoice items by the comma-separated project-name list, and writes nominal `hosting` ledger rows with deterministic `source_ref` values so repeated 15-minute runs update existing rows.
 
 AI cost accounting is written when Grok calls return usage metadata. Task-backed Grok calls also store the originating task id on the cost entry. Token prices default to the current `grok-4.3` rates and can be overridden with `XAI_INPUT_USD_PER_MILLION_TOKENS`, `XAI_OUTPUT_USD_PER_MILLION_TOKENS`, and `XAI_CACHED_INPUT_USD_PER_MILLION_TOKENS`.

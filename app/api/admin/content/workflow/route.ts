@@ -86,6 +86,7 @@ function errorDetails(error: unknown) {
 }
 
 export async function POST(request: Request) {
+  const workerOptions = { baseUrl: new URL(request.url).origin };
   const body = (await request.json().catch(() => ({}))) as Record<
     string,
     unknown
@@ -193,7 +194,7 @@ export async function POST(request: Request) {
         taskId: task.id
       }
     });
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
 
     return NextResponse.json(
       { goal, task },

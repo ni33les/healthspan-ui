@@ -18,7 +18,7 @@ async function runDueWork(request: Request) {
   try {
     const baseUrl = new URL(request.url).origin;
     const [result, digitalOcean] = await Promise.all([
-      kickCronWorker(),
+      kickCronWorker({ baseUrl }),
       enqueueDigitalOceanBillingSyncTask()
     ]);
     void kickTaskWorker({ baseUrl });

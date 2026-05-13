@@ -62,6 +62,7 @@ function rateLimitAllows(key: string, limit: number, windowMs: number) {
 
 export async function GET(request: Request, { params }: ExampleRouteProps) {
   const { planId } = await params;
+  const workerOptions = { baseUrl: new URL(request.url).origin };
   const requestId =
     new URL(request.url).searchParams.get("requestId") ??
     new URL(request.url).searchParams.get("request") ??
@@ -94,7 +95,7 @@ export async function GET(request: Request, { params }: ExampleRouteProps) {
   }
 
   if (status.status !== "ready" && status.status !== "failed") {
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
   }
 
   return NextResponse.json(status, {
@@ -106,6 +107,7 @@ export async function GET(request: Request, { params }: ExampleRouteProps) {
 
 export async function POST(request: Request, { params }: ExampleRouteProps) {
   const { planId } = await params;
+  const workerOptions = { baseUrl: new URL(request.url).origin };
   let body: {
     bpm?: unknown;
     email?: unknown;
@@ -221,7 +223,7 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
         locale: body.locale,
         planId
       });
-      void kickCronWorker();
+      void kickCronWorker(workerOptions);
       await writeBpmEvent({
         actorType: "visitor",
         attribution: bpm.attribution,
@@ -234,7 +236,7 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
       });
     }
 
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
     await writeBpmEvent({
       actorType: "visitor",
       attribution: bpm.attribution,

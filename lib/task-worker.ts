@@ -11,6 +11,8 @@ import { kickInternalApiWorker } from "@/lib/internal-api-worker";
 import { requiredCapabilitiesForWorkTaskType } from "@/lib/system-agents";
 import { createGoal, createTask } from "@/lib/task-service";
 
+type TaskWorkerOptions = Parameters<typeof kickInternalApiWorker>[0];
+
 type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
   | "analyze_healthscore"
@@ -899,7 +901,7 @@ async function claimDueCronActions(sql: postgres.Sql) {
   });
 }
 
-async function runCronWorker() {
+async function runCronWorker(options: TaskWorkerOptions = {}) {
   const sql = getSql();
 
   if (!sql) {
@@ -958,24 +960,24 @@ async function runCronWorker() {
   }
 
   if (queued > 0) {
-    void kickTaskWorker();
+    void kickTaskWorker(options);
   }
 
   return { queued };
 }
 
 export function kickTaskWorker(
-  options?: Parameters<typeof kickInternalApiWorker>[0]
+  options?: TaskWorkerOptions
 ) {
   return kickInternalApiWorker(options);
 }
 
-export function kickCronWorker() {
+export function kickCronWorker(options?: TaskWorkerOptions) {
   if (globalWorker.mattanutraCronWorker) {
     return globalWorker.mattanutraCronWorker;
   }
 
-  globalWorker.mattanutraCronWorker = runCronWorker().finally(() => {
+  globalWorker.mattanutraCronWorker = runCronWorker(options).finally(() => {
     globalWorker.mattanutraCronWorker = undefined;
   });
 

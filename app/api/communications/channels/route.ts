@@ -55,6 +55,7 @@ export async function POST(request: Request) {
   }
 
   const body = await readJsonObject(request);
+  const workerOptions = { baseUrl: new URL(request.url).origin };
   const channelType = normalizeCommunicationChannelType(body.channelType);
   const address = textValue(body.address);
 
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
           : "active"
     });
 
-    void kickTaskWorker();
+    void kickTaskWorker(workerOptions);
 
     return openClawJson({ channel });
   } catch (error) {
