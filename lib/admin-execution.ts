@@ -355,29 +355,18 @@ export async function getAdminTaskVisibilityData(
         with ${taskFlagsCte}
         select
           count(*)::int as total,
-          count(*) filter (where tasks.status = 'queued')::int as queued,
+          count(*) filter (
+            where tasks.status in ('queued', 'needs_review', 'waiting_approval')
+          )::int as queued,
           count(*) filter (where tasks.status in ('reserved', 'running'))::int as active,
           count(*) filter (
             where tasks.actor_type = 'human'
               or tasks.status in ('needs_review', 'waiting_approval')
           )::int as human,
           count(*) filter (
-            where tasks.status in ('needs_review', 'waiting_approval')
-              or (
-                tasks.status = 'queued'
-                and tasks.scheduled_for <= now()
-                and tasks.blocked_dependency_count > 0
-              )
-              or (
-                tasks.actor_type = 'human'
-                and tasks.status in ('queued', 'reserved', 'running')
-                and tasks.scheduled_for <= now()
-              )
-              or (
-                tasks.status in ('reserved', 'running')
-                and tasks.lease_until is not null
-                and tasks.lease_until < now()
-              )
+            where tasks.status = 'queued'
+              and tasks.scheduled_for <= now()
+              and tasks.blocked_dependency_count > 0
           )::int as blocked,
           count(*) filter (
             where tasks.status = 'failed'

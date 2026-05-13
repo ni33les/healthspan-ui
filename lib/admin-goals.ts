@@ -527,51 +527,9 @@ export async function getAdminGoalsData(
               and scheduled_for > now()
           )::int as scheduled_task_count,
           count(*) filter (
-            where status in ('needs_review', 'waiting_approval')
-              or (
-                status = 'queued'
-                and scheduled_for <= now()
-                and has_blocking_dependency
-              )
-              or (
-                status = 'failed'
-                and not exists (
-                  select 1
-                  from task_flags as successor
-                  where successor.goal_id = tasks.goal_id
-                    and successor.status in (
-                      'queued',
-                      'reserved',
-                      'running',
-                      'needs_review',
-                      'waiting_approval',
-                      'completed',
-                      'skipped'
-                    )
-                    and (
-                      (
-                        coalesce(successor.retry_root_task_id, successor.id)
-                          = coalesce(tasks.retry_root_task_id, tasks.id)
-                        and successor.retry_attempt > tasks.retry_attempt
-                      )
-                      or (
-                        tasks.idempotency_key is not null
-                        and successor.idempotency_key = tasks.idempotency_key
-                        and successor.created_at > tasks.created_at
-                      )
-                    )
-                )
-              )
-              or (
-                actor_type = 'human'
-                and status in ('queued', 'reserved', 'running')
-                and scheduled_for <= now()
-              )
-              or (
-                status in ('reserved', 'running')
-                and lease_until is not null
-                and lease_until < now()
-              )
+            where status = 'queued'
+              and scheduled_for <= now()
+              and has_blocking_dependency
           )::int as blocked_task_count,
           count(*) filter (
             where status = 'failed'

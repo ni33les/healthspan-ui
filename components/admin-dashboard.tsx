@@ -2022,7 +2022,11 @@ function taskMatchesMetric(
     leaseUntilTime < generatedAtTime;
 
   if (metricId === "tasksQueued") {
-    return row.status === "queued";
+    return (
+      row.status === "queued" ||
+      row.status === "needs_review" ||
+      row.status === "waiting_approval"
+    );
   }
 
   if (metricId === "tasksActive") {
@@ -2038,17 +2042,7 @@ function taskMatchesMetric(
   }
 
   if (metricId === "tasksBlocked") {
-    return (
-      row.status === "needs_review" ||
-      row.status === "waiting_approval" ||
-      (row.status === "queued" && isDue && row.blockedDependencyCount > 0) ||
-      (row.actorType === "human" &&
-        isDue &&
-        (row.status === "queued" ||
-          row.status === "reserved" ||
-          row.status === "running")) ||
-      staleLease
-    );
+    return row.status === "queued" && isDue && row.blockedDependencyCount > 0;
   }
 
   if (metricId === "tasksFailed") {
