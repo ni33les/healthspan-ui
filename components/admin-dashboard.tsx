@@ -90,6 +90,7 @@ import {
   hasAdminDashboardFilters,
   type AdminDashboardFilters
 } from "@/lib/admin-dashboard-filters";
+import { groupRetryLineages } from "@/lib/admin-goal-task-lineage";
 import type {
   AdminConversionTargetId,
   AdminConversionTargets,
@@ -353,6 +354,7 @@ type AdminContent = Readonly<{
     active: string;
     approvals: string;
     attempt: string;
+    attempts: string;
     blocked: string;
     cancelled: string;
     comments: string;
@@ -714,6 +716,7 @@ const content = {
       active: "Active",
       approvals: "Approvals",
       attempt: "Attempt",
+      attempts: "Attempts",
       blocked: "Blocked",
       cancelled: "Cancelled",
       comments: "Comments",
@@ -1154,6 +1157,7 @@ const content = {
       active: "กำลังทำ",
       approvals: "การอนุมัติ",
       attempt: "ครั้งที่",
+      attempts: "ความพยายาม",
       blocked: "ติดขัด",
       cancelled: "ยกเลิก",
       comments: "ความคิดเห็น",
@@ -7716,6 +7720,7 @@ function GoalDetailPanel({
 }>) {
   const [retryingTaskId, setRetryingTaskId] = useState<string | null>(null);
   const [retryErrorTaskId, setRetryErrorTaskId] = useState<string | null>(null);
+  const taskLineageGroups = groupRetryLineages(data.tasks);
 
   async function retryTask(task: AdminGoalTaskRow) {
     setRetryingTaskId(task.id);
@@ -7808,96 +7813,50 @@ function GoalDetailPanel({
         title={labels.goals.tasks}
       >
         <div className="space-y-3">
-          {data.tasks.map((task) => {
-            const reviewTaskIsOpen =
-              isReviewTaskType(task.taskType) && !taskIsTerminal(task.status);
-            const reviewHref = reviewTaskIsOpen
-              ? adminReviewTaskHref({
-                  accessToken,
-                  filters,
-                  locale,
-                  range,
-                  reviewTaskId: task.id
-                })
-              : null;
-            const retrying = retryingTaskId === task.id;
+          {taskLineageGroups.map((group) => (
+            <div
+              key={group.key}
+              className={classNames(
+                "space-y-2",
+                group.hasRetryLineage && "border-l-2 border-gray-200 pl-3"
+              )}
+            >
+              {group.hasRetryLineage ? (
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+                  {labels.goals.attempts}
+                </p>
+              ) : null}
+              {group.tasks.map((task) => {
+                const reviewTaskIsOpen =
+                  isReviewTaskType(task.taskType) &&
+                  !taskIsTerminal(task.status);
+                const reviewHref = reviewTaskIsOpen
+                  ? adminReviewTaskHref({
+                      accessToken,
+                      filters,
+                      locale,
+                      range,
+                      reviewTaskId: task.id
+                    })
+                  : null;
+                const retrying = retryingTaskId === task.id;
 
-            return (
-              <article
-                key={task.id}
-                className="rounded-xl bg-white p-4 ring-1 ring-gray-200"
-              >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold text-gray-900">
-                      {reviewHref ? (
-                        <a
-                          className="text-[#1FA77A] underline-offset-2 hover:underline"
-                          href={reviewHref}
-                        >
-                          {task.title}
-                        </a>
-                      ) : (
-                        task.title
-                      )}
-                    </h3>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-gray-500">
-                      <span>
-                        {labels.goals.attempt}{" "}
-                        {formatNumber(task.retryAttempt + 1, locale)}
-                      </span>
-                      <span>{readableToken(task.taskType)}</span>
-                      <span>{compactId(task.id)}</span>
-                      {task.retryOfTaskId ? (
-                        <span>
-                          {labels.goals.retryOf}{" "}
-                          {compactId(task.retryOfTaskId)}
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                    <span
-                      className={classNames(
-                        taskActorClass(task.actorType),
-                        "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-                      )}
-                    >
-                      {taskActorLabel(task.actorType)}
-                    </span>
-                    <span
-                      className={classNames(
-                        taskStatusClass(task.status),
-                        "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-                      )}
-                    >
-                      {readableToken(task.status)}
-                    </span>
-                    {task.canRetry ? (
-                      <button
-                        className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-300 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A] disabled:cursor-wait disabled:opacity-60"
-                        disabled={Boolean(retryingTaskId)}
-                        onClick={() => void retryTask(task)}
-                        type="button"
-                      >
-                        {retrying ? labels.goals.retrying : labels.goals.retry}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                {task.errorMessage ? (
-                  <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 ring-1 ring-red-100">
-                    {task.errorMessage}
-                  </p>
-                ) : null}
-                {retryErrorTaskId === task.id ? (
-                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 ring-1 ring-amber-100">
-                    {labels.goals.retryFailed}
-                  </p>
-                ) : null}
-              </article>
-            );
-          })}
+                return (
+                  <GoalTaskCard
+                    key={task.id}
+                    labels={labels}
+                    locale={locale}
+                    onRetry={retryTask}
+                    retryError={retryErrorTaskId === task.id}
+                    retrying={retrying}
+                    retryingTaskId={retryingTaskId}
+                    reviewHref={reviewHref}
+                    task={task}
+                  />
+                );
+              })}
+            </div>
+          ))}
         </div>
       </GoalDetailSection>
 
@@ -7930,6 +7889,98 @@ function GoalDetailPanel({
         />
       </div>
     </div>
+  );
+}
+
+function GoalTaskCard({
+  labels,
+  locale,
+  onRetry,
+  retryError,
+  retrying,
+  retryingTaskId,
+  reviewHref,
+  task
+}: Readonly<{
+  labels: AdminContent;
+  locale: Locale;
+  onRetry: (task: AdminGoalTaskRow) => Promise<void>;
+  retryError: boolean;
+  retrying: boolean;
+  retryingTaskId: string | null;
+  reviewHref: string | null;
+  task: AdminGoalTaskRow;
+}>) {
+  return (
+    <article className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-gray-900">
+            {reviewHref ? (
+              <a
+                className="text-[#1FA77A] underline-offset-2 hover:underline"
+                href={reviewHref}
+              >
+                {task.title}
+              </a>
+            ) : (
+              task.title
+            )}
+          </h3>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-gray-500">
+            <span>
+              {labels.goals.attempt}{" "}
+              {formatNumber(task.retryAttempt + 1, locale)}
+            </span>
+            <span>{readableToken(task.taskType)}</span>
+            <span>{compactId(task.id)}</span>
+            {task.retryOfTaskId ? (
+              <span>
+                {labels.goals.retryOf} {compactId(task.retryOfTaskId)}
+              </span>
+            ) : null}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <span
+            className={classNames(
+              taskActorClass(task.actorType),
+              "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+            )}
+          >
+            {taskActorLabel(task.actorType)}
+          </span>
+          <span
+            className={classNames(
+              taskStatusClass(task.status),
+              "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
+            )}
+          >
+            {readableToken(task.status)}
+          </span>
+          {task.canRetry ? (
+            <button
+              className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-300 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A] disabled:cursor-wait disabled:opacity-60"
+              disabled={Boolean(retryingTaskId)}
+              onClick={() => void onRetry(task)}
+              type="button"
+            >
+              {retrying ? labels.goals.retrying : labels.goals.retry}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {task.errorMessage ? (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 ring-1 ring-red-100">
+          {task.errorMessage}
+        </p>
+      ) : null}
+      {retryError ? (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 ring-1 ring-amber-100">
+          {labels.goals.retryFailed}
+        </p>
+      ) : null}
+    </article>
   );
 }
 

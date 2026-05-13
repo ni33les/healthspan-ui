@@ -1331,6 +1331,8 @@ export async function retryFailedTask(input: RetryFailedTaskInput) {
   }
 
   return sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${taskId}))`;
+
     const taskRows = await tx<TaskRow[]>`
       select *
       from public.tasks
