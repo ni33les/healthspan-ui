@@ -6,6 +6,8 @@ const globalDb = globalThis as typeof globalThis & {
   mattanutraSqlConnectionKey?: string;
 };
 
+const BENIGN_SCHEMA_NOTICE_CODES = new Set(["42P07", "42701", "42710"]);
+
 function shouldUseSsl(connection: string) {
   try {
     const url = new URL(connection);
@@ -24,6 +26,14 @@ function shouldUseSsl(connection: string) {
 
 function dbSslNegotiation() {
   return process.env.DB_SSL_NEGOTIATION === "direct" ? "direct" : null;
+}
+
+function handleDatabaseNotice(notice: { code?: string }) {
+  if (notice.code && BENIGN_SCHEMA_NOTICE_CODES.has(notice.code)) {
+    return;
+  }
+
+  console.info("Database notice", notice);
 }
 
 export function getSql() {
@@ -58,6 +68,7 @@ export function getSql() {
     connection: { application_name: "mattanutra-web" },
     idle_timeout: 20,
     max: 3,
+    onnotice: handleDatabaseNotice,
     prepare: false,
     ...(useSsl ? { ssl: "require" } : {}),
     ...(sslNegotiation ? { sslnegotiation: sslNegotiation } : {})

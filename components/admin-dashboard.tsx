@@ -309,6 +309,7 @@ type AdminContent = Readonly<{
   financials: {
     aiCost: string;
     amount: string;
+    billingPeriod: string;
     category: string;
     description: string;
     details: string;
@@ -316,7 +317,13 @@ type AdminContent = Readonly<{
     entryType: string;
     from: string;
     hostingCost: string;
+    product: string;
+    project: string;
     provider: string;
+    providerDescription: string;
+    region: string;
+    resource: string;
+    resourceType: string;
     source: string;
     task: string;
     time: string;
@@ -671,6 +678,7 @@ const content = {
     financials: {
       aiCost: "AI cost",
       amount: "Amount",
+      billingPeriod: "Billing period",
       category: "Category",
       description: "Description",
       details: "Details",
@@ -678,7 +686,13 @@ const content = {
       entryType: "Basis",
       from: "Cost center",
       hostingCost: "Hosting cost",
+      product: "Product",
+      project: "Project",
       provider: "Provider",
+      providerDescription: "Provider detail",
+      region: "Region",
+      resource: "Resource",
+      resourceType: "Resource type",
       source: "Source",
       task: "Task",
       time: "Time",
@@ -1112,6 +1126,7 @@ const content = {
     financials: {
       aiCost: "ค่า AI",
       amount: "จำนวนเงิน",
+      billingPeriod: "รอบบิล",
       category: "หมวดหมู่",
       description: "รายละเอียด",
       details: "รายละเอียด",
@@ -1119,7 +1134,13 @@ const content = {
       entryType: "ฐานรายการ",
       from: "ศูนย์ต้นทุน",
       hostingCost: "ค่าโฮสติ้ง",
+      product: "ผลิตภัณฑ์",
+      project: "โปรเจกต์",
       provider: "ผู้ให้บริการ",
+      providerDescription: "รายละเอียดจากผู้ให้บริการ",
+      region: "ภูมิภาค",
+      resource: "รีซอร์ส",
+      resourceType: "ประเภทรีซอร์ส",
       source: "แหล่งข้อมูล",
       task: "งาน",
       time: "เวลา",
@@ -8163,6 +8184,135 @@ function flowNodeCount(flowData: AdminFlowData, id: AdminFlowNodeId) {
   return flowData.nodes.find((node) => node.id === id)?.count ?? 0;
 }
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function metadataTextValue(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
+
+function financialMetadataValue(
+  row: AdminFinancialTransactionRow,
+  key: string,
+  itemKeys: string[] = []
+) {
+  const direct = metadataTextValue(row.metadata[key]);
+
+  if (direct) {
+    return direct;
+  }
+
+  const item = objectRecord(row.metadata.item);
+
+  for (const itemKey of itemKeys) {
+    const value = metadataTextValue(item[itemKey]);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function financialResourceSummary(row: AdminFinancialTransactionRow) {
+  const product = financialMetadataValue(row, "providerProduct", ["product"]);
+  const resourceType = financialMetadataValue(row, "resourceType", [
+    "resource_type"
+  ]);
+  const resourceId = financialMetadataValue(row, "resourceId", [
+    "resource_uuid",
+    "resource_id",
+    "uuid",
+    "id"
+  ]);
+
+  return [product, resourceType, resourceId].filter(Boolean).join(" · ");
+}
+
+function financialBillingPeriod(
+  row: AdminFinancialTransactionRow,
+  locale: Locale
+) {
+  const start = financialMetadataValue(row, "periodStart", [
+    "start_time",
+    "start",
+    "period_start"
+  ]);
+  const end = financialMetadataValue(row, "periodEnd", [
+    "end_time",
+    "end",
+    "period_end"
+  ]);
+
+  if (start && end) {
+    return `${formatGeneratedAt(start, locale)} - ${formatGeneratedAt(
+      end,
+      locale
+    )}`;
+  }
+
+  return start || end ? formatGeneratedAt(start || end, locale) : "";
+}
+
+function financialMetadataDetailRows(
+  row: AdminFinancialTransactionRow,
+  labels: AdminContent,
+  locale: Locale
+) {
+  const resourceType = financialMetadataValue(row, "resourceType", [
+    "resource_type"
+  ]);
+  const values = [
+    {
+      label: labels.financials.project,
+      value: financialMetadataValue(row, "project", [
+        "project_name",
+        "project_uuid"
+      ])
+    },
+    {
+      label: labels.financials.product,
+      value: financialMetadataValue(row, "providerProduct", ["product"])
+    },
+    {
+      label: labels.financials.resourceType,
+      value: resourceType ? readableToken(resourceType) : ""
+    },
+    {
+      label: labels.financials.resource,
+      value: financialMetadataValue(row, "resourceId", [
+        "resource_uuid",
+        "resource_id",
+        "uuid",
+        "id"
+      ])
+    },
+    {
+      label: labels.financials.region,
+      value: financialMetadataValue(row, "region", ["region"])
+    },
+    {
+      label: labels.financials.billingPeriod,
+      value: financialBillingPeriod(row, locale)
+    },
+    {
+      label: labels.financials.providerDescription,
+      value: financialMetadataValue(row, "providerDescription", [
+        "description",
+        "group_description"
+      ])
+    }
+  ];
+
+  return values.filter((item) => Boolean(item.value));
+}
+
 function AdminFlowView({
   accessToken,
   flowData,
@@ -8372,7 +8522,7 @@ function AdminFinancialsView({
                         {row.description}
                       </div>
                       <div className="mt-1 max-w-xl truncate text-xs text-gray-400">
-                        {row.sourceRef ?? row.source}
+                        {financialResourceSummary(row) || row.sourceRef || row.source}
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-600">
@@ -8496,6 +8646,19 @@ function FinancialTransactionDetailModal({
                 label={labels.financials.provider}
                 value={row.provider ?? row.source}
               />
+              {financialMetadataDetailRows(row, labels, locale).map((detail) => (
+                <FinancialDetailRow
+                  key={detail.label}
+                  label={detail.label}
+                  value={
+                    detail.label === labels.financials.resource ? (
+                      <span className="break-all">{detail.value}</span>
+                    ) : (
+                      detail.value
+                    )
+                  }
+                />
+              ))}
               <FinancialDetailRow label={labels.financials.from} value={row.from} />
               <FinancialDetailRow label={labels.financials.to} value={row.to} />
               <FinancialDetailRow

@@ -60,9 +60,12 @@ describe("DigitalOcean finance ledger sync", () => {
       items: [
         {
           amount: "1.23",
-          description: "App Platform",
+          description: "2 Apps",
           end_time: "2026-05-12T00:00:00.000Z",
+          product: "App Platform",
           project_name: "Mattanutra",
+          resource_type: "apps",
+          resource_uuid: "app-resource",
           start_time: "2026-05-01T00:00:00.000Z",
           uuid: "line-app"
         },
@@ -90,6 +93,14 @@ describe("DigitalOcean finance ledger sync", () => {
     assert.equal(entries[0]?.currency, "USD");
     assert.equal(entries[0]?.from, "mattanutra:platform");
     assert.equal(entries[0]?.to, "digitalocean");
+    assert.equal(
+      entries[0]?.description,
+      "Accrued DigitalOcean App Platform usage (Mattanutra)"
+    );
+    assert.equal(entries[0]?.metadata?.providerDescription, "2 Apps");
+    assert.equal(entries[0]?.metadata?.providerProduct, "App Platform");
+    assert.equal(entries[0]?.metadata?.resourceId, "app-resource");
+    assert.equal(entries[0]?.metadata?.resourceType, "apps");
     assert.match(
       entries[0]?.sourceRef ?? "",
       /^digitalocean:invoice-preview:/

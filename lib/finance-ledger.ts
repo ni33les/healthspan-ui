@@ -437,6 +437,55 @@ function digitalOceanItemDescription(item: DigitalOceanInvoiceItem) {
   );
 }
 
+function digitalOceanItemProduct(item: DigitalOceanInvoiceItem) {
+  return textValue(item.product);
+}
+
+function digitalOceanItemGroupDescription(item: DigitalOceanInvoiceItem) {
+  return textValue(item.group_description);
+}
+
+function digitalOceanItemResourceType(item: DigitalOceanInvoiceItem) {
+  return textValue(item.resource_type);
+}
+
+function digitalOceanItemRegion(item: DigitalOceanInvoiceItem) {
+  return textValue(item.region);
+}
+
+function digitalOceanItemLedgerDescription(item: DigitalOceanInvoiceItem) {
+  const description = digitalOceanItemDescription(item);
+  const product = digitalOceanItemProduct(item);
+  const groupDescription = digitalOceanItemGroupDescription(item);
+  const resourceType = digitalOceanItemResourceType(item);
+  const searchable = [
+    description,
+    product,
+    groupDescription,
+    resourceType
+  ].join(" ").toLowerCase();
+
+  if (searchable.includes("database")) {
+    return "DigitalOcean database usage";
+  }
+
+  if (searchable.includes("app platform") || searchable.includes("app")) {
+    return "DigitalOcean App Platform usage";
+  }
+
+  if (product) {
+    return `DigitalOcean ${product} usage`;
+  }
+
+  if (groupDescription) {
+    return `DigitalOcean ${groupDescription} usage`;
+  }
+
+  return description.startsWith("DigitalOcean")
+    ? description
+    : `DigitalOcean ${description}`;
+}
+
 function digitalOceanPeriodStart(item: DigitalOceanInvoiceItem) {
   return (
     textValue(item.start_time) ||
@@ -455,6 +504,16 @@ function digitalOceanPeriodEnd(item: DigitalOceanInvoiceItem) {
 
 function digitalOceanResourceId(item: DigitalOceanInvoiceItem) {
   return (
+    textValue(item.resource_uuid) ||
+    textValue(item.resource_id) ||
+    textValue(item.resource) ||
+    textValue(item.uuid) ||
+    textValue(item.id)
+  );
+}
+
+function digitalOceanSourceIdentity(item: DigitalOceanInvoiceItem) {
+  return (
     textValue(item.uuid) ||
     textValue(item.id) ||
     textValue(item.resource_uuid) ||
@@ -466,7 +525,7 @@ function digitalOceanResourceId(item: DigitalOceanInvoiceItem) {
 function digitalOceanSourceRef(item: DigitalOceanInvoiceItem) {
   return `digitalocean:invoice-preview:${hashSourceRef([
     textValue(item.invoice_uuid) || textValue(item.invoice_id) || "preview",
-    digitalOceanResourceId(item),
+    digitalOceanSourceIdentity(item),
     digitalOceanItemProject(item).toLowerCase(),
     digitalOceanItemDescription(item),
     textValue(item.product),
@@ -517,18 +576,31 @@ export function buildDigitalOceanBillingCostEntries({
         ? "mattanutra:platform"
         : "digitalocean";
     const description = digitalOceanItemDescription(item);
+    const displayDescription = digitalOceanItemLedgerDescription(item);
+    const resourceId = digitalOceanResourceId(item);
+    const resourceType = digitalOceanItemResourceType(item);
+    const periodStart = digitalOceanPeriodStart(item);
+    const periodEnd = digitalOceanPeriodEnd(item);
 
     entries.push({
       amount,
       category: "hosting",
       currency: "USD",
-      description: `Accrued ${description} (${project})`,
+      description: `Accrued ${displayDescription} (${project})`,
       entryType: "nominal",
       from,
       metadata: {
         accountingBasis: "cost_accrual",
+        groupDescription: digitalOceanItemGroupDescription(item) || null,
         item,
+        periodEnd: periodEnd || null,
+        periodStart: periodStart || null,
         project,
+        providerDescription: description,
+        providerProduct: digitalOceanItemProduct(item) || null,
+        region: digitalOceanItemRegion(item) || null,
+        resourceId: resourceId || null,
+        resourceType: resourceType || null,
         settlement: "monthly_provider_invoice",
         sourceEndpoint: "invoice_preview"
       },

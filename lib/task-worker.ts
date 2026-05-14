@@ -1,7 +1,11 @@
 import type postgres from "postgres";
 import { createHash } from "node:crypto";
 import type { AssessmentPlan } from "@/lib/assessment-snapshot";
-import { isUuid, toJsonValue } from "@/lib/assessment-store";
+import {
+  hasHealthScoreAdvice,
+  isUuid,
+  toJsonValue
+} from "@/lib/assessment-store";
 import { writeBpmEvent } from "@/lib/bpm";
 import { getSql } from "@/lib/db";
 import { validateLeadEmail } from "@/lib/email-validation";
@@ -281,6 +285,10 @@ export async function enqueueHealthScoreAnalysisTask({
   `;
 
   if (!rows[0]) {
+    return null;
+  }
+
+  if (hasHealthScoreAdvice(rows[0].health_score)) {
     return null;
   }
 

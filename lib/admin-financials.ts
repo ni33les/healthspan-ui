@@ -22,6 +22,7 @@ export type AdminFinancialTransactionRow = Readonly<{
   entryType: AdminFinancialEntryType;
   from: string;
   id: string;
+  metadata: Record<string, unknown>;
   occurredAt: string;
   provider: string | null;
   source: string;
@@ -54,6 +55,7 @@ type FinanceRow = Readonly<{
   entry_type: AdminFinancialEntryType | string | null;
   from_account: string;
   id: string;
+  metadata: unknown;
   occurred_at: Date | string;
   provider: string | null;
   source: string;
@@ -242,6 +244,12 @@ function financeCategory(value: string | null | undefined): AdminFinancialCatego
   return "other";
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function emptyFinancials(range: AdminDashboardRange): AdminFinancialsData {
   const buckets = buildBuckets(range, []);
   const empty = buckets.map(() => 0);
@@ -277,6 +285,7 @@ function mapRow(row: FinanceRow): AdminFinancialTransactionRow {
     entryType: row.entry_type === "actual" ? "actual" : "nominal",
     from: row.from_account,
     id: row.id,
+    metadata: objectValue(row.metadata),
     occurredAt: new Date(row.occurred_at).toISOString(),
     provider: row.provider,
     source: row.source,
@@ -320,7 +329,8 @@ export async function getAdminFinancialsData(
             amount,
             currency,
             usd_rate,
-            description
+            description,
+            metadata
           from public.finance_transactions
           where occurred_at >= ${start}
           order by occurred_at desc
@@ -341,7 +351,8 @@ export async function getAdminFinancialsData(
             amount,
             currency,
             usd_rate,
-            description
+            description,
+            metadata
           from public.finance_transactions
           order by occurred_at desc
           limit 50000

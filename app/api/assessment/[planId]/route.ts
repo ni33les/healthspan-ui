@@ -90,11 +90,11 @@ export async function GET(
     );
   }
 
-  if (scoreMode && snapshot.status !== "ready") {
+  if (scoreMode && snapshot.status === "preparing") {
     await enqueueHealthScoreAnalysisTask({ planId: snapshot.planId });
   }
 
-  if (snapshot.status !== "ready") {
+  if (snapshot.status === "queued" || snapshot.status === "preparing") {
     void kickTaskWorker(workerOptions);
   }
   void kickCronWorker(workerOptions);

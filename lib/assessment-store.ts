@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import { healthScoreAnalysisStatusFromTaskStatuses } from "@/lib/assessment-status";
 import {
   buildAssessmentSteps,
   createHealthScoreAnalysisSnapshot,
@@ -53,7 +54,7 @@ function asRecord(value: unknown): Record<string, unknown> {
   return toJsonRecord(value);
 }
 
-function hasHealthScoreAdvice(value: unknown) {
+export function hasHealthScoreAdvice(value: unknown) {
   const advice = asRecord(asRecord(value).advice);
   const overview = advice.overview;
 
@@ -499,26 +500,20 @@ export async function getStoredHealthScoreAnalysisSnapshot(planId: string) {
   }
 
   const hasAdvice = hasHealthScoreAdvice(healthScore);
-  let analysisStatus: AssessmentSnapshot["status"] = "ready";
-
-  if (!hasAdvice) {
-    const tasks = await sql`
-      select status::text
-      from public.tasks
-      where plan_id = ${planId}::uuid
-        and task_type = 'analyze_healthscore'
-      order by created_at desc
-      limit 1
-    `;
-    const taskStatus = tasks[0]?.status;
-
-    analysisStatus =
-      taskStatus === "queued" ||
-      taskStatus === "reserved" ||
-      taskStatus === "running"
-        ? "preparing"
-        : "ready";
-  }
+  const taskRows = hasAdvice
+    ? []
+    : await sql<{ status: string }[]>`
+        select status::text
+        from public.tasks
+        where plan_id = ${planId}::uuid
+          and task_type = 'analyze_healthscore'
+        order by created_at desc
+        limit 20
+      `;
+  const analysisStatus = healthScoreAnalysisStatusFromTaskStatuses(
+    hasAdvice,
+    taskRows.map((task) => task.status)
+  );
 
   return createHealthScoreAnalysisSnapshot({
     healthScore: healthScore as NonNullable<AssessmentSnapshot["healthScore"]>,
