@@ -10,7 +10,6 @@ import {
   updateCommunicationChannel,
   type CommunicationChannelStatus
 } from "@/lib/communications";
-import { kickTaskWorker } from "@/lib/task-worker";
 
 export const runtime = "nodejs";
 
@@ -49,7 +48,6 @@ export async function PATCH(request: Request, { params }: ChannelRouteProps) {
 
   const { id } = await params;
   const body = await readJsonObject(request);
-  const workerOptions = { baseUrl: new URL(request.url).origin };
 
   try {
     const channel = await updateCommunicationChannel({
@@ -60,8 +58,6 @@ export async function PATCH(request: Request, { params }: ChannelRouteProps) {
       preferenceRank: numberValue(body.preferenceRank),
       status: statusValue(body.status)
     });
-
-    void kickTaskWorker(workerOptions);
 
     return openClawJson({ channel });
   } catch (error) {

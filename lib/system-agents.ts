@@ -16,7 +16,6 @@ export const AGENT_CAPABILITIES = {
   healthScoreAnalysis: "healthscore_analysis",
   hostingCostSync: "hosting_cost_sync",
   humanReview: "human_review",
-  internalWorker: "mattanutra_internal_worker",
   lineSend: "line_send",
   reassessmentEmailSend: "reassessment_email_send",
   safetyReview: "safety_review",
@@ -84,10 +83,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     type: "deterministic"
   },
   contentPublisher: {
-    capabilities: [
-      AGENT_CAPABILITIES.contentPublish,
-      AGENT_CAPABILITIES.internalWorker
-    ],
+    capabilities: [AGENT_CAPABILITIES.contentPublish],
     id: "bd2db46f-149a-4d7c-8805-25efcb621b3d",
     metadata: {
       seeded: true
@@ -100,8 +96,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     capabilities: [
       AGENT_CAPABILITIES.emailSend,
       AGENT_CAPABILITIES.freeEmailSend,
-      AGENT_CAPABILITIES.reassessmentEmailSend,
-      AGENT_CAPABILITIES.internalWorker
+      AGENT_CAPABILITIES.reassessmentEmailSend
     ],
     id: "5a72e41c-4535-4d28-8043-51448af40343",
     metadata: {
@@ -115,8 +110,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
   formulationWorker: {
     capabilities: [
       AGENT_CAPABILITIES.formulationGeneration,
-      AGENT_CAPABILITIES.freeExampleFormulation,
-      AGENT_CAPABILITIES.internalWorker
+      AGENT_CAPABILITIES.freeExampleFormulation
     ],
     id: "ef8472a6-2049-44e0-a001-3f5d6963499f",
     metadata: {
@@ -130,8 +124,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
   healthScoreEngine: {
     capabilities: [
       AGENT_CAPABILITIES.healthScoreAnalysis,
-      AGENT_CAPABILITIES.salesCopy,
-      AGENT_CAPABILITIES.internalWorker
+      AGENT_CAPABILITIES.salesCopy
     ],
     id: "668ee3d3-00ec-48a0-86cc-8091af904eda",
     metadata: {
@@ -176,7 +169,6 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     capabilities: [
       AGENT_CAPABILITIES.communicationDispatch,
       AGENT_CAPABILITIES.hostingCostSync,
-      AGENT_CAPABILITIES.internalWorker,
       AGENT_CAPABILITIES.scheduler
     ],
     id: "436cc481-6639-402e-b639-bf5737e3acd4",
@@ -225,7 +217,7 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
   };
 
   return normalizeCapabilities(
-    capabilitiesByTaskType[taskType] ?? [AGENT_CAPABILITIES.internalWorker]
+    capabilitiesByTaskType[taskType] ?? []
   );
 }
 

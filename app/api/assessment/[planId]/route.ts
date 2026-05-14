@@ -15,7 +15,6 @@ import {
   enqueueHealthScoreAnalysisTask,
   enqueueFormulationTask,
   kickCronWorker,
-  kickTaskWorker,
   scheduleReassessmentAction
 } from "@/lib/task-worker";
 import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
@@ -72,7 +71,6 @@ export async function GET(
 ) {
   const { planId } = await params;
   const url = new URL(request.url);
-  const workerOptions = { baseUrl: url.origin };
   const scoreMode = url.searchParams.get("mode") === "score";
   const snapshot = scoreMode
     ? await getStoredHealthScoreAnalysisSnapshot(planId)
@@ -94,10 +92,7 @@ export async function GET(
     await enqueueHealthScoreAnalysisTask({ planId: snapshot.planId });
   }
 
-  if (snapshot.status === "queued" || snapshot.status === "preparing") {
-    void kickTaskWorker(workerOptions);
-  }
-  void kickCronWorker(workerOptions);
+  void kickCronWorker();
 
   return NextResponse.json(snapshot, {
     headers: {
@@ -111,7 +106,6 @@ export async function PATCH(
   { params }: AssessmentStatusRouteProps
 ) {
   const { planId } = await params;
-  const workerOptions = { baseUrl: new URL(request.url).origin };
   let body: {
     answers?: unknown;
     intent?: "capture" | "process";
@@ -198,13 +192,9 @@ export async function PATCH(
       ...healthScoreBpmFields(snapshot)
     });
 
-    const analysisTaskId = await enqueueHealthScoreAnalysisTask({
+    await enqueueHealthScoreAnalysisTask({
       planId: snapshot.planId
     });
-
-    if (analysisTaskId) {
-      void kickTaskWorker(workerOptions);
-    }
 
     const reassessmentEmail = reassessmentEmailFromAnswers(body.answers);
 
@@ -214,7 +204,7 @@ export async function PATCH(
         locale: body.locale,
         planId: snapshot.planId
       });
-      void kickCronWorker(workerOptions);
+      void kickCronWorker();
       await writeBpmEvent({
         actorType: "visitor",
         attribution: bpm.attribution,
@@ -275,7 +265,6 @@ export async function PATCH(
       throw new Error("Unable to queue assessment processing");
     }
 
-    void kickTaskWorker(workerOptions);
     await writeBpmEvent({
       actorType: "system",
       attribution: bpm.attribution,

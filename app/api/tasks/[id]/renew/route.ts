@@ -1,11 +1,11 @@
 import {
   openClawJson,
   readJsonObject,
-  requireOpenClawRequest,
   taskApiError,
   textValue
 } from "@/lib/openclaw-api";
 import { renewTaskLease } from "@/lib/task-service";
+import { requireWorkerRequest } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ type RenewTaskRouteProps = Readonly<{
 }>;
 
 export async function POST(request: Request, { params }: RenewTaskRouteProps) {
-  const unauthorized = requireOpenClawRequest(request);
+  const unauthorized = requireWorkerRequest(request);
 
   if (unauthorized) {
     return unauthorized;
@@ -24,14 +24,31 @@ export async function POST(request: Request, { params }: RenewTaskRouteProps) {
 
   const { id } = await params;
   const body = await readJsonObject(request);
+  const reservationId = textValue(body.reservationId);
+  const workerSessionId = textValue(body.workerSessionId);
+
+  if (!reservationId) {
+    return openClawJson(
+      { message: "reservationId is required to renew a task lease" },
+      { status: 400 }
+    );
+  }
+
+  if (!workerSessionId) {
+    return openClawJson(
+      { message: "workerSessionId is required to renew a task lease" },
+      { status: 400 }
+    );
+  }
 
   try {
     return openClawJson(
       await renewTaskLease({
         agentId: textValue(body.agentId),
         leaseSeconds: body.leaseSeconds,
-        reservationId: textValue(body.reservationId),
-        taskId: id
+        reservationId,
+        taskId: id,
+        workerSessionId
       })
     );
   } catch (error) {

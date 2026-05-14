@@ -2,14 +2,19 @@ import {
   objectValue,
   openClawJson,
   readJsonObject,
-  requireOpenClawRequest,
   taskApiError,
   textValue
 } from "@/lib/openclaw-api";
 import { applyTaskFailureResult } from "@/lib/task-result-applier";
 import { buildTaskWorkItem } from "@/lib/task-work-items";
-import { failTask, getTaskBundle, reserveNextTask } from "@/lib/task-service";
+import {
+  failTask,
+  getTaskBundle,
+  heartbeatWorkerSession,
+  reserveNextTask
+} from "@/lib/task-service";
 import type { AgentType } from "@/lib/task-service";
+import { requireWorkerRequest } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
 
@@ -30,8 +35,20 @@ function textArray(value: unknown) {
     : [];
 }
 
+function waitSeconds(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed)
+    ? Math.min(25, Math.max(0, Math.round(parsed)))
+    : 0;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function POST(request: Request) {
-  const unauthorized = requireOpenClawRequest(request);
+  const unauthorized = requireWorkerRequest(request);
 
   if (unauthorized) {
     return unauthorized;
@@ -39,33 +56,57 @@ export async function POST(request: Request) {
 
   const body = await readJsonObject(request);
   const agent = objectValue(body.agent);
+  const workerSessionId = textValue(body.workerSessionId);
+  const deadline = Date.now() + waitSeconds(body.waitSeconds) * 1000;
+
+  if (!workerSessionId) {
+    return openClawJson(
+      { message: "workerSessionId is required to reserve a task" },
+      { status: 400 }
+    );
+  }
 
   try {
-    const reserved = await reserveNextTask({
-      agent: {
-        capabilities: agent.capabilities,
-        id: textValue(agent.id),
-        metadata: objectValue(agent.metadata),
-        model: textValue(agent.model),
-        name: textValue(agent.name) ?? "Unnamed OpenClaw agent",
-        type: agentType(agent.type)
-      },
-      applyExpiredFailure: (context) =>
-        applyTaskFailureResult({
-          errorMessage: context.errorMessage,
-          resultPayload: context.resultPayload,
-          retryWillBeScheduled: context.retryWillBeScheduled,
-          sql: context.sql,
-          task: context.task,
-          taskId: context.task.id
-        }),
-      leaseSeconds: body.leaseSeconds,
-      mustRequireCapability: textValue(body.mustRequireCapability),
-      taskTypes: textArray(body.taskTypes)
-    });
+    while (true) {
+      const reserved = await reserveNextTask({
+        agent: {
+          capabilities: agent.capabilities,
+          id: textValue(agent.id),
+          metadata: objectValue(agent.metadata),
+          model: textValue(agent.model),
+          name: textValue(agent.name) ?? "Unnamed worker agent",
+          type: agentType(agent.type)
+        },
+        applyExpiredFailure: (context) =>
+          applyTaskFailureResult({
+            errorMessage: context.errorMessage,
+            resultPayload: context.resultPayload,
+            retryWillBeScheduled: context.retryWillBeScheduled,
+            sql: context.sql,
+            task: context.task,
+            taskId: context.task.id
+          }),
+        leaseSeconds: body.leaseSeconds,
+        mustRequireCapability: textValue(body.mustRequireCapability),
+        taskTypes: textArray(body.taskTypes),
+        workerSessionId
+      });
 
     if (!reserved) {
-      return openClawJson({ task: null });
+      if (Date.now() >= deadline) {
+        if (workerSessionId) {
+          await heartbeatWorkerSession({
+            agentId: textValue(agent.id),
+            status: "idle",
+            workerSessionId
+          });
+        }
+
+        return openClawJson({ task: null });
+      }
+
+      await sleep(750);
+      continue;
     }
 
     const bundle = await getTaskBundle({ taskId: reserved.task.id });
@@ -87,11 +128,12 @@ export async function POST(request: Request) {
             sql: context.sql,
             task: context.task,
             taskId: bundle.task.id
-          }),
+        }),
         errorMessage:
           error instanceof Error
             ? error.message
             : "Unable to build task work item",
+        workerSessionId,
         reservationId: reserved.reservationId,
         resultPayload: {
           stage: "work_item_build",
@@ -102,15 +144,16 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    return openClawJson({
-      agent: reserved.agent,
-      comments: bundle.comments,
-      dependencies: bundle.dependencies,
-      goal: bundle.goal,
-      reservationId: reserved.reservationId,
-      task: bundle.task,
-      workItem
-    });
+      return openClawJson({
+        agent: reserved.agent,
+        comments: bundle.comments,
+        dependencies: bundle.dependencies,
+        goal: bundle.goal,
+        reservationId: reserved.reservationId,
+        task: bundle.task,
+        workItem
+      });
+    }
   } catch (error) {
     return taskApiError(error, "Unable to reserve task");
   }

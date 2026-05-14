@@ -13,7 +13,6 @@ import {
 } from "@/lib/admin-supplements";
 import { isUuid } from "@/lib/assessment-store";
 import { normalizeSupplementSafetyFlags } from "@/lib/supplement-safety-flags";
-import { kickTaskWorker } from "@/lib/task-worker";
 
 export const runtime = "nodejs";
 
@@ -155,7 +154,6 @@ export async function PATCH(
   }
 
   try {
-    const workerOptions = { baseUrl: new URL(request.url).origin };
     const data =
       action === "dismiss"
         ? await dismissAdminReviewTask({
@@ -184,8 +182,6 @@ export async function PATCH(
             safetyNotes: textOrNull(body.safetyNotes),
             supplementName: textOrNull(body.supplementName) ?? "Unknown supplement"
           });
-
-    void kickTaskWorker(workerOptions);
 
     return NextResponse.json(
       { data },

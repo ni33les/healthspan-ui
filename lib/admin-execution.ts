@@ -64,6 +64,8 @@ export type AdminAgentRow = Readonly<{
   totalFinished: number;
   type: string;
   updatedAt: string;
+  workerSessionCount: number;
+  workingSessionCount: number;
 }>;
 
 export type AdminAgentsData = Readonly<{
@@ -106,6 +108,8 @@ type VisibilityDbRow = Readonly<{
   task_type: string;
   title: string;
   updated_at: Date | string;
+  worker_session_count: number | string | null;
+  working_session_count: number | string | null;
 }>;
 
 type VisibilitySummaryDbRow = Readonly<{
@@ -133,6 +137,8 @@ type AgentDbRow = Readonly<{
   status: string;
   agent_type: string;
   updated_at: Date | string;
+  worker_session_count: number | string | null;
+  working_session_count: number | string | null;
 }>;
 
 function iso(value: Date | string) {
@@ -283,7 +289,9 @@ function agentRowFromDb(row: AgentDbRow): AdminAgentRow {
     successRate: totalFinished > 0 ? completedCount / totalFinished : null,
     totalFinished,
     type: row.agent_type,
-    updatedAt: iso(row.updated_at)
+    updatedAt: iso(row.updated_at),
+    workerSessionCount: numberValue(row.worker_session_count),
+    workingSessionCount: numberValue(row.working_session_count)
   };
 }
 
@@ -560,6 +568,15 @@ export async function getAdminAgentsData(
           )
         order by priority desc, scheduled_for asc, created_at asc
         limit 1
+      ),
+      worker_session_stats as (
+        select
+          agent_id,
+          count(*)::int as worker_session_count,
+          count(*) filter (where status = 'working')::int as working_session_count
+        from public.worker_sessions
+        where status <> 'offline'
+        group by agent_id
       )
       select
         agents.id::text,
@@ -611,7 +628,9 @@ export async function getAdminAgentsData(
             when agents.agent_type = 'human'
               then coalesce(human_task_stats.failed_count, 0)
             else 0
-          end as failed_count
+          end as failed_count,
+        coalesce(worker_session_stats.worker_session_count, 0) as worker_session_count,
+        coalesce(worker_session_stats.working_session_count, 0) as working_session_count
       from public.agents
       left join reservation_stats on reservation_stats.agent_id = agents.id
       left join active_tasks on active_tasks.agent_id = agents.id
@@ -619,6 +638,7 @@ export async function getAdminAgentsData(
       left join human_task_stats on agents.agent_type = 'human'
       left join human_active_tasks on agents.agent_type = 'human'
       left join human_latest_active_task on agents.agent_type = 'human'
+      left join worker_session_stats on worker_session_stats.agent_id = agents.id
       order by
         active_task_count desc,
         agents.status asc,

@@ -2,11 +2,11 @@ import {
   objectValue,
   openClawJson,
   readJsonObject,
-  requireOpenClawRequest,
   taskApiError,
   textValue
 } from "@/lib/openclaw-api";
-import { addTaskComment } from "@/lib/task-service";
+import { addTaskComment, assertActiveTaskReservation } from "@/lib/task-service";
+import { requireWorkerRequest } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
 
@@ -53,7 +53,7 @@ export async function POST(
   request: Request,
   { params }: TaskCommentRouteProps
 ) {
-  const unauthorized = requireOpenClawRequest(request);
+  const unauthorized = requireWorkerRequest(request);
 
   if (unauthorized) {
     return unauthorized;
@@ -61,10 +61,35 @@ export async function POST(
 
   const { id } = await params;
   const body = await readJsonObject(request);
+  const reservationId = textValue(body.reservationId);
+  const workerSessionId = textValue(body.workerSessionId);
+
+  if (!reservationId) {
+    return openClawJson(
+      { message: "reservationId is required to comment on a task" },
+      { status: 400 }
+    );
+  }
+
+  if (!workerSessionId) {
+    return openClawJson(
+      { message: "workerSessionId is required to comment on a task" },
+      { status: 400 }
+    );
+  }
 
   try {
+    const agentId = textValue(body.agentId);
+
+    await assertActiveTaskReservation({
+      agentId,
+      reservationId,
+      taskId: id,
+      workerSessionId
+    });
+
     const comment = await addTaskComment({
-      agentId: textValue(body.agentId),
+      agentId,
       authorName: textValue(body.authorName),
       authorType: authorType(body.authorType),
       body: textValue(body.body) ?? "",

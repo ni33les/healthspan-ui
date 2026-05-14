@@ -30,6 +30,12 @@ export type AgentType =
 
 export type AgentStatus = "active" | "offline" | "paused" | "retired";
 
+export type WorkerSessionStatus =
+  | "idle"
+  | "offline"
+  | "polling"
+  | "working";
+
 export type GoalStatus =
   | "active"
   | "cancelled"
@@ -102,6 +108,22 @@ export type TaskAgent = Readonly<{
   status: AgentStatus;
   type: AgentType;
   updatedAt: string;
+}>;
+
+export type WorkerSession = Readonly<{
+  agentId: string;
+  capabilities: string[];
+  concurrency: number;
+  createdAt: string;
+  currentTaskId: string | null;
+  id: string;
+  instanceId: string;
+  lastSeenAt: string | null;
+  metadata: unknown;
+  status: WorkerSessionStatus;
+  taskTypes: string[];
+  updatedAt: string;
+  workerVersion: string | null;
 }>;
 
 export type TaskGoal = Readonly<{
@@ -208,6 +230,22 @@ type AgentRow = {
   updated_at: Date | string;
 };
 
+type WorkerSessionRow = {
+  agent_id: string;
+  capabilities: string[];
+  concurrency: number;
+  created_at: Date | string;
+  current_task_id: string | null;
+  id: string;
+  instance_id: string;
+  last_seen_at: Date | string | null;
+  metadata: unknown;
+  status: WorkerSessionStatus;
+  task_types: string[];
+  updated_at: Date | string;
+  worker_version: string | null;
+};
+
 type GoalRow = {
   completed_at: Date | string | null;
   context: unknown;
@@ -283,6 +321,7 @@ type DependencyRow = {
 type ExpiredReservationRow = TaskRow & {
   reservation_agent_id: string;
   reservation_id: string;
+  reservation_worker_session_id: string | null;
 };
 
 const TASK_RETRY_METADATA_KEY = "__taskRetry";
@@ -366,6 +405,7 @@ export type ReserveNextTaskInput = Readonly<{
   leaseSeconds?: unknown;
   mustRequireCapability?: string | null;
   taskTypes?: unknown;
+  workerSessionId?: string | null;
 }>;
 
 export type ReleaseExpiredReservationsInput = Readonly<{
@@ -383,6 +423,7 @@ export type CompleteTaskInput = Readonly<{
   reservationId?: string | null;
   resultPayload?: Record<string, unknown>;
   taskId: string;
+  workerSessionId?: string | null;
 }>;
 
 export type FailTaskInput = Readonly<{
@@ -392,6 +433,7 @@ export type FailTaskInput = Readonly<{
   reservationId?: string | null;
   resultPayload?: Record<string, unknown>;
   taskId: string;
+  workerSessionId?: string | null;
 }>;
 
 export type TaskCompletionContext = Readonly<{
@@ -417,6 +459,32 @@ export type RenewTaskLeaseInput = Readonly<{
   leaseSeconds?: unknown;
   reservationId?: string | null;
   taskId: string;
+  workerSessionId?: string | null;
+}>;
+
+export type RegisterWorkerSessionInput = Readonly<{
+  agent: Readonly<{
+    capabilities?: unknown;
+    id?: string | null;
+    metadata?: Record<string, unknown>;
+    model?: string | null;
+    name: string;
+    type?: AgentType;
+  }>;
+  capabilities?: unknown;
+  concurrency?: unknown;
+  instanceId: string;
+  metadata?: Record<string, unknown>;
+  taskTypes?: unknown;
+  workerVersion?: string | null;
+}>;
+
+export type HeartbeatWorkerSessionInput = Readonly<{
+  agentId?: string | null;
+  currentTaskId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: WorkerSessionStatus | null;
+  workerSessionId: string;
 }>;
 
 export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId" | "goalId"> &
@@ -490,6 +558,15 @@ function optionalText(value: unknown) {
   const trimmed = value.trim();
 
   return trimmed ? trimmed : null;
+}
+
+function workerSessionStatus(value: unknown): WorkerSessionStatus {
+  return value === "idle" ||
+    value === "offline" ||
+    value === "polling" ||
+    value === "working"
+    ? value
+    : "idle";
 }
 
 function isoDate(value: Date | string | null) {
@@ -582,6 +659,24 @@ function mapAgent(row: AgentRow): TaskAgent {
     status: row.status,
     type: row.agent_type,
     updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
+  };
+}
+
+function mapWorkerSession(row: WorkerSessionRow): WorkerSession {
+  return {
+    agentId: row.agent_id,
+    capabilities: normalizeCapabilities(row.capabilities),
+    concurrency: Math.max(1, Math.round(Number(row.concurrency) || 1)),
+    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
+    currentTaskId: row.current_task_id,
+    id: row.id,
+    instanceId: row.instance_id,
+    lastSeenAt: isoDate(row.last_seen_at),
+    metadata: row.metadata,
+    status: row.status,
+    taskTypes: normalizeCapabilities(row.task_types),
+    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString(),
+    workerVersion: row.worker_version
   };
 }
 
@@ -809,10 +904,12 @@ async function activeReservationInTransaction(
     agentId?: string | null;
     reservationId?: string | null;
     taskId: string;
+    workerSessionId?: string | null;
   }>
 ) {
   const agentId = uuidOrNull(input.agentId);
   const reservationId = uuidOrNull(input.reservationId);
+  const workerSessionId = uuidOrNull(input.workerSessionId);
 
   if (input.agentId && !agentId) {
     throw new Error("Task reservation check requires a valid agentId");
@@ -822,7 +919,11 @@ async function activeReservationInTransaction(
     throw new Error("Task reservation check requires a valid reservationId");
   }
 
-  if (!agentId && !reservationId) {
+  if (input.workerSessionId && !workerSessionId) {
+    throw new Error("Task reservation check requires a valid workerSessionId");
+  }
+
+  if (!agentId && !reservationId && !workerSessionId) {
     return null;
   }
 
@@ -830,14 +931,16 @@ async function activeReservationInTransaction(
     Array<{
       agent_id: string;
       id: string;
+      worker_session_id: string | null;
     }>
   >`
-    select id::text, agent_id::text
+    select id::text, agent_id::text, worker_session_id::text
     from public.task_reservations
     where task_id = ${input.taskId}::uuid
       and status = 'active'
       and (${reservationId}::uuid is null or id = ${reservationId}::uuid)
       and (${agentId}::uuid is null or agent_id = ${agentId}::uuid)
+      and (${workerSessionId}::uuid is null or worker_session_id = ${workerSessionId}::uuid)
     order by reserved_at desc
     limit 1
     for update
@@ -1336,6 +1439,122 @@ export async function upsertAgent(input: Parameters<typeof upsertAgentInTransact
   return sql.begin((tx) => upsertAgentInTransaction(tx, input));
 }
 
+export async function registerWorkerSession(input: RegisterWorkerSessionInput) {
+  const sql = getRequiredSql();
+
+  return sql.begin(async (tx) => {
+    const capabilities = normalizeCapabilities(
+      input.capabilities ?? input.agent.capabilities
+    );
+    const taskTypes = normalizeCapabilities(input.taskTypes);
+    const agent = await upsertAgentInTransaction(tx, {
+      capabilities,
+      id: input.agent.id,
+      metadata: {
+        ...(input.agent.metadata ?? {}),
+        externalWorker: true
+      },
+      model: input.agent.model,
+      name: input.agent.name,
+      status: "active",
+      type: input.agent.type ?? "external"
+    });
+    const rows = await tx<WorkerSessionRow[]>`
+      insert into public.worker_sessions (
+        id,
+        agent_id,
+        instance_id,
+        status,
+        capabilities,
+        task_types,
+        concurrency,
+        worker_version,
+        metadata,
+        last_seen_at,
+        created_at,
+        updated_at
+      )
+      values (
+        ${randomUUID()}::uuid,
+        ${agent.id}::uuid,
+        ${cleanText(input.instanceId, agent.name)},
+        'idle',
+        ${capabilities},
+        ${taskTypes},
+        ${positiveInteger(input.concurrency, 1)},
+        ${optionalText(input.workerVersion)},
+        ${tx.json(toJsonValue(input.metadata ?? {}))},
+        now(),
+        now(),
+        now()
+      )
+      on conflict (agent_id, instance_id)
+      do update set
+        status = 'idle',
+        capabilities = excluded.capabilities,
+        task_types = excluded.task_types,
+        concurrency = excluded.concurrency,
+        worker_version = excluded.worker_version,
+        metadata = public.worker_sessions.metadata || excluded.metadata,
+        last_seen_at = now(),
+        updated_at = now()
+      returning *
+    `;
+
+    return {
+      agent,
+      polling: {
+        leaseSeconds: 600,
+        waitSeconds: 20
+      },
+      session: mapWorkerSession(rows[0])
+    };
+  });
+}
+
+export async function heartbeatWorkerSession(input: HeartbeatWorkerSessionInput) {
+  const sql = getRequiredSql();
+  const workerSessionId = uuidOrNull(input.workerSessionId);
+  const agentId = uuidOrNull(input.agentId);
+  const currentTaskId = uuidOrNull(input.currentTaskId);
+
+  if (!workerSessionId) {
+    throw new Error("Worker heartbeat requires a valid workerSessionId");
+  }
+
+  return sql.begin(async (tx) => {
+    const status = workerSessionStatus(input.status);
+    const rows = await tx<WorkerSessionRow[]>`
+      update public.worker_sessions set
+        status = ${status},
+        current_task_id = case
+          when ${status} = 'offline' then null
+          else ${currentTaskId}::uuid
+        end,
+        metadata = metadata || ${tx.json(toJsonValue(input.metadata ?? {}))},
+        last_seen_at = now(),
+        updated_at = now()
+      where id = ${workerSessionId}::uuid
+        and (${agentId}::uuid is null or agent_id = ${agentId}::uuid)
+      returning *
+    `;
+
+    if (!rows[0]) {
+      throw new Error("Worker session not found");
+    }
+
+    await tx`
+      update public.agents
+      set
+        last_seen_at = now(),
+        updated_at = now()
+      where id = ${rows[0].agent_id}::uuid
+    `;
+
+    return mapWorkerSession(rows[0]);
+  });
+}
+
 export async function createGoal(input: CreateGoalInput) {
   const sql = getRequiredSql();
 
@@ -1637,6 +1856,7 @@ export async function assertActiveTaskReservation(
     agentId?: string | null;
     reservationId?: string | null;
     taskId: string;
+    workerSessionId?: string | null;
   }>
 ) {
   const sql = getRequiredSql();
@@ -1720,6 +1940,7 @@ async function releaseExpiredReservationsInTransaction(
     select
       task_reservations.id::text as reservation_id,
       task_reservations.agent_id::text as reservation_agent_id,
+      task_reservations.worker_session_id::text as reservation_worker_session_id,
       tasks.*
     from public.task_reservations
     join public.tasks on tasks.id = task_reservations.task_id
@@ -1755,6 +1976,16 @@ async function releaseExpiredReservationsInTransaction(
         released_at = now()
       where id = ${row.reservation_id}::uuid
     `;
+
+    if (row.reservation_worker_session_id) {
+      await sql`
+        update public.worker_sessions set
+          status = 'idle',
+          current_task_id = null,
+          updated_at = now()
+        where id = ${row.reservation_worker_session_id}::uuid
+      `;
+    }
 
     const updatedTasks = await sql<TaskRow[]>`
       update public.tasks set
@@ -1974,6 +2205,12 @@ export async function reserveNextTask(
   const sql = getRequiredSql();
 
   return sql.begin(async (tx) => {
+    const workerSessionId = uuidOrNull(input.workerSessionId);
+
+    if (input.workerSessionId && !workerSessionId) {
+      throw new Error("Task reservation requires a valid workerSessionId");
+    }
+
     const agent = await upsertAgentInTransaction(tx, {
       capabilities: input.agent.capabilities,
       id: input.agent.id,
@@ -1982,6 +2219,24 @@ export async function reserveNextTask(
       name: input.agent.name,
       type: input.agent.type ?? "external"
     });
+
+    if (workerSessionId) {
+      const sessionRows = await tx<Array<{ id: string }>>`
+        update public.worker_sessions set
+          status = 'polling',
+          last_seen_at = now(),
+          updated_at = now()
+        where id = ${workerSessionId}::uuid
+          and agent_id = ${agent.id}::uuid
+          and status <> 'offline'
+        returning id::text
+      `;
+
+      if (!sessionRows[0]) {
+        throw new Error("Worker session is not active for this agent");
+      }
+    }
+
     await releaseExpiredReservationsInTransaction(tx, {
       applyFailure: input.applyExpiredFailure
     });
@@ -2074,6 +2329,7 @@ export async function reserveNextTask(
         id,
         task_id,
         agent_id,
+        worker_session_id,
         status,
         reserved_at,
         lease_until,
@@ -2083,18 +2339,36 @@ export async function reserveNextTask(
         ${reservationId}::uuid,
         ${task.id}::uuid,
         ${agent.id}::uuid,
+        ${workerSessionId}::uuid,
         'active',
         now(),
         ${new Date(task.leaseUntil ?? Date.now())},
-        ${tx.json(toJsonValue({ capabilities: agent.capabilities }))}
+        ${tx.json(
+          toJsonValue({
+            capabilities: agent.capabilities,
+            workerSessionId
+          })
+        )}
       )
     `;
+
+    if (workerSessionId) {
+      await tx`
+        update public.worker_sessions set
+          status = 'working',
+          current_task_id = ${task.id}::uuid,
+          last_seen_at = now(),
+          updated_at = now()
+        where id = ${workerSessionId}::uuid
+      `;
+    }
 
     await addTaskEventInTransaction(tx, {
       agentId: agent.id,
       eventPayload: {
         leaseSeconds,
-        reservationId
+        reservationId,
+        workerSessionId
       },
       eventStatus: "accepted",
       eventType: "task_reserved",
@@ -2125,7 +2399,8 @@ export async function completeTask(input: CompleteTaskInput) {
     const activeReservation = await activeReservationInTransaction(tx, {
       agentId: input.agentId,
       reservationId: input.reservationId,
-      taskId: input.taskId
+      taskId: input.taskId,
+      workerSessionId: input.workerSessionId
     });
     const taskRows = await tx<TaskRow[]>`
       select *
@@ -2198,6 +2473,17 @@ export async function completeTask(input: CompleteTaskInput) {
         )
     `;
 
+    if (activeReservation?.worker_session_id) {
+      await tx`
+        update public.worker_sessions set
+          status = 'idle',
+          current_task_id = null,
+          last_seen_at = now(),
+          updated_at = now()
+        where id = ${activeReservation.worker_session_id}::uuid
+      `;
+    }
+
     await addTaskEventInTransaction(tx, {
       agentId: input.agentId ?? activeReservation?.agent_id,
       eventPayload: {
@@ -2220,9 +2506,10 @@ export async function renewTaskLease(input: RenewTaskLeaseInput) {
   const taskId = uuidOrNull(input.taskId);
   const reservationId = uuidOrNull(input.reservationId);
   const agentId = uuidOrNull(input.agentId);
+  const workerSessionId = uuidOrNull(input.workerSessionId);
 
-  if (!taskId || (!reservationId && !agentId)) {
-    throw new Error("Task lease renewal requires a valid taskId and reservationId or agentId");
+  if (!taskId || (!reservationId && !agentId && !workerSessionId)) {
+    throw new Error("Task lease renewal requires a valid taskId and reservationId, agentId, or workerSessionId");
   }
 
   return sql.begin(async (tx) => {
@@ -2239,6 +2526,7 @@ export async function renewTaskLease(input: RenewTaskLeaseInput) {
         and status = 'active'
         and (${reservationId}::uuid is null or id = ${reservationId}::uuid)
         and (${agentId}::uuid is null or agent_id = ${agentId}::uuid)
+        and (${workerSessionId}::uuid is null or worker_session_id = ${workerSessionId}::uuid)
       order by reserved_at desc
       limit 1
       for update
@@ -2269,6 +2557,17 @@ export async function renewTaskLease(input: RenewTaskLeaseInput) {
         heartbeat_at = now()
       where id = ${reservation.id}::uuid
     `;
+    if (workerSessionId) {
+      await tx`
+        update public.worker_sessions
+        set
+          status = 'working',
+          current_task_id = ${taskId}::uuid,
+          last_seen_at = now(),
+          updated_at = now()
+        where id = ${workerSessionId}::uuid
+      `;
+    }
     await tx`
       update public.agents
       set
@@ -2305,7 +2604,8 @@ export async function failTask(input: FailTaskInput) {
     const activeReservation = await activeReservationInTransaction(tx, {
       agentId: input.agentId,
       reservationId: input.reservationId,
-      taskId: input.taskId
+      taskId: input.taskId,
+      workerSessionId: input.workerSessionId
     });
     const taskRows = await tx<TaskRow[]>`
       select *
@@ -2374,6 +2674,17 @@ export async function failTask(input: FailTaskInput) {
           or id = ${activeReservation?.id ?? null}::uuid
         )
     `;
+
+    if (activeReservation?.worker_session_id) {
+      await tx`
+        update public.worker_sessions set
+          status = 'idle',
+          current_task_id = null,
+          last_seen_at = now(),
+          updated_at = now()
+        where id = ${activeReservation.worker_session_id}::uuid
+      `;
+    }
 
     await addTaskEventInTransaction(tx, {
       agentId: input.agentId ?? activeReservation?.agent_id,

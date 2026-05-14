@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import type postgres from "postgres";
-import { getSql } from "./db.ts";
 
 export type FinanceCategory = "ai" | "hosting" | "other";
 export type FinanceEntryType = "actual" | "nominal";
@@ -186,6 +185,7 @@ function hashSourceRef(parts: unknown[]) {
 }
 
 export async function recordFinanceTransaction(input: FinanceTransactionInput) {
+  const { getSql } = await import("./db.ts");
   const sql = getSql();
 
   if (!sql) {
@@ -398,6 +398,54 @@ export function digitalOceanBillingSyncConfiguration() {
     projects,
     reason: null
   } as const;
+}
+
+export async function fetchDigitalOceanInvoicePreview(
+  fetcher: typeof fetch = fetch
+) {
+  const token = digitalOceanToken();
+
+  if (!token) {
+    return {
+      reason: "missing_token" as const,
+      skipped: true,
+      invoiceItems: [] as DigitalOceanInvoiceItem[]
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    DIGITALOCEAN_REQUEST_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetcher(DIGITALOCEAN_INVOICE_PREVIEW_URL, {
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+
+      throw new Error(
+        `DigitalOcean billing sync failed with ${response.status}: ${body.slice(0, 500)}`
+      );
+    }
+
+    const body = (await response.json()) as DigitalOceanInvoicePreview;
+
+    return {
+      invoiceItems: Array.isArray(body.invoice_items) ? body.invoice_items : [],
+      skipped: false
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function digitalOceanItemAmount(item: DigitalOceanInvoiceItem) {
@@ -635,35 +683,11 @@ export async function syncDigitalOceanBillingCosts(
     return { reason: "missing_project_name", skipped: true, synced: 0 };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    DIGITALOCEAN_REQUEST_TIMEOUT_MS
-  );
-
   try {
-    const response = await (options.fetcher ?? fetch)(
-      DIGITALOCEAN_INVOICE_PREVIEW_URL,
-      {
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        signal: controller.signal
-      }
+    const preview = await fetchDigitalOceanInvoicePreview(
+      options.fetcher ?? fetch
     );
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-
-      throw new Error(
-        `DigitalOcean billing sync failed with ${response.status}: ${body.slice(0, 500)}`
-      );
-    }
-
-    const body = (await response.json()) as DigitalOceanInvoicePreview;
-    const items = Array.isArray(body.invoice_items) ? body.invoice_items : [];
+    const items = preview.invoiceItems;
     const entries = buildDigitalOceanBillingCostEntries({
       items,
       projectNames: projects
@@ -691,7 +715,5 @@ export async function syncDigitalOceanBillingCosts(
       skipped: false,
       synced: 0
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }

@@ -11,11 +11,8 @@ import { getSql } from "@/lib/db";
 import { validateLeadEmail } from "@/lib/email-validation";
 import { digitalOceanBillingSyncConfiguration } from "@/lib/finance-ledger";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { kickInternalApiWorker } from "@/lib/internal-api-worker";
 import { requiredCapabilitiesForWorkTaskType } from "@/lib/system-agents";
 import { createGoal, createTask } from "@/lib/task-service";
-
-type TaskWorkerOptions = Parameters<typeof kickInternalApiWorker>[0];
 
 type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
@@ -943,7 +940,7 @@ async function claimDueCronActions(sql: postgres.Sql) {
   });
 }
 
-async function runCronWorker(options: TaskWorkerOptions = {}) {
+async function runCronWorker() {
   const sql = getSql();
 
   if (!sql) {
@@ -1001,25 +998,15 @@ async function runCronWorker(options: TaskWorkerOptions = {}) {
     }
   }
 
-  if (queued > 0) {
-    void kickTaskWorker(options);
-  }
-
   return { queued };
 }
 
-export function kickTaskWorker(
-  options?: TaskWorkerOptions
-) {
-  return kickInternalApiWorker(options);
-}
-
-export function kickCronWorker(options?: TaskWorkerOptions) {
+export function kickCronWorker() {
   if (globalWorker.mattanutraCronWorker) {
     return globalWorker.mattanutraCronWorker;
   }
 
-  globalWorker.mattanutraCronWorker = runCronWorker(options).finally(() => {
+  globalWorker.mattanutraCronWorker = runCronWorker().finally(() => {
     globalWorker.mattanutraCronWorker = undefined;
   });
 

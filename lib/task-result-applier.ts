@@ -1,11 +1,13 @@
 import { isUuid, toJsonValue } from "@/lib/assessment-store";
 import { updateBlogPost, updateTestimonial } from "@/lib/blog";
 import { writeBpmEvent } from "@/lib/bpm";
-import {
-  recordEmailCommunicationDelivery,
-  sendClientSafetyFollowupTask
-} from "@/lib/communications";
+import { recordEmailCommunicationDelivery } from "@/lib/communications";
 import { getSql } from "@/lib/db";
+import {
+  buildDigitalOceanBillingCostEntries,
+  recordFinanceTransaction,
+  recordXaiUsageCost
+} from "@/lib/finance-ledger";
 import { applyFormulationSafety } from "@/lib/formulation-safety";
 import type { FormulationBlueprint } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
@@ -15,7 +17,6 @@ import {
   addTaskEvent,
   addTaskEventToTransaction,
   getTaskBundle,
-  type ReservedTask,
   type TaskServiceDb,
   type TaskRecord
 } from "@/lib/task-service";
@@ -71,6 +72,38 @@ function analysisPayload(resultPayload: unknown) {
   return analysis as Record<string, unknown> & {
     formulation: FormulationBlueprint;
   };
+}
+
+async function recordTaskXaiUsageCost({
+  analysis,
+  metadata,
+  purpose,
+  task
+}: Readonly<{
+  analysis: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  purpose: string;
+  task: TaskRecord;
+}>) {
+  const usage = analysis.usage;
+
+  if (!usage) {
+    return;
+  }
+
+  await recordXaiUsageCost({
+    metadata: {
+      ...metadata,
+      promptVersion: textValue(analysis.promptVersion),
+      taskId: task.id
+    },
+    model: textValue(analysis.model) || "unknown",
+    purpose,
+    reasoningEffort: textValue(analysis.reasoningEffort),
+    responseId: textValue(analysis.responseId),
+    taskId: task.id,
+    usage
+  });
 }
 
 async function addWorkEvent(
@@ -174,6 +207,12 @@ async function applyHealthScoreResult(
       updated_at = now()
     where plan_id = ${task.planId}::uuid
   `;
+  await recordTaskXaiUsageCost({
+    analysis: objectValue(payload.xaiUsage),
+    metadata: objectValue(objectValue(payload.xaiUsage).metadata),
+    purpose: textValue(objectValue(payload.xaiUsage).purpose) || "healthscore_advice",
+    task
+  });
   await writeBpmEvent({
     actorType: "worker",
     eventName: "healthscore_analysis_completed",
@@ -223,6 +262,15 @@ async function applyPaidFormulationResult(
   const locale: Locale = isLocale(row.locale) ? row.locale : "en";
   const plan = textValue(row.selected_plan) || "precision";
   const analysis = analysisPayload(resultPayload);
+  await recordTaskXaiUsageCost({
+    analysis,
+    metadata: {
+      plan,
+      planId
+    },
+    purpose: "formulation_analysis",
+    task
+  });
   const safeFormulation = await applyFormulationSafety(sql, {
     audit: async ({ eventType, level, payload }) =>
       addWorkEvent(task, eventType, level ?? "low", payload, sql),
@@ -354,6 +402,16 @@ async function applyExampleFormulationResult(
   const locale: Locale = isLocale(row.locale) ? row.locale : "en";
   const plan = textValue(row.selected_plan) === "pro" ? "pro" : "precision";
   const analysis = analysisPayload(resultPayload);
+  await recordTaskXaiUsageCost({
+    analysis,
+    metadata: {
+      plan,
+      planId,
+      requestId
+    },
+    purpose: "formulation_analysis",
+    task
+  });
   const safeFormulation = await applyFormulationSafety(sql, {
     audit: async ({ eventType, level, payload }) =>
       addWorkEvent(task, eventType, level ?? "low", { ...payload, requestId }, sql),
@@ -576,48 +634,83 @@ async function applyReassessmentEmailResult(
   });
 }
 
+function safetyReviewIdsFromTask(task: TaskRecord) {
+  const payload = objectValue(task.payload);
+  const reviewedItems = Array.isArray(payload.reviewedItems)
+    ? payload.reviewedItems.map(objectValue)
+    : [];
+
+  return [
+    ...reviewedItems
+      .map((item) => textValue(item.safetyReviewId))
+      .filter((id) => isUuid(id)),
+    ...(isUuid(textValue(payload.safetyReviewId))
+      ? [textValue(payload.safetyReviewId)]
+      : [])
+  ];
+}
+
 async function applyCommunicationFollowupResult(
   task: TaskRecord,
-  reservationId: string
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb
 ) {
-  const bundle = await getTaskBundle({ taskId: task.id });
-  const result = await sendClientSafetyFollowupTask({
-    agent: {
-      capabilities: [],
-      createdAt: new Date().toISOString(),
-      endpointUrl: null,
-      id: task.reservedByAgentId ?? "00000000-0000-4000-8000-000000000000",
-      lastSeenAt: null,
-      metadata: {},
-      model: null,
-      name: "Internal API worker",
-      status: "active",
-      type: "system",
-      updatedAt: new Date().toISOString()
-    },
-    comments: bundle.comments,
-    reservationId,
-    task
-  } satisfies ReservedTask);
+  const sql = sqlOverride ?? getSql();
+  const payload = objectValue(resultPayload);
+  const communication = objectValue(payload.communication ?? payload);
+  const message = objectValue(communication.message);
+  const channel = objectValue(communication.channel);
+  const messageStatus = textValue(message.status) || textValue(payload.status);
+  const status =
+    messageStatus === "sent" || messageStatus === "delivered"
+      ? "sent"
+      : messageStatus === "queued"
+        ? "queued"
+        : "failed";
+  const messageId = textValue(message.id) || textValue(payload.messageId);
+  const channelType =
+    textValue(channel.channelType) || textValue(payload.channelType);
+  const safetyReviewIds = safetyReviewIdsFromTask(task);
+
+  if (sql && safetyReviewIds.length > 0) {
+    await sql`
+      update public.safety_reviews
+      set
+        client_notification_status = ${status},
+        client_informed_at = case
+          when ${status} = 'sent' then coalesce(client_informed_at, now())
+          else client_informed_at
+        end,
+        safety_context = safety_context || ${sql.json(
+          toJsonValue({
+            communicationChannelType: channelType || null,
+            communicationMessageId: messageId || null
+          })
+        )}::jsonb,
+        updated_at = now()
+      where id = any(${safetyReviewIds}::uuid[])
+    `;
+  }
 
   await addWorkEvent(
     task,
-    result.message.status === "no_channel"
+    status === "failed"
       ? "communication_channel_unavailable"
       : "communication_task_completed",
-    result.message.status === "no_channel" ? "medium" : "low",
+    status === "failed" ? "medium" : "low",
     {
-      channelType: result.channel?.channelType,
-      messageId: result.message.id,
-      status: result.message.status
-    }
+      channelType,
+      messageId,
+      status
+    },
+    sql ?? undefined
   );
 
   return {
-    channelId: result.channel?.id,
-    channelType: result.channel?.channelType,
-    messageId: result.message.id,
-    status: result.message.status
+    channelId: textValue(channel.id) || null,
+    channelType: channelType || null,
+    messageId: messageId || null,
+    status
   };
 }
 
@@ -695,10 +788,37 @@ async function applyDigitalOceanBillingSyncResult(
 ) {
   const payload = objectValue(resultPayload);
   const digitalOcean = objectValue(payload.digitalOcean);
-  const synced = Number(digitalOcean.synced ?? 0);
+  const invoiceItems = Array.isArray(digitalOcean.invoiceItems)
+    ? digitalOcean.invoiceItems.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item)
+      )
+    : [];
+  const projectNames = Array.isArray(payload.projectNames)
+    ? payload.projectNames.filter((item): item is string => typeof item === "string")
+    : [];
+  let synced = Number(digitalOcean.synced ?? 0);
   const skipped = digitalOcean.skipped === true;
   const errorMessage = textValue(digitalOcean.error);
   const reason = textValue(digitalOcean.reason);
+
+  if (invoiceItems.length > 0 && projectNames.length > 0) {
+    synced = 0;
+
+    for (const entry of buildDigitalOceanBillingCostEntries({
+      items: invoiceItems,
+      projectNames
+    })) {
+      const id = await recordFinanceTransaction({
+        ...entry,
+        taskId: task.id
+      });
+
+      if (id) {
+        synced += 1;
+      }
+    }
+  }
 
   await addWorkEvent(
     task,
@@ -722,13 +842,11 @@ async function applyDigitalOceanBillingSyncResult(
 }
 
 export async function applyTaskCompletionResult({
-  reservationId,
   resultPayload,
   sql,
   task: providedTask,
   taskId
 }: Readonly<{
-  reservationId: string;
   resultPayload: unknown;
   sql?: TaskServiceDb;
   task?: TaskRecord;
@@ -762,7 +880,7 @@ export async function applyTaskCompletionResult({
   }
 
   if (task.taskType === "client_safety_followup") {
-    return applyCommunicationFollowupResult(task, reservationId);
+    return applyCommunicationFollowupResult(task, resultPayload, sql);
   }
 
   if (task.taskType === "content_status_change") {

@@ -1,16 +1,8 @@
 import { validateLeadEmail } from "@/lib/email-validation";
-import {
-  buildExampleEmailHtml,
-  buildExampleEmailSubject
-} from "@/lib/example-email";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
-import { syncDigitalOceanBillingCosts } from "@/lib/finance-ledger";
+import { fetchDigitalOceanInvoicePreview } from "@/lib/finance-ledger";
 import type { HealthScoreResult } from "@/lib/health-score";
-import { analyzeHealthScoreAdvice } from "@/lib/health-score-analysis";
-import {
-  buildReassessmentEmailHtml,
-  buildReassessmentEmailSubject
-} from "@/lib/reassessment-email";
+import { analyzeHealthScoreAdviceWithUsage } from "@/lib/health-score-analysis";
 import { sendTransactionalEmail } from "@/lib/smtp-email";
 import type { TaskWorkItem } from "@/lib/task-work-items";
 import type { SendTransactionalEmailResult } from "@/lib/smtp-email";
@@ -53,19 +45,29 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
     }
 
     try {
-      const advice = await analyzeHealthScoreAdvice({
+      const analysis = await analyzeHealthScoreAdviceWithUsage({
         answers: workItem.answers,
         cache: false,
         healthScore: workItem.healthScore,
-        locale: workItem.locale,
-        taskId: workItem.taskId
+        locale: workItem.locale
       });
 
       return {
         cachedOrExisting: false,
         healthScore: Object.assign({}, workItem.healthScore, {
-          advice
-        }) satisfies HealthScoreResult
+          advice: analysis.advice
+        }) satisfies HealthScoreResult,
+        xaiUsage: {
+          metadata: {
+            promptVersion: analysis.promptVersion,
+            taskId: workItem.taskId
+          },
+          model: analysis.model,
+          purpose: "healthscore_advice",
+          reasoningEffort: analysis.reasoningEffort,
+          responseId: analysis.responseId,
+          usage: analysis.usage
+        }
       };
     } catch (error) {
       return {
@@ -94,66 +96,52 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
   }
 
   if (workItem.taskType === "send_example_email") {
-    const emailValidation = validateLeadEmail(workItem.email);
+    const emailValidation = validateLeadEmail(workItem.to || workItem.email);
 
     if (!emailValidation.ok) {
       throw new Error("Example email request has an invalid recipient");
     }
 
-    const emailHtml = buildExampleEmailHtml({
-      formulation: workItem.formulation,
-      healthScore: workItem.healthScore,
-      locale: workItem.locale,
-      planId: workItem.planId,
-      unsubscribeToken: workItem.unsubscribeToken
-    });
-    const subject = buildExampleEmailSubject(workItem.locale, workItem.healthScore);
     const delivery = await sendTransactionalEmail({
-      html: emailHtml,
-      subject,
+      html: workItem.html,
+      subject: workItem.subject,
       to: emailValidation.email
     });
     requireSentEmail(delivery, "Example preview");
 
     return {
-      emailHtml,
+      emailHtml: workItem.html,
       emailType: "example_preview",
       messageId: delivery.messageId,
       reason: delivery.reason,
       sent: delivery.sent,
-      subject,
+      subject: workItem.subject,
       to: emailValidation.email
     };
   }
 
   if (workItem.taskType === "send_reassessment_email") {
-    const emailValidation = validateLeadEmail(workItem.email);
+    const emailValidation = validateLeadEmail(workItem.to || workItem.email);
 
     if (!emailValidation.ok) {
       throw new Error("Scheduled reassessment email is invalid");
     }
 
-    const emailHtml = buildReassessmentEmailHtml({
-      locale: workItem.locale,
-      planId: workItem.planId,
-      unsubscribeToken: workItem.unsubscribeToken
-    });
-    const subject = buildReassessmentEmailSubject(workItem.locale);
     const delivery = await sendTransactionalEmail({
-      html: emailHtml,
-      subject,
+      html: workItem.html,
+      subject: workItem.subject,
       to: emailValidation.email
     });
     requireSentEmail(delivery, "Reassessment");
 
     return {
-      emailHtml,
+      emailHtml: workItem.html,
       emailType: "reassessment",
       messageId: delivery.messageId,
       reason: delivery.reason,
       recurrenceDays: workItem.recurrenceDays,
       sent: delivery.sent,
-      subject,
+      subject: workItem.subject,
       to: emailValidation.email,
       unsubscribeToken: workItem.unsubscribeToken
     };
@@ -173,9 +161,7 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
   }
 
   if (workItem.taskType === "sync_digitalocean_billing") {
-    const digitalOcean = await syncDigitalOceanBillingCosts({
-      taskId: workItem.taskId
-    });
+    const digitalOcean = await fetchDigitalOceanInvoicePreview();
 
     return {
       digitalOcean,

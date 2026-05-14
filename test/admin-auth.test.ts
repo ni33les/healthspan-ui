@@ -4,14 +4,17 @@ import {
   adminClawRequestAllowed,
   adminDashboardOrClawRequestAllowed
 } from "../lib/admin-auth.ts";
+import { workerRequestAllowed } from "../lib/worker-auth.ts";
 
 const previousAdminClawToken = process.env.ADMIN_CLAW_TOKEN;
 const previousAdminDashboardToken = process.env.ADMIN_DASHBOARD_TOKEN;
+const previousWorkerToken = process.env.WORKER_API_TOKEN;
 
 describe("admin claw token auth", () => {
   before(() => {
     process.env.ADMIN_CLAW_TOKEN = "test-openclaw-token";
     process.env.ADMIN_DASHBOARD_TOKEN = "test-dashboard-token";
+    process.env.WORKER_API_TOKEN = "test-worker-token";
   });
 
   after(() => {
@@ -25,6 +28,12 @@ describe("admin claw token auth", () => {
       delete process.env.ADMIN_DASHBOARD_TOKEN;
     } else {
       process.env.ADMIN_DASHBOARD_TOKEN = previousAdminDashboardToken;
+    }
+
+    if (previousWorkerToken === undefined) {
+      delete process.env.WORKER_API_TOKEN;
+    } else {
+      process.env.WORKER_API_TOKEN = previousWorkerToken;
     }
   });
 
@@ -83,6 +92,33 @@ describe("admin claw token auth", () => {
         })
       ),
       true
+    );
+  });
+
+  it("keeps worker API auth separate from admin and dashboard tokens", () => {
+    assert.equal(
+      workerRequestAllowed(
+        new Request("https://example.test/api/tasks/reserve", {
+          headers: { authorization: "Bearer test-worker-token" }
+        })
+      ),
+      true
+    );
+    assert.equal(
+      workerRequestAllowed(
+        new Request("https://example.test/api/tasks/reserve", {
+          headers: { authorization: "Bearer test-openclaw-token" }
+        })
+      ),
+      false
+    );
+    assert.equal(
+      workerRequestAllowed(
+        new Request("https://example.test/api/tasks/reserve", {
+          headers: { "x-admin-dashboard-token": "test-dashboard-token" }
+        })
+      ),
+      false
     );
   });
 });

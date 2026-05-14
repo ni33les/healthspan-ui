@@ -3,7 +3,15 @@ import { isUuid } from "@/lib/assessment-store";
 import { getSql } from "@/lib/db";
 import type { FormulationBlueprint } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
+import {
+  buildExampleEmailHtml,
+  buildExampleEmailSubject
+} from "@/lib/example-email";
 import { isLocale, type Locale } from "@/lib/i18n";
+import {
+  buildReassessmentEmailHtml,
+  buildReassessmentEmailSubject
+} from "@/lib/reassessment-email";
 import type { TaskRecord } from "@/lib/task-service";
 
 export type HealthScoreWorkItem = Readonly<{
@@ -27,11 +35,13 @@ export type FormulationWorkItem = Readonly<{
 
 export type ExampleEmailWorkItem = Readonly<{
   email: string;
-  formulation: FormulationBlueprint;
-  healthScore: HealthScoreResult;
+  html: string;
   locale: Locale;
+  metadata: Record<string, unknown>;
   planId: string;
   requestId: string;
+  subject: string;
+  to: string;
   taskType: "send_example_email";
   unsubscribeToken: string | null;
 }>;
@@ -39,16 +49,26 @@ export type ExampleEmailWorkItem = Readonly<{
 export type ReassessmentEmailWorkItem = Readonly<{
   cronId: string;
   email: string;
+  html: string;
   locale: Locale;
+  metadata: Record<string, unknown>;
   planId: string;
   recurrenceDays: number;
+  subject: string;
+  to: string;
   taskType: "send_reassessment_email";
   unsubscribeToken: string;
 }>;
 
 export type CommunicationFollowupWorkItem = Readonly<{
+  body: string;
+  goalId: string;
+  metadata: Record<string, unknown>;
   payload: Record<string, unknown>;
   planId: string | null;
+  safetyReviewIds: string[];
+  subject: string;
+  taskId: string;
   taskType: "client_safety_followup";
 }>;
 
@@ -109,6 +129,68 @@ function recurrenceDays(value: unknown) {
   const days = Number(value ?? 60);
 
   return Number.isFinite(days) && days > 0 ? days : 60;
+}
+
+function safetyFollowupItems(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => payloadRecord(item))
+    .map((item) => ({
+      clientDose: typeof item.clientDose === "string" ? item.clientDose : null,
+      decision: payloadText(item, "decision") || "reviewed",
+      safetyReviewId: payloadText(item, "safetyReviewId") || null,
+      supplementName: payloadText(item, "supplementName") || "your supplement"
+    }));
+}
+
+function safetyFollowupMessage(input: Readonly<{
+  clientDose?: string | null;
+  decision: string;
+  reviewedItems?: ReturnType<typeof safetyFollowupItems>;
+  supplementName: string;
+}>) {
+  const reviewedItems = input.reviewedItems ?? [];
+
+  if (reviewedItems.length > 1) {
+    const summary = reviewedItems
+      .map((item) => {
+        if (item.decision === "approve") {
+          return item.clientDose
+            ? `${item.supplementName} approved at ${item.clientDose}`
+            : `${item.supplementName} approved`;
+        }
+
+        if (item.decision === "disapprove") {
+          return `${item.supplementName} removed`;
+        }
+
+        return `${item.supplementName} reviewed`;
+      })
+      .join("; ");
+
+    return `Your human safety review is complete. We have updated your nutrition plan after reviewing ${reviewedItems.length} supplements: ${summary}.`;
+  }
+
+  const singleItem = reviewedItems[0];
+
+  if (singleItem) {
+    return safetyFollowupMessage({
+      clientDose: singleItem.clientDose,
+      decision: singleItem.decision,
+      supplementName: singleItem.supplementName
+    });
+  }
+
+  if (input.decision === "approve") {
+    return input.clientDose
+      ? `Your human safety review for ${input.supplementName} is complete. The reviewed dose is ${input.clientDose}. Your nutrition plan has been updated.`
+      : `Your human safety review for ${input.supplementName} is complete. Your nutrition plan has been updated.`;
+  }
+
+  return `Your human safety review for ${input.supplementName} is complete. We have removed that suggestion from your nutrition plan.`;
 }
 
 async function buildHealthScoreWorkItem(task: TaskRecord) {
@@ -243,13 +325,28 @@ async function buildExampleEmailWorkItem(task: TaskRecord) {
     `;
   }
 
+  const email = typeof row.email === "string" ? row.email : "";
+  const formulation = row.formulation as FormulationBlueprint;
+  const healthScore = row.health_score as HealthScoreResult;
+  const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+
   return {
-    email: typeof row.email === "string" ? row.email : "",
-    formulation: row.formulation as FormulationBlueprint,
-    healthScore: row.health_score as HealthScoreResult,
-    locale: isLocale(row.locale) ? row.locale : "en",
+    email,
+    html: buildExampleEmailHtml({
+      formulation,
+      healthScore,
+      locale,
+      planId: task.planId,
+      unsubscribeToken: unsubscribeToken || null
+    }),
+    locale,
+    metadata: {
+      requestId
+    },
     planId: task.planId,
     requestId,
+    subject: buildExampleEmailSubject(locale, healthScore),
+    to: email,
     taskType: "send_example_email",
     unsubscribeToken: unsubscribeToken || null
   } satisfies ExampleEmailWorkItem;
@@ -292,12 +389,26 @@ async function buildReassessmentEmailWorkItem(task: TaskRecord) {
     `;
   }
 
+  const email = typeof recipient.email === "string" ? recipient.email : "";
+  const locale: Locale = isLocale(payload.locale) ? payload.locale : "en";
+  const days = recurrenceDays(row.recurrence_days);
+
   return {
     cronId,
-    email: typeof recipient.email === "string" ? recipient.email : "",
-    locale: isLocale(payload.locale) ? payload.locale : "en",
+    email,
+    html: buildReassessmentEmailHtml({
+      locale,
+      planId: task.planId,
+      unsubscribeToken
+    }),
+    locale,
+    metadata: {
+      cronId
+    },
     planId: task.planId,
-    recurrenceDays: recurrenceDays(row.recurrence_days),
+    recurrenceDays: days,
+    subject: buildReassessmentEmailSubject(locale),
+    to: email,
     taskType: "send_reassessment_email",
     unsubscribeToken
   } satisfies ReassessmentEmailWorkItem;
@@ -324,9 +435,39 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
   }
 
   if (task.taskType === "client_safety_followup") {
+    const payload = payloadRecord(task.payload);
+    const legacySafetyReviewId = payloadText(payload, "safetyReviewId");
+    const reviewedItems = safetyFollowupItems(payload.reviewedItems);
+    const safetyReviewIds = [
+      ...reviewedItems
+        .map((item) => item.safetyReviewId)
+        .filter((id): id is string => Boolean(id)),
+      ...(isUuid(legacySafetyReviewId) ? [legacySafetyReviewId] : [])
+    ];
+    const supplementName =
+      payloadText(payload, "supplementName") || "your supplement";
+    const decision = payloadText(payload, "decision") || "reviewed";
+
     return {
-      payload: payloadRecord(task.payload),
+      body: safetyFollowupMessage({
+        clientDose: payloadText(payload, "clientDose") || null,
+        decision,
+        reviewedItems,
+        supplementName
+      }),
+      goalId: task.goalId,
+      metadata: {
+        decision,
+        reviewedItems,
+        safetyReviewIds,
+        source: "client_safety_followup_task",
+        supplementName
+      },
+      payload,
       planId: task.planId,
+      safetyReviewIds,
+      subject: "Your MattaNutra safety review is complete",
+      taskId: task.id,
       taskType: "client_safety_followup"
     } satisfies CommunicationFollowupWorkItem;
   }

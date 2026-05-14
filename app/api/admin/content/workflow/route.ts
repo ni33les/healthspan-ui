@@ -5,7 +5,6 @@ import {
 } from "@/lib/admin-auth";
 import { isUuid } from "@/lib/assessment-store";
 import { writeBpmEvent } from "@/lib/bpm";
-import { kickTaskWorker } from "@/lib/task-worker";
 import { AGENT_CAPABILITIES } from "@/lib/system-agents";
 import { createGoal, createTask } from "@/lib/task-service";
 import { TASK_PRIORITY } from "@/lib/task-service-utils";
@@ -86,7 +85,6 @@ function errorDetails(error: unknown) {
 }
 
 export async function POST(request: Request) {
-  const workerOptions = { baseUrl: new URL(request.url).origin };
   const body = (await request.json().catch(() => ({}))) as Record<
     string,
     unknown
@@ -194,7 +192,6 @@ export async function POST(request: Request) {
         taskId: task.id
       }
     });
-    void kickTaskWorker(workerOptions);
 
     return NextResponse.json(
       { goal, task },

@@ -1,12 +1,10 @@
 import { createHash } from "crypto";
-import { recordXaiUsageCost } from "@/lib/finance-ledger";
 import type {
   HealthScoreAdvice,
   HealthScorePaywallFeature,
   HealthScoreResult,
   LocalizedHealthScoreText
 } from "@/lib/health-score";
-import { getSql } from "@/lib/db";
 import type { Locale } from "@/lib/i18n";
 
 type XaiChatCompletion = {
@@ -19,6 +17,16 @@ type XaiChatCompletion = {
   model?: string;
   usage?: unknown;
 };
+
+export type HealthScoreAdviceAnalysis = Readonly<{
+  advice: HealthScoreAdvice;
+  cachedOrExisting: boolean;
+  model: string;
+  promptVersion: string;
+  reasoningEffort: string;
+  responseId?: string;
+  usage?: unknown;
+}>;
 
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_GROK_MODEL = "grok-4.3";
@@ -513,16 +521,12 @@ async function callGrok({
   apiKey,
   messages,
   model,
-  reasoningEffort,
-  taskId,
-  usageContext
+  reasoningEffort
 }: Readonly<{
   apiKey: string;
   messages: Array<{ content: string; role: "assistant" | "system" | "user" }>;
   model: string;
   reasoningEffort?: string;
-  taskId?: string | null;
-  usageContext?: Record<string, unknown>;
 }>) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -552,18 +556,7 @@ async function callGrok({
       );
     }
 
-    const completion = (await response.json()) as XaiChatCompletion;
-    await recordXaiUsageCost({
-      metadata: usageContext,
-      model: completion.model ?? model,
-      purpose: "healthscore_advice",
-      reasoningEffort,
-      responseId: completion.id,
-      taskId,
-      usage: completion.usage
-    });
-
-    return completion;
+    return (await response.json()) as XaiChatCompletion;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
@@ -810,6 +803,7 @@ function cacheKey({
 }
 
 async function ensureCacheSchema() {
+  const { getSql } = await import("./db.ts");
   const sql = getSql();
 
   if (!sql) {
@@ -924,19 +918,17 @@ async function writeCachedAdvice({
   }
 }
 
-export async function analyzeHealthScoreAdvice({
+export async function analyzeHealthScoreAdviceWithUsage({
   answers,
   cache = true,
   healthScore,
-  locale,
-  taskId
+  locale
 }: Readonly<{
   answers: unknown;
   cache?: boolean;
   healthScore: HealthScoreResult;
   locale: Locale;
-  taskId?: string | null;
-}>) {
+}>): Promise<HealthScoreAdviceAnalysis> {
   const config = grokConfig();
   const key = cacheKey({
     answers,
@@ -948,7 +940,13 @@ export async function analyzeHealthScoreAdvice({
   const cachedAdvice = cache ? await readCachedAdvice(key) : null;
 
   if (cachedAdvice) {
-    return cachedAdvice;
+    return {
+      advice: cachedAdvice,
+      cachedOrExisting: true,
+      model: config.model,
+      promptVersion: config.promptVersion,
+      reasoningEffort: config.reasoningEffort
+    };
   }
 
   const messages: Array<{
@@ -966,13 +964,7 @@ export async function analyzeHealthScoreAdvice({
         apiKey: config.apiKey,
         messages,
         model: config.model,
-        reasoningEffort: config.reasoningEffort,
-        taskId,
-        usageContext: {
-          attempt,
-          promptVersion: config.promptVersion,
-          taskId
-        }
+        reasoningEffort: config.reasoningEffort
       });
       const content = completion.choices?.[0]?.message?.content;
       const validation = validateAdvice(parseJsonObject(content));
@@ -986,7 +978,15 @@ export async function analyzeHealthScoreAdvice({
             promptVersion: config.promptVersion
           });
         }
-        return validation.advice;
+        return {
+          advice: validation.advice,
+          cachedOrExisting: false,
+          model: completion.model ?? config.model,
+          promptVersion: config.promptVersion,
+          reasoningEffort: config.reasoningEffort,
+          responseId: completion.id,
+          usage: completion.usage
+        };
       }
 
       lastErrors = validation.errors;
@@ -1005,4 +1005,10 @@ export async function analyzeHealthScoreAdvice({
   throw new Error(
     `HealthScore analysis failed after ${MAX_ATTEMPTS} attempts: ${lastErrors.join("; ")}`
   );
+}
+
+export async function analyzeHealthScoreAdvice(
+  input: Parameters<typeof analyzeHealthScoreAdviceWithUsage>[0]
+) {
+  return (await analyzeHealthScoreAdviceWithUsage(input)).advice;
 }

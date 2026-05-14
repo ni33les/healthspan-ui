@@ -16,7 +16,6 @@ import {
   enqueueHealthScoreAnalysisTask,
   enqueueFormulationTask,
   kickCronWorker,
-  kickTaskWorker,
   scheduleReassessmentAction
 } from "@/lib/task-worker";
 import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
@@ -62,7 +61,6 @@ function healthScoreBpmFields(snapshot: { healthScore?: ReturnType<typeof comput
 }
 
 export async function POST(request: Request) {
-  const workerOptions = { baseUrl: new URL(request.url).origin };
   let body: {
     answers?: unknown;
     intent?: "capture" | "process";
@@ -127,13 +125,9 @@ export async function POST(request: Request) {
       ...healthScoreBpmFields(snapshot)
     });
 
-    const analysisTaskId = await enqueueHealthScoreAnalysisTask({
+    await enqueueHealthScoreAnalysisTask({
       planId: snapshot.planId
     });
-
-    if (analysisTaskId) {
-      void kickTaskWorker(workerOptions);
-    }
 
     if (intent === "capture") {
       responseSnapshot =
@@ -149,7 +143,7 @@ export async function POST(request: Request) {
         locale: body.locale,
         planId: snapshot.planId
       });
-      void kickCronWorker(workerOptions);
+      void kickCronWorker();
       await writeBpmEvent({
         actorType: "visitor",
         attribution: bpm.attribution,
@@ -195,7 +189,6 @@ export async function POST(request: Request) {
         throw new Error("Unable to queue assessment processing");
       }
 
-      void kickTaskWorker(workerOptions);
       await writeBpmEvent({
         actorType: "system",
         attribution: bpm.attribution,

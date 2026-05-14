@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { requireOpenClawRequest } from "@/lib/openclaw-api";
 import {
   enqueueDigitalOceanBillingSyncTask,
-  kickCronWorker,
-  kickTaskWorker
+  kickCronWorker
 } from "@/lib/task-worker";
 
 export const runtime = "nodejs";
@@ -16,20 +15,15 @@ async function runDueWork(request: Request) {
   }
 
   try {
-    const baseUrl = new URL(request.url).origin;
     const [result, digitalOcean] = await Promise.all([
-      kickCronWorker({ baseUrl }),
+      kickCronWorker(),
       enqueueDigitalOceanBillingSyncTask()
     ]);
-    void kickTaskWorker({ baseUrl });
 
     return NextResponse.json(
       {
         ...(result ?? { queued: 0 }),
-        digitalOcean,
-        taskWorker: {
-          kicked: true
-        }
+        digitalOcean
       },
       {
         headers: {

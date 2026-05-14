@@ -1,9 +1,10 @@
 import {
   openClawJson,
-  requireOpenClawRequest,
   taskApiError
 } from "@/lib/openclaw-api";
+import { adminClawRequestAllowed } from "@/lib/admin-auth";
 import { dispatchCommunicationMessage } from "@/lib/communications";
+import { workerRequestAllowed, workerUnauthorized } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
 
@@ -14,10 +15,8 @@ type DispatchRouteProps = Readonly<{
 }>;
 
 export async function POST(request: Request, { params }: DispatchRouteProps) {
-  const unauthorized = requireOpenClawRequest(request);
-
-  if (unauthorized) {
-    return unauthorized;
+  if (!adminClawRequestAllowed(request) && !workerRequestAllowed(request)) {
+    return workerUnauthorized();
   }
 
   const { id } = await params;

@@ -3,7 +3,6 @@ import {
   getStoredAssessmentSnapshot,
   getStoredFormulationResult
 } from "@/lib/assessment-store";
-import { kickTaskWorker } from "@/lib/task-worker";
 
 type FormulationRouteProps = Readonly<{
   params: Promise<{
@@ -11,9 +10,8 @@ type FormulationRouteProps = Readonly<{
   }>;
 }>;
 
-export async function GET(request: Request, { params }: FormulationRouteProps) {
+export async function GET(_request: Request, { params }: FormulationRouteProps) {
   const { planId } = await params;
-  const workerOptions = { baseUrl: new URL(request.url).origin };
   const snapshot = await getStoredAssessmentSnapshot(planId);
 
   if (!snapshot) {
@@ -32,8 +30,6 @@ export async function GET(request: Request, { params }: FormulationRouteProps) {
   }
 
   if (snapshot.status !== "ready") {
-    void kickTaskWorker(workerOptions);
-
     return NextResponse.json(
       {
         message: "Formulation is still being prepared",

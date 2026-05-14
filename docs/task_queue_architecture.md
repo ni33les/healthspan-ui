@@ -49,7 +49,7 @@ Communication work is represented by:
 - `communication_channels`
 - `communication_messages`
 
-The internal service layer lives in:
+The platform task service layer lives in:
 
 - `lib/task-service.ts`
 - `lib/task-service-utils.ts`
@@ -71,9 +71,9 @@ The clean schema seeds the MattaNutra-operated agents that keep the system movin
 | Content Publisher | Deterministic | Applies approved blog/testimonial status changes requested through the admin content workflow API. |
 | Chat Dispatcher | External | LINE, WhatsApp, Telegram, and other chat delivery handoff. |
 | Human Reviewer | Human | Safety approvals, supplement governance, and formulation review. |
-| Scheduler | Deterministic | Cron, housekeeping, and fallback task processing. |
+| Scheduler | Deterministic | Cron orchestration, scheduled work discovery, and housekeeping. |
 
-Tasks still match by capability, not by hard-coded worker name. These built-in rows give the dashboard immediate visibility and let the task worker reserve work under the correct operational identity.
+Tasks still match by capability, not by hard-coded worker name. These built-in rows give the dashboard immediate visibility and let external worker sessions reserve work under the correct operational identity.
 
 ## Goal And Ray Policy
 
@@ -158,36 +158,44 @@ Workers should:
 
 Only small atomic work should be synchronous. Slow AI calls, messages, safety reviews, and follow-ups should be task-backed.
 
-The current deployment runs the worker loop internally for convenience, but it already uses the same HTTP task API that future remote workers will use:
+Worker execution is external-only. The web app queues work and owns durable state; separate worker processes reserve and execute tasks through the HTTP API:
 
-1. `POST /api/tasks/reserve` reserves a task and returns comments, dependencies, goal context, reservation ID, and the task-specific work item.
-2. The worker executes the work item without owning platform state.
-3. `POST /api/tasks/[id]/complete` sends the result payload back to the platform.
-4. The platform applies durable side effects, then marks the task complete.
-5. `POST /api/tasks/[id]/fail` records the error, updates the owning flow where needed, and marks the task failed.
+1. `POST /api/workers/register` records the worker process, capabilities, version, and instance id.
+2. `POST /api/workers/heartbeat` keeps the worker session visible as idle, polling, working, or offline.
+3. `POST /api/tasks/reserve` long-polls, reserves a task, and returns comments, dependencies, goal context, reservation ID, and the task-specific work item.
+4. The worker executes the work item without owning platform state.
+5. `POST /api/tasks/[id]/complete` sends the result payload back to the platform.
+6. The platform applies durable side effects, then marks the task complete.
+7. `POST /api/tasks/[id]/fail` records the error, updates the owning flow where needed, and marks the task failed.
 
-This means we can later move workers to another server without changing the goal/task data model or the admin dashboard visibility.
+There is no internal task worker fallback. Local demos and cloud deployments must run at least one external worker process, for example `npm run worker:all`.
 
 ## API Rules
 
-Machine APIs are protected by `ADMIN_CLAW_TOKEN`.
+Admin machine APIs are protected by `ADMIN_CLAW_TOKEN`.
 
 Dashboard URLs use `ADMIN_DASHBOARD_TOKEN` and must not be accepted for machine APIs.
 
-OpenClaw and external workers should use:
+OpenClaw should use:
 
 ```http
 Authorization: Bearer <ADMIN_CLAW_TOKEN>
 ```
 
+Workers should use:
+
+```http
+Authorization: Bearer <WORKER_API_TOKEN>
+```
+
 Tokens must not be passed in query strings, client bundles, BPM payloads, or logs.
 
-Internal workers need:
+External workers need:
 
-- `ADMIN_CLAW_TOKEN`
-- `MATTANUTRA_API_BASE_URL` in production, unless `APP_BASE_URL` or `NEXT_PUBLIC_SITE_URL` already points to the running app
-- optional `WORKER_CONCURRENCY`
-- optional `WORKER_MAX_TASKS_PER_TICK`
+- `WORKER_API_TOKEN`
+- `WORKER_API_BASE_URL` or `MATTANUTRA_API_BASE_URL`
+- provider secrets for their own capability only, such as `XAI_API_KEY`, SMTP, LINE, or `DIGITALOCEAN_ACCESS_TOKEN`
+- optional `WORKER_CONCURRENCY`, `WORKER_LEASE_SECONDS`, and `WORKER_POLL_WAIT_SECONDS`
 
 External agents can query admin/business state without DB access through `/api/admin/query/*` endpoints. Available views are `glance`, `conversions`, `campaigns`, `leads`, `content`, `reviews`, `supplements`, `communications`, `alerts`, `goals`, `tasks`, and `agents`.
 

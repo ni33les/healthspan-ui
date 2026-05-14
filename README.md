@@ -51,11 +51,11 @@ POST /api/cron
 Authorization: Bearer <ADMIN_CLAW_TOKEN>
 ```
 
-The cron endpoint scans due cron actions and wakes the task worker. Scheduled content publishing runs through the normal `content_status_change` task queue once its `scheduled_for` time is due.
+The cron endpoint scans due cron actions and queues task-backed work only. It does not execute worker tasks. Scheduled content publishing runs through the normal `content_status_change` task queue once its `scheduled_for` time is due.
 
-Request-triggered worker kicks pass the current request origin through to the internal task APIs. In production, the in-process worker prefers `MATTANUTRA_INTERNAL_API_BASE_URL` or local loopback via `PORT` to avoid public HTTPS hairpin issues. Also set `MATTANUTRA_API_BASE_URL=https://mattanutra.com` as a fallback for any worker kicked outside a request context.
+External worker processes must be running separately with `WORKER_API_TOKEN`. Start all local worker capabilities with `npm run worker:all`, or run one of the narrower `worker:*` scripts. Workers register with `/api/workers/register`, heartbeat with `/api/workers/heartbeat`, long-poll `/api/tasks/reserve`, and complete/fail tasks through the task API.
 
-The same tick queues a `sync_digitalocean_billing` worker task when `DIGITALOCEAN_ACCESS_TOKEN` and `DIGITALOCEAN_PROJECT_NAME` are configured. The worker calls `/v2/customers/my/invoices/preview`, filters invoice items by the comma-separated project-name list, and writes nominal `hosting` ledger rows with deterministic `source_ref` values so repeated 15-minute runs update existing rows.
+The same tick queues a `sync_digitalocean_billing` worker task when `DIGITALOCEAN_ACCESS_TOKEN` and `DIGITALOCEAN_PROJECT_NAME` are configured. The external hosting worker calls `/v2/customers/my/invoices/preview`, returns invoice items to the platform, and the platform writes nominal `hosting` ledger rows with deterministic `source_ref` values so repeated 15-minute runs update existing rows.
 
 AI cost accounting is written when Grok calls return usage metadata. Task-backed Grok calls also store the originating task id on the cost entry. Token prices default to the current `grok-4.3` rates and can be overridden with `XAI_INPUT_USD_PER_MILLION_TOKENS`, `XAI_OUTPUT_USD_PER_MILLION_TOKENS`, and `XAI_CACHED_INPUT_USD_PER_MILLION_TOKENS`.
 
@@ -63,7 +63,7 @@ Financial rows default to `nominal`, which is used for fine-grained cost accrual
 
 ## Admin Machine APIs
 
-OpenClaw, external agents, and remote workers use protected server-to-server APIs. They require `ADMIN_CLAW_TOKEN`.
+OpenClaw and admin machine APIs use `ADMIN_CLAW_TOKEN`. Worker execution APIs use `WORKER_API_TOKEN`.
 
 Send either header:
 
@@ -73,6 +73,19 @@ x-admin-claw-token: <ADMIN_CLAW_TOKEN>
 ```
 
 Dashboard URL tokens are only for browser dashboard access and are not accepted by machine APIs.
+
+Worker endpoints:
+
+```txt
+POST /api/workers/register
+POST /api/workers/heartbeat
+POST /api/tasks/reserve
+POST /api/tasks/:id/renew
+POST /api/tasks/:id/comment
+POST /api/tasks/:id/spawn
+POST /api/tasks/:id/complete
+POST /api/tasks/:id/fail
+```
 
 Content endpoints:
 

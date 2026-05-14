@@ -11,7 +11,6 @@ import {
   normalizeCommunicationChannelType,
   upsertCommunicationChannel
 } from "@/lib/communications";
-import { kickTaskWorker } from "@/lib/task-worker";
 
 export const runtime = "nodejs";
 
@@ -55,7 +54,6 @@ export async function POST(request: Request) {
   }
 
   const body = await readJsonObject(request);
-  const workerOptions = { baseUrl: new URL(request.url).origin };
   const channelType = normalizeCommunicationChannelType(body.channelType);
   const address = textValue(body.address);
 
@@ -90,8 +88,6 @@ export async function POST(request: Request) {
           ? body.status
           : "active"
     });
-
-    void kickTaskWorker(workerOptions);
 
     return openClawJson({ channel });
   } catch (error) {

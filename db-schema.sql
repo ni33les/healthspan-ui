@@ -438,6 +438,100 @@ create index if not exists agents_status_idx
 create index if not exists agents_capabilities_gin_idx
   on public.agents using gin (capabilities);
 
+create table if not exists public.worker_sessions (
+  id uuid primary key,
+  agent_id uuid not null references public.agents(id) on delete cascade,
+  instance_id text not null,
+  status text not null default 'idle' check (
+    status in ('idle', 'polling', 'working', 'offline')
+  ),
+  capabilities text[] not null default '{}'::text[],
+  task_types text[] not null default '{}'::text[],
+  concurrency integer not null default 1 check (concurrency > 0),
+  worker_version text null,
+  current_task_id uuid null,
+  metadata jsonb not null default '{}'::jsonb,
+  last_seen_at timestamptz null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.worker_sessions
+  add column if not exists agent_id uuid references public.agents(id) on delete cascade,
+  add column if not exists instance_id text,
+  add column if not exists status text default 'idle',
+  add column if not exists capabilities text[] default '{}'::text[],
+  add column if not exists task_types text[] default '{}'::text[],
+  add column if not exists concurrency integer default 1,
+  add column if not exists worker_version text null,
+  add column if not exists current_task_id uuid null,
+  add column if not exists metadata jsonb default '{}'::jsonb,
+  add column if not exists last_seen_at timestamptz null,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+update public.worker_sessions
+set
+  instance_id = coalesce(nullif(instance_id, ''), id::text),
+  status = case
+    when status in ('idle', 'polling', 'working', 'offline') then status
+    else 'idle'
+  end,
+  capabilities = coalesce(capabilities, '{}'::text[]),
+  task_types = coalesce(task_types, '{}'::text[]),
+  concurrency = greatest(1, coalesce(concurrency, 1)),
+  metadata = coalesce(metadata, '{}'::jsonb),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, now())
+where instance_id is null
+  or instance_id = ''
+  or status is null
+  or status not in ('idle', 'polling', 'working', 'offline')
+  or capabilities is null
+  or task_types is null
+  or concurrency is null
+  or concurrency < 1
+  or metadata is null
+  or created_at is null
+  or updated_at is null;
+
+alter table public.worker_sessions
+  alter column agent_id set not null,
+  alter column instance_id set not null,
+  alter column status set default 'idle',
+  alter column status set not null,
+  alter column capabilities set default '{}'::text[],
+  alter column capabilities set not null,
+  alter column task_types set default '{}'::text[],
+  alter column task_types set not null,
+  alter column concurrency set default 1,
+  alter column concurrency set not null,
+  alter column metadata set default '{}'::jsonb,
+  alter column metadata set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null,
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
+
+do $$
+begin
+  alter table public.worker_sessions
+    drop constraint if exists worker_sessions_status_check;
+
+  alter table public.worker_sessions
+    add constraint worker_sessions_status_check
+    check (status in ('idle', 'polling', 'working', 'offline'));
+end $$;
+
+create unique index if not exists worker_sessions_agent_instance_idx
+  on public.worker_sessions (agent_id, instance_id);
+
+create index if not exists worker_sessions_status_idx
+  on public.worker_sessions (status, last_seen_at desc);
+
+create index if not exists worker_sessions_capabilities_gin_idx
+  on public.worker_sessions using gin (capabilities);
+
 insert into public.agents (
   id,
   name,
@@ -458,7 +552,6 @@ values
     'active',
     array[
       'healthscore_analysis',
-      'mattanutra_internal_worker',
       'sales_copy'
     ]::text[],
     'grok:healthscore',
@@ -474,8 +567,7 @@ values
     'active',
     array[
       'formulation_generation',
-      'free_example_formulation',
-      'mattanutra_internal_worker'
+      'free_example_formulation'
     ]::text[],
     'grok:formulation',
     '{"seeded": true, "usesModel": true}'::jsonb,
@@ -523,7 +615,6 @@ values
     array[
       'email_send',
       'free_email_send',
-      'mattanutra_internal_worker',
       'reassessment_email_send'
     ]::text[],
     null,
@@ -538,8 +629,7 @@ values
     'deterministic',
     'active',
     array[
-      'content_publish',
-      'mattanutra_internal_worker'
+      'content_publish'
     ]::text[],
     null,
     '{"seeded": true}'::jsonb,
@@ -590,7 +680,7 @@ values
     'active',
     array[
       'communication_dispatch',
-      'mattanutra_internal_worker',
+      'hosting_cost_sync',
       'scheduler'
     ]::text[],
     null,
@@ -1627,6 +1717,7 @@ create table if not exists public.task_reservations (
   id uuid primary key,
   task_id uuid not null references public.tasks(id) on delete cascade,
   agent_id uuid not null references public.agents(id) on delete cascade,
+  worker_session_id uuid null references public.worker_sessions(id) on delete set null,
   status text not null default 'active' check (
     status in ('active', 'released', 'completed', 'expired', 'failed', 'cancelled')
   ),
@@ -1641,6 +1732,7 @@ create table if not exists public.task_reservations (
 alter table public.task_reservations
   add column if not exists task_id uuid references public.tasks(id) on delete cascade,
   add column if not exists agent_id uuid references public.agents(id) on delete cascade,
+  add column if not exists worker_session_id uuid null references public.worker_sessions(id) on delete set null,
   add column if not exists status text default 'active',
   add column if not exists reserved_at timestamptz default now(),
   add column if not exists lease_until timestamptz,
@@ -1691,6 +1783,10 @@ create unique index if not exists task_reservations_active_task_idx
 
 create index if not exists task_reservations_agent_idx
   on public.task_reservations (agent_id, status, reserved_at desc);
+
+create index if not exists task_reservations_worker_session_idx
+  on public.task_reservations (worker_session_id, status, reserved_at desc)
+  where worker_session_id is not null;
 
 create index if not exists task_reservations_lease_idx
   on public.task_reservations (status, lease_until asc)

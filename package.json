@@ -9,8 +9,15 @@
     "start": "next start",
     "lint": "eslint .",
     "seed:campaigns": "node scripts/seed-campaign-bpm.mjs",
-    "test": "node --test --experimental-strip-types test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "node --test --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "worker:all": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts all",
+    "worker:communications": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts communications",
+    "worker:content": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts content",
+    "worker:email": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts email",
+    "worker:formulation": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts formulation",
+    "worker:healthscore": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts healthscore",
+    "worker:hosting": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts hosting"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",

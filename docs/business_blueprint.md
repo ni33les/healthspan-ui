@@ -71,7 +71,7 @@ flowchart TB
 - Admin Technical section with task-based Alerts for failed email sends, stuck tasks, cron failures, AI/worker errors, and high-severity BPM/task events.
 - Goal-based task architecture foundation: goals group tasks, agents reserve work by goal priority first, staged task sequences support ordered work, and task events/comments preserve cause-and-effect. Supported slow work now creates task-backed work items, worker reservations are enforced, human review decisions write reviewed formulation versions, and client review follow-up is handled through the communication-channel worker.
 - Built-in operational agents are seeded for HealthScore analysis, nutrition-plan formulation, safety scanning, communications coordination, email dispatch, chat dispatch, human review, and scheduling. OpenClaw is not part of this built-in roster yet.
-- Communication-channel foundation: each plan can be linked to an identity with LINE, WhatsApp, Telegram, WeChat, email, SMS, or manual channels; the system chooses the best available channel, preferring chat before email unless an explicit preference exists. Customers can now leave LINE, WhatsApp, Telegram, or email details from the safety review box, admin can monitor queued/sent/failed communications, and the worker can dispatch mapped LINE messages directly.
+- Communication-channel foundation: each plan can be linked to an identity with LINE, WhatsApp, Telegram, WeChat, email, SMS, or manual channels; the system chooses the best available channel, preferring chat before email unless an explicit preference exists. Customers can now leave LINE, WhatsApp, Telegram, or email details from the safety review box, admin can monitor queued/sent/failed communications, and the external communications worker can dispatch mapped LINE messages directly.
 - Admin Execution views showing goals, live task visibility, agent roster, current work, events, comments, dependencies, reservations, approvals, and agent success/failure rates.
 - Dashboard filters for locale, device, source, medium, campaign, campaign ID, affiliate, promo code, selected plan, plan ID, ray, and email hash.
 
@@ -308,7 +308,7 @@ Supplement review work is task-native. New review work creates a Goal and Task, 
 
 The safety review record carries the operational details: supplement, dose, rule, context, linked goal/task where available, reviewer decision, reviewed formulation version, client message, and client notification state.
 
-Worker execution is currently internal, but it runs through the protected task API rather than directly mutating task state. A worker reserves a task, receives the work item, completes the work, and posts the result back. The platform then applies the state changes. This keeps the business flow visible today and leaves the door open to move workers onto separate servers later.
+Worker execution is external-only. Worker services run as separate Node processes, reserve tasks through the protected worker API, receive self-contained work items, complete or fail the work, and post result payloads back to the platform. The platform remains the only component that applies durable state changes.
 
 ## Content and Marketing Engine
 
@@ -316,7 +316,7 @@ Blog articles and testimonials are database-driven and can be managed by OpenCla
 
 Blog articles use linked locale-specific records: English and Thai copies are separate rows, but related rows share a `translationGroupId`. This lets the language switcher route to the actual translated slug when it exists and avoid dead translated article URLs when it does not.
 
-The dashboard can request Draft, Schedule, Publish, and Delete workflows through `/api/admin/content/workflow`. That API creates a content goal and a `content_status_change` task. The deterministic Content Publisher agent applies the status change through the normal task completion flow, so content changes are visible in Goals, Tasks, and task events.
+The dashboard can request Draft, Schedule, Publish, and Delete workflows through `/api/admin/content/workflow`. That API creates a content goal and a `content_status_change` task. The external content worker reserves the task and reports completion through the normal task completion flow, so content changes are visible in Goals, Tasks, and task events.
 
 Purpose:
 

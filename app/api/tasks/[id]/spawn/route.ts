@@ -2,16 +2,17 @@ import {
   objectValue,
   openClawJson,
   readJsonObject,
-  requireOpenClawRequest,
   taskApiError,
   textValue
 } from "@/lib/openclaw-api";
 import {
+  assertActiveTaskReservation,
   spawnChildTask,
   type TaskActorType,
   type TaskDependencyType,
   type TaskReasoningEffort
 } from "@/lib/task-service";
+import { requireWorkerRequest } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
 
@@ -65,7 +66,7 @@ function dependencies(value: unknown) {
 }
 
 export async function POST(request: Request, { params }: SpawnTaskRouteProps) {
-  const unauthorized = requireOpenClawRequest(request);
+  const unauthorized = requireWorkerRequest(request);
 
   if (unauthorized) {
     return unauthorized;
@@ -73,11 +74,36 @@ export async function POST(request: Request, { params }: SpawnTaskRouteProps) {
 
   const { id } = await params;
   const body = await readJsonObject(request);
+  const reservationId = textValue(body.reservationId);
+  const workerSessionId = textValue(body.workerSessionId);
+
+  if (!reservationId) {
+    return openClawJson(
+      { message: "reservationId is required to spawn a child task" },
+      { status: 400 }
+    );
+  }
+
+  if (!workerSessionId) {
+    return openClawJson(
+      { message: "workerSessionId is required to spawn a child task" },
+      { status: 400 }
+    );
+  }
 
   try {
+    const agentId = textValue(body.createdByAgentId);
+
+    await assertActiveTaskReservation({
+      agentId,
+      reservationId,
+      taskId: id,
+      workerSessionId
+    });
+
     const created = await spawnChildTask({
       actorType: actorType(body.actorType),
-      createdByAgentId: textValue(body.createdByAgentId),
+      createdByAgentId: agentId,
       dependencies: dependencies(body.dependencies),
       description: textValue(body.description),
       id: textValue(body.id),

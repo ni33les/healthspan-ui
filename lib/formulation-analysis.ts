@@ -6,7 +6,6 @@ import type {
   LocalizedText,
   FormulationStatus
 } from "@/lib/formulation-types";
-import { recordXaiUsageCost } from "@/lib/finance-ledger";
 
 type AnalysisAuditEvent = {
   eventType: string;
@@ -30,6 +29,7 @@ type AnalysisResult = Readonly<{
   promptVersion: string;
   reasoningEffort: string;
   responseId?: string;
+  usage?: unknown;
 }>;
 
 type XaiChatCompletion = {
@@ -171,16 +171,12 @@ async function callGrok({
   apiKey,
   messages,
   model,
-  reasoningEffort,
-  taskId,
-  usageContext
+  reasoningEffort
 }: Readonly<{
   apiKey: string;
   messages: Array<{ content: string; role: "assistant" | "system" | "user" }>;
   model: string;
   reasoningEffort?: string;
-  taskId?: string | null;
-  usageContext?: Record<string, unknown>;
 }>) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -210,18 +206,7 @@ async function callGrok({
       );
     }
 
-    const completion = (await response.json()) as XaiChatCompletion;
-    await recordXaiUsageCost({
-      metadata: usageContext,
-      model: completion.model ?? model,
-      purpose: "formulation_analysis",
-      reasoningEffort,
-      responseId: completion.id,
-      taskId,
-      usage: completion.usage
-    });
-
-    return completion;
+    return (await response.json()) as XaiChatCompletion;
   } finally {
     clearTimeout(timeout);
   }
@@ -480,15 +465,7 @@ export async function analyzeFormulationWithGrok(
         apiKey: config.apiKey,
         messages,
         model: config.model,
-        reasoningEffort: config.reasoningEffort,
-        taskId: input.taskId,
-        usageContext: {
-          attempt,
-          plan: input.plan,
-          planId: input.planId,
-          promptVersion: config.promptVersion,
-          taskId: input.taskId
-        }
+        reasoningEffort: config.reasoningEffort
       });
       const content = completion.choices?.[0]?.message?.content;
       const parsed = parseJsonObject(content);
@@ -515,7 +492,8 @@ export async function analyzeFormulationWithGrok(
           model: completion.model ?? config.model,
           promptVersion: config.promptVersion,
           reasoningEffort: config.reasoningEffort,
-          responseId: completion.id
+          responseId: completion.id,
+          usage: completion.usage
         };
       }
 
