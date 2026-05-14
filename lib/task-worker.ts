@@ -20,6 +20,7 @@ type TaskWorkerOptions = Parameters<typeof kickInternalApiWorker>[0];
 type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
   | "analyze_healthscore"
+  | "client_safety_followup"
   | "generate_example_formulation"
   | "generate_formulation"
   | "send_example_email"

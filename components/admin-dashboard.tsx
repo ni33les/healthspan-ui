@@ -70,6 +70,7 @@ import type {
   AdminReviewQueueData
 } from "@/lib/admin-review-queue";
 import type {
+  AdminTechnicalAlertRow,
   AdminTechnicalAlertsData,
   AdminTechnicalSeverity
 } from "@/lib/admin-technical";
@@ -2056,9 +2057,12 @@ function taskMatchesMetric(
 
   if (metricId === "tasksHuman") {
     return (
-      row.actorType === "human" ||
-      row.status === "needs_review" ||
-      row.status === "waiting_approval"
+      !taskIsTerminal(row.status) &&
+      (
+        row.actorType === "human" ||
+        row.status === "needs_review" ||
+        row.status === "waiting_approval"
+      )
     );
   }
 
@@ -6548,6 +6552,28 @@ function jsonPreview(value: Record<string, unknown>) {
   return text === "{}" ? "" : text;
 }
 
+function alertDetailText(row: AdminTechnicalAlertRow, key: string) {
+  const value = row.details[key];
+
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function alertTaskLabel(row: AdminTechnicalAlertRow) {
+  const taskTitle = alertDetailText(row, "taskTitle");
+  const taskType = row.taskType ?? alertDetailText(row, "taskType");
+  const parts = [
+    taskTitle,
+    taskType ? readableToken(taskType) : "",
+    row.taskId ? compactId(row.taskId) : ""
+  ].filter(Boolean);
+
+  return parts.join(" · ");
+}
+
+function alertGoalLabel(row: AdminTechnicalAlertRow) {
+  return alertDetailText(row, "goalTitle");
+}
+
 function communicationStatusLabel(
   labels: AdminContent,
   status: AdminCommunicationStatus
@@ -6851,6 +6877,11 @@ function AdminTechnicalAlertsView({
                     <h3 className="mt-3 text-base font-semibold text-gray-900">
                       {readableToken(row.title)}
                     </h3>
+                    {alertGoalLabel(row) ? (
+                      <p className="mt-1 text-sm font-medium text-gray-500">
+                        {alertGoalLabel(row)}
+                      </p>
+                    ) : null}
                     <div className="mt-3 rounded-xl bg-red-50 px-4 py-3 ring-1 ring-red-100">
                       <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
                         {labels.technicalAlerts.rootCause}
@@ -6875,7 +6906,7 @@ function AdminTechnicalAlertsView({
                       />
                       <SupplementListMeta
                         label={labels.technicalAlerts.task}
-                        value={row.taskId ?? row.taskType ?? ""}
+                        value={alertTaskLabel(row)}
                       />
                       <SupplementListMeta
                         label={labels.technicalAlerts.status}

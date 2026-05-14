@@ -32,6 +32,7 @@ describe("system agents", () => {
   it("routes each current work task to an agent with the required capability", () => {
     for (const taskType of [
       "analyze_healthscore",
+      "client_safety_followup",
       "content_status_change",
       "generate_example_formulation",
       "generate_formulation",

@@ -28,6 +28,7 @@ type InternalApiWorkerOptions = Readonly<{
 }>;
 
 const DEFAULT_MAX_TASKS_PER_TICK = 25;
+const DEFAULT_WORKER_API_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_WORKER_CONCURRENCY = 1;
 const DEFAULT_WORKER_GROUPS: readonly WorkerGroup[] = [
   {
@@ -79,41 +80,49 @@ function configured(value: string | undefined) {
   return value?.trim().replace(/\/+$/, "") || "";
 }
 
-function localApiBaseUrl() {
+function uniqueValues(values: readonly string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function localApiBaseUrls() {
   const explicit = configured(process.env.MATTANUTRA_INTERNAL_API_BASE_URL);
+  const urls: string[] = [];
 
   if (explicit) {
-    return explicit;
+    urls.push(explicit);
   }
 
   const port = process.env.PORT?.trim();
 
-  return port ? `http://127.0.0.1:${port}` : "";
+  if (port) {
+    urls.push(`http://127.0.0.1:${port}`);
+  } else if (process.env.NODE_ENV === "production") {
+    urls.push("http://127.0.0.1:3000");
+  }
+
+  return uniqueValues(urls);
 }
 
-function apiBaseUrl(baseUrl?: string | null) {
-  const localBaseUrl = localApiBaseUrl();
+function apiBaseUrls(baseUrl?: string | null) {
+  const localBaseUrls = localApiBaseUrls();
+  const configuredBaseUrls = uniqueValues([
+    configured(baseUrl ?? undefined),
+    configured(process.env.MATTANUTRA_API_BASE_URL),
+    configured(process.env.APP_BASE_URL),
+    configured(process.env.NEXT_PUBLIC_SITE_URL)
+  ]);
 
-  if (process.env.NODE_ENV === "production" && localBaseUrl) {
-    return localBaseUrl;
+  if (process.env.NODE_ENV === "production") {
+    return uniqueValues([...localBaseUrls, ...configuredBaseUrls]);
   }
 
-  const resolved =
-    configured(baseUrl ?? undefined) ||
-    configured(process.env.MATTANUTRA_API_BASE_URL) ||
-    configured(process.env.APP_BASE_URL) ||
-    configured(process.env.NEXT_PUBLIC_SITE_URL) ||
-    localBaseUrl;
+  const developmentFallback = `http://localhost:${process.env.PORT || "3001"}`;
 
-  if (resolved) {
-    return resolved;
-  }
-
-  if (process.env.NODE_ENV !== "production") {
-    return `http://localhost:${process.env.PORT || "3001"}`;
-  }
-
-  return "";
+  return uniqueValues([
+    ...configuredBaseUrls,
+    ...localBaseUrls,
+    developmentFallback
+  ]);
 }
 
 function apiToken() {
@@ -128,17 +137,29 @@ function baseUrlForLog(value: string) {
   }
 }
 
+function requestTimeoutSignal(timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  (timeout as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+
+  return {
+    clear: () => clearTimeout(timeout),
+    signal: controller.signal
+  };
+}
+
 async function requestJson<T>(
   path: string,
   body: Record<string, unknown>,
   options: InternalApiWorkerOptions = {}
 ): Promise<T> {
-  const baseUrl = apiBaseUrl(options.baseUrl);
+  const baseUrls = apiBaseUrls(options.baseUrl);
   const token = apiToken();
 
-  if (!baseUrl) {
+  if (baseUrls.length < 1) {
     throw new Error(
-      "Internal API workers require a request baseUrl or MATTANUTRA_API_BASE_URL/APP_BASE_URL/NEXT_PUBLIC_SITE_URL"
+      "Internal API workers require a request baseUrl or MATTANUTRA_INTERNAL_API_BASE_URL/MATTANUTRA_API_BASE_URL/APP_BASE_URL/NEXT_PUBLIC_SITE_URL"
     );
   }
 
@@ -146,43 +167,60 @@ async function requestJson<T>(
     throw new Error("ADMIN_CLAW_TOKEN is required for API workers");
   }
 
-  let response: Response;
+  const timeoutMs = positiveInteger(
+    process.env.WORKER_API_REQUEST_TIMEOUT_MS,
+    DEFAULT_WORKER_API_REQUEST_TIMEOUT_MS
+  );
+  const failures: string[] = [];
 
-  try {
-    response = await fetch(`${baseUrl}${path}`, {
-      body: JSON.stringify(body),
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      method: "POST"
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "fetch failed";
-    const cause =
-      error instanceof Error && error.cause instanceof Error
-        ? `: ${error.cause.message}`
-        : "";
-
-    throw new Error(
-      `${path} fetch failed via ${baseUrlForLog(baseUrl)}: ${message}${cause}`
-    );
-  }
-
-  if (!response.ok) {
-    let detail = "";
+  for (const baseUrl of baseUrls) {
+    let response: Response;
+    const timeout = requestTimeoutSignal(timeoutMs);
 
     try {
-      detail = JSON.stringify(await response.json());
-    } catch {
-      detail = await response.text().catch(() => "");
+      response = await fetch(`${baseUrl}${path}`, {
+        body: JSON.stringify(body),
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        method: "POST",
+        signal: timeout.signal
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "fetch failed";
+      const cause =
+        error instanceof Error && error.cause instanceof Error
+          ? `: ${error.cause.message}`
+          : "";
+
+      failures.push(`${baseUrlForLog(baseUrl)}: ${message}${cause}`);
+      continue;
+    } finally {
+      timeout.clear();
     }
 
-    throw new Error(`${path} failed with ${response.status}: ${detail}`);
+    if (!response.ok) {
+      let detail = "";
+
+      try {
+        detail = JSON.stringify(await response.json());
+      } catch {
+        detail = await response.text().catch(() => "");
+      }
+
+      throw new Error(
+        `${path} failed via ${baseUrlForLog(baseUrl)} with ${response.status}: ${detail}`
+      );
+    }
+
+    return (await response.json()) as T;
   }
 
-  return (await response.json()) as T;
+  throw new Error(
+    `${path} fetch failed after trying ${baseUrls.length} internal API base URL(s): ${failures.join("; ")}`
+  );
 }
 
 async function addWorkerComment(

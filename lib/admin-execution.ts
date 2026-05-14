@@ -360,8 +360,11 @@ export async function getAdminTaskVisibilityData(
           )::int as queued,
           count(*) filter (where tasks.status in ('reserved', 'running'))::int as active,
           count(*) filter (
-            where tasks.actor_type = 'human'
-              or tasks.status in ('needs_review', 'waiting_approval')
+            where (
+                tasks.actor_type = 'human'
+                or tasks.status in ('needs_review', 'waiting_approval')
+              )
+              and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
           )::int as human,
           count(*) filter (
             where tasks.status = 'queued'
