@@ -178,19 +178,24 @@ export class WorkerApiClient {
 
   spawn(input: Readonly<{
     actorType?: string | null;
+    businessValue?: number | null;
+    context?: JsonRecord;
     createdByAgentId: string;
     dependencies?: ReadonlyArray<Readonly<{ taskId: string; type?: string | null }>>;
     description?: string | null;
+    groupLabel?: string | null;
     id?: string | null;
     idempotencyKey?: string | null;
+    idempotencyScopeKey?: string | null;
     maxAttempts?: number | null;
     payload?: JsonRecord;
     planId?: string | null;
-    priority?: number | null;
+    rayId?: string | null;
     reasoningEffort?: string | null;
     requiredCapabilities?: readonly string[];
     reservationId: string;
     scheduledFor?: string | null;
+    taskGroupId?: string | null;
     taskId: string;
     taskType: string;
     title: string;

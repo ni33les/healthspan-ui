@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  getStoredAssessmentSnapshot,
-  isUuid
-} from "@/lib/assessment-store";
+import { isUuid } from "@/lib/assessment-store";
 import { validateLeadEmail } from "@/lib/email-validation";
 import { bpmContextFromBody, writeBpmEvent } from "@/lib/bpm";
 import {
@@ -185,20 +182,6 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
     );
   }
 
-  const snapshot = await getStoredAssessmentSnapshot(planId);
-
-  if (!snapshot) {
-    return NextResponse.json(
-      { message: "Assessment plan not found" },
-      {
-        headers: {
-          "Cache-Control": "no-store"
-        },
-        status: 404
-      }
-    );
-  }
-
   try {
     const result = await requestExampleBrief({
       email: emailValidation.email,
@@ -207,7 +190,15 @@ export async function POST(request: Request, { params }: ExampleRouteProps) {
     });
 
     if (!result) {
-      throw new Error("Unable to queue example formulation");
+      return NextResponse.json(
+        { message: "Assessment plan not found" },
+        {
+          headers: {
+            "Cache-Control": "no-store"
+          },
+          status: 404
+        }
+      );
     }
 
     if (body.includeReassessment !== false) {

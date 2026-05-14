@@ -12,7 +12,7 @@ import { validateLeadEmail } from "@/lib/email-validation";
 import { digitalOceanBillingSyncConfiguration } from "@/lib/finance-ledger";
 import { isLocale, type Locale } from "@/lib/i18n";
 import { requiredCapabilitiesForWorkTaskType } from "@/lib/system-agents";
-import { createGoal, createTask } from "@/lib/task-service";
+import { createTask } from "@/lib/task-service";
 
 type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
@@ -28,19 +28,19 @@ const globalScheduler = globalThis as typeof globalThis & {
   mattanutraCronEnqueueRun?: Promise<{ queued: number }>;
 };
 
-const TASK_PRIORITIES = {
-  billingSync: 1,
-  exampleEmail: 2,
-  exampleFormulation: 3,
-  healthScoreAnalysis: 4,
-  precision: 4,
-  pro: 5,
-  reassessment: 2
+const TASK_BUSINESS_VALUES = {
+  billingSync: 100,
+  exampleEmail: 350,
+  exampleFormulation: 150,
+  healthScoreAnalysis: 500,
+  precision: 450,
+  pro: 450,
+  reassessment: 200
 } as const;
 const SUCCESSFUL_TASK_REUSE_STATUSES = new Set(["completed", "skipped"]);
 
-function priorityForPlan(plan: AssessmentPlan) {
-  return plan === "pro" ? TASK_PRIORITIES.pro : TASK_PRIORITIES.precision;
+function businessValueForPlan(plan: AssessmentPlan) {
+  return plan === "pro" ? TASK_BUSINESS_VALUES.pro : TASK_BUSINESS_VALUES.precision;
 }
 
 function deterministicUuid(seed: string) {
@@ -125,22 +125,24 @@ function newUnsubscribeToken() {
 
 async function createWorkTask(input: Readonly<{
   actorType: "ai" | "deterministic";
+  businessValue: number;
   description?: string;
-  goalId: string;
-  goalTitle: string;
+  groupLabel: string;
+  id?: string | null;
   idempotencyKey: string;
   idempotencyScope?: "active" | "successful";
+  idempotencyScopeKey?: string | null;
   maxAttempts?: number;
   payload?: Record<string, unknown>;
   planId?: string | null;
-  priority: number;
+  rayId?: string | null;
   retryPolicy?: false | {
     backoffMultiplier?: number;
     initialDelaySeconds?: number;
     maxDelaySeconds?: number;
     maxRetries?: number;
   };
-  reasoningEffort: "medium" | "none";
+  reasoningEffort: "low" | "medium" | "none";
   source: string;
   taskTitle: string;
   taskType: WorkTaskType;
@@ -152,25 +154,22 @@ async function createWorkTask(input: Readonly<{
   }
 
   const maxAttempts = input.maxAttempts ?? 3;
-  const goal = await createGoal({
+  const { task } = await createTask({
+    actorType: input.actorType,
+    businessValue: input.businessValue,
     context: {
       source: input.source,
       taskType: input.taskType,
       ...(input.payload ?? {})
     },
-    id: input.goalId,
-    planId: input.planId,
-    priority: input.priority,
-    source: input.source,
-    title: input.goalTitle,
-    type: "goal"
-  });
-  const { created, task } = await createTask({
-    actorType: input.actorType,
+    groupLabel: input.groupLabel,
+    id: input.id,
     description: input.description,
-    goalId: goal.id,
     idempotencyKey: input.idempotencyKey,
     idempotencyScope: input.idempotencyScope,
+    idempotencyScopeKey:
+      input.idempotencyScopeKey ??
+      (input.planId ? `${input.taskType}:${input.planId}` : input.taskType),
     initialComment: {
       authorName: "MattaNutra agent",
       authorType: "system",
@@ -189,7 +188,7 @@ async function createWorkTask(input: Readonly<{
       ...input.payload
     },
     planId: input.planId,
-    priority: input.priority,
+    rayId: input.rayId,
     reasoningEffort: input.reasoningEffort,
     requiredCapabilities: requiredCapabilitiesForWorkTaskType(input.taskType),
     retryPolicy:
@@ -204,17 +203,6 @@ async function createWorkTask(input: Readonly<{
     taskType: input.taskType,
     title: input.taskTitle
   });
-
-  if (created) {
-    await sql`
-      update public.goals
-      set
-        status = case when status = 'completed' then 'open' else status end,
-        completed_at = case when status = 'completed' then null else completed_at end,
-        updated_at = now()
-      where id = ${goal.id}::uuid
-    `;
-  }
 
   return task.id;
 }
@@ -232,24 +220,25 @@ export async function enqueueDigitalOceanBillingSyncTask(date = new Date()) {
   }
 
   const bucket = fifteenMinuteBucket(date);
-  const goalId = deterministicUuid(
-    `mattanutra:goal:digitalocean-billing-sync:${bucket}`
+  const taskIdSeed = deterministicUuid(
+    `mattanutra:task:digitalocean-billing-sync:${bucket}`
   );
   const idempotencyKey = `digitalocean-billing-sync:${bucket}`;
   const taskId = await createWorkTask({
     actorType: "deterministic",
+    businessValue: TASK_BUSINESS_VALUES.billingSync,
     description:
       "Fetch DigitalOcean invoice-preview costs and write nominal hosting ledger rows.",
-    goalId,
-    goalTitle: "Sync DigitalOcean billing costs",
+    groupLabel: "Sync DigitalOcean billing costs",
+    id: taskIdSeed,
     idempotencyKey,
     idempotencyScope: "successful",
+    idempotencyScopeKey: "sync_digitalocean_billing",
     maxAttempts: 2,
     payload: {
       bucket,
       projectNames: config.projects
     },
-    priority: TASK_PRIORITIES.billingSync,
     reasoningEffort: "none",
     source: "cron",
     taskTitle: "Sync DigitalOcean billing costs",
@@ -297,14 +286,15 @@ export async function enqueueHealthScoreAnalysisTask({
 
   return createWorkTask({
     actorType: "ai",
-    goalId: deterministicUuid(`mattanutra:goal:healthscore:${planId}`),
-    goalTitle: "Analyze HealthScore",
+    businessValue: TASK_BUSINESS_VALUES.healthScoreAnalysis,
+    groupLabel: "Analyze HealthScore",
+    id: deterministicUuid(`mattanutra:task:healthscore:${planId}:${inputHash}`),
     idempotencyKey: `healthscore-analysis:${planId}:${inputHash}`,
     idempotencyScope: "successful",
+    idempotencyScopeKey: `healthscore:${planId}`,
     payload: {},
     planId,
-    priority: TASK_PRIORITIES.healthScoreAnalysis,
-    reasoningEffort: "medium",
+    reasoningEffort: "low",
     source: "assessment",
     taskTitle: "Analyze HealthScore",
     taskType: "analyze_healthscore"
@@ -341,20 +331,25 @@ export async function enqueueFormulationTask({
 
   const taskId = await createWorkTask({
     actorType: "ai",
-    goalId: deterministicUuid(`mattanutra:goal:formulation:${planId}`),
-    goalTitle:
+    businessValue: businessValueForPlan(plan),
+    groupLabel:
       plan === "pro"
         ? "Prepare Pro nutrition plan"
         : "Prepare Precision nutrition plan",
+    id: deterministicUuid(`mattanutra:task:formulation:${planId}:${stableHash({
+      answers,
+      locale,
+      plan
+    })}`),
     idempotencyKey: `formulation:${planId}:${stableHash({
       answers,
       locale,
       plan
     })}`,
     idempotencyScope: "successful",
+    idempotencyScopeKey: `formulation:${planId}`,
     payload: { answers, locale, plan },
     planId,
-    priority: priorityForPlan(plan),
     reasoningEffort: "medium",
     source: "assessment",
     taskTitle: "Generate nutrition plan",
@@ -427,13 +422,14 @@ async function enqueueExampleFormulationTask(
 
   const taskId = await createWorkTask({
     actorType: "ai",
-    goalId: deterministicUuid(`mattanutra:goal:free-example:${requestId}`),
-    goalTitle: "Prepare Free nutrition plan email",
+    businessValue: TASK_BUSINESS_VALUES.exampleFormulation,
+    groupLabel: "Prepare Free nutrition plan email",
+    id: deterministicUuid(`mattanutra:task:example-formulation:${requestId}`),
     idempotencyKey: `example-formulation:${requestId}`,
     idempotencyScope: "successful",
-    payload: { priorityClass: "free_example", requestId },
+    idempotencyScopeKey: `free-example:${requestId}`,
+    payload: { businessValueClass: "free_example", requestId },
     planId,
-    priority: TASK_PRIORITIES.exampleFormulation,
     reasoningEffort: "medium",
     source: "free_example",
     taskTitle: "Generate Free nutrition plan",
@@ -464,14 +460,15 @@ export async function enqueueExampleEmailTask(
 
   const taskId = await createWorkTask({
     actorType: "deterministic",
-    goalId: deterministicUuid(`mattanutra:goal:free-example:${requestId}`),
-    goalTitle: "Prepare Free nutrition plan email",
+    businessValue: TASK_BUSINESS_VALUES.exampleEmail,
+    groupLabel: "Prepare Free nutrition plan email",
+    id: deterministicUuid(`mattanutra:task:example-email:${requestId}`),
     idempotencyKey: `example-email:${requestId}`,
     idempotencyScope: "active",
+    idempotencyScopeKey: `free-example:${requestId}`,
     maxAttempts: 2,
-    payload: { priorityClass: "free_example", requestId },
+    payload: { businessValueClass: "free_example", requestId },
     planId,
-    priority: TASK_PRIORITIES.exampleEmail,
     reasoningEffort: "none",
     source: "free_example",
     taskTitle: "Send Free nutrition plan email",
@@ -916,13 +913,14 @@ async function enqueueReassessmentEmailTask({
 }>) {
   const taskId = await createWorkTask({
     actorType: "deterministic",
-    goalId: deterministicUuid(`mattanutra:goal:reassessment:${cronId}`),
-    goalTitle: "Send 60-day reassessment invite",
+    businessValue: TASK_BUSINESS_VALUES.reassessment,
+    groupLabel: "Send 60-day reassessment invite",
+    id: deterministicUuid(`mattanutra:task:reassessment:${cronId}`),
     idempotencyKey: `reassessment:${cronId}`,
+    idempotencyScopeKey: `reassessment:${cronId}`,
     maxAttempts: 2,
     payload: { cronId, email, locale },
     planId,
-    priority: TASK_PRIORITIES.reassessment,
     reasoningEffort: "none",
     source: "cron",
     taskTitle: "Send reassessment email",

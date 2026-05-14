@@ -11,7 +11,7 @@ import {
 } from "@/lib/dose-conversion";
 import type { FormulationBlueprint, FormulationIngredient, LocalizedText } from "@/lib/formulation-types";
 import type { Locale } from "@/lib/i18n";
-import { createGoal, createTask, type TaskServiceDb } from "@/lib/task-service";
+import { createTask, type TaskServiceDb } from "@/lib/task-service";
 
 type SafetyAfterCommit = (effect: () => Promise<void>) => void;
 
@@ -57,7 +57,6 @@ type ReviewKind =
   | "unknown_supplement";
 
 type SupplementReviewWork = Readonly<{
-  goalId: string | null;
   taskId: string | null;
 }>;
 
@@ -125,16 +124,16 @@ function reviewTaskType(kind: ReviewKind) {
   return "review_supplement_for_plan";
 }
 
-function reviewTaskPriority(kind: ReviewKind) {
+function reviewTaskBusinessValue(kind: ReviewKind) {
   if (kind === "dose_unverified") {
-    return 5;
+    return 500;
   }
 
   if (kind === "unknown_supplement" || kind === "review_required") {
-    return 4;
+    return 400;
   }
 
-  return 2;
+  return 350;
 }
 
 async function loadSupplementLookup(sql: TaskServiceDb) {
@@ -232,6 +231,14 @@ function withHiddenSafety(
   };
 }
 
+function withAutomatedSafetyStatus(
+  ingredient: FormulationIngredient
+): FormulationIngredient {
+  return ingredient.status === "review"
+    ? { ...ingredient, status: "add" }
+    : ingredient;
+}
+
 function withReducedDose(
   ingredient: FormulationIngredient,
   dose: string,
@@ -247,7 +254,8 @@ function withReducedDose(
       originalDailyDose: ingredient.dailyDose,
       reviewTaskId,
       visibility: "visible"
-    }
+    },
+    status: ingredient.status === "review" ? "add" : ingredient.status
   };
 }
 
@@ -260,37 +268,28 @@ async function enqueueSupplementReviewWork(input: {
   supplementName: string;
 }): Promise<SupplementReviewWork> {
   const globalUnknown = input.kind === "unknown_supplement";
-  const priority = reviewTaskPriority(input.kind);
-  const goalId = deterministicUuid(
-    globalUnknown
-      ? `mattanutra:goal:supplement:${input.normalizedSupplementName}`
-      : `mattanutra:goal:supplement-safety:${input.planId}`
-  );
-  const goalTitle = globalUnknown
+  const businessValue = reviewTaskBusinessValue(input.kind);
+  const groupLabel = globalUnknown
     ? "Review supplement"
     : "Review plan";
   const taskTitle = `Review supplement ${input.supplementName}`;
   const idempotencyKey = `supplement-review:${input.kind}:${globalUnknown ? "global" : input.planId}:${input.normalizedSupplementName}`;
   const taskId = deterministicUuid(`mattanutra:task:${idempotencyKey}`);
   const createReviewWork = async () => {
-    const goal = await createGoal({
+    await createTask({
+      actorType: "human",
+      businessValue,
       context: {
         normalizedSupplementName: input.normalizedSupplementName,
         reviewKind: input.kind,
         source: "formulation_safety"
       },
-      id: goalId,
-      planId: globalUnknown ? null : input.planId,
-      priority,
-      source: "formulation_safety",
-      title: goalTitle,
-      type: "goal"
-    });
-    await createTask({
-      actorType: "human",
-      goalId: goal.id,
+      groupLabel,
       id: taskId,
       idempotencyKey,
+      idempotencyScopeKey: globalUnknown
+        ? `supplement:${input.normalizedSupplementName}`
+        : `supplement-safety:${input.planId}`,
       initialComment: {
         authorName: "MattaNutra safety",
         authorType: "system",
@@ -320,7 +319,6 @@ async function enqueueSupplementReviewWork(input: {
   if (input.afterCommit) {
     input.afterCommit(createReviewWork);
     return {
-      goalId,
       taskId
     };
   }
@@ -328,7 +326,7 @@ async function enqueueSupplementReviewWork(input: {
   try {
     await createReviewWork();
 
-    return { goalId, taskId };
+    return { taskId };
   } catch (error) {
     console.warn("Unable to create task-backed supplement review work", {
       error,
@@ -337,7 +335,6 @@ async function enqueueSupplementReviewWork(input: {
     });
 
     return {
-      goalId: null,
       taskId: null
     };
   }
@@ -347,7 +344,6 @@ async function attachSafetyReviewWork(
   sql: TaskServiceDb,
   input: {
     context?: Record<string, unknown>;
-    goalId?: string | null;
     reviewId: string;
     taskId?: string | null;
   }
@@ -356,7 +352,6 @@ async function attachSafetyReviewWork(
     await sql`
       update public.safety_reviews
       set
-        goal_id = coalesce(goal_id, ${input.goalId ?? null}::uuid),
         task_id = coalesce(task_id, ${input.taskId ?? null}::uuid),
         safety_context = safety_context || ${sql.json(
           toJsonValue(input.context ?? {})
@@ -365,7 +360,7 @@ async function attachSafetyReviewWork(
       where id = ${input.reviewId}::uuid
     `;
   } catch (error) {
-    console.warn("Unable to attach goal/task references to safety review", {
+    console.warn("Unable to attach task reference to safety review", {
       error,
       reviewId: input.reviewId
     });
@@ -392,7 +387,6 @@ async function createSafetyReview(
     context: Record<string, unknown>;
     dose?: ParsedDose | null;
     flagReason: string;
-    goalId?: string | null;
     limit?: ParsedDose | null;
     planId: string;
     reviewType: string;
@@ -416,7 +410,6 @@ async function createSafetyReview(
   if (existing[0]?.id) {
     const attachInput = {
       context: input.context,
-      goalId: input.goalId,
       reviewId: existing[0].id,
       taskId: input.taskId
     };
@@ -472,7 +465,6 @@ async function createSafetyReview(
 
   const attachInput = {
     context: input.context,
-    goalId: input.goalId,
     reviewId,
     taskId: input.taskId
   };
@@ -558,7 +550,6 @@ async function hideForReview(
     afterCommit: input.afterCommit,
     aiSuggestion: ingredient,
     context: {
-      goalId: reviewWork.goalId,
       matchedSupplementId: match?.id,
       normalizedSupplementName,
       reviewTaskId: reviewWork.taskId,
@@ -568,7 +559,6 @@ async function hideForReview(
     },
     dose,
     flagReason: reason,
-    goalId: reviewWork.goalId,
     limit,
     planId: input.planId,
     reviewType:
@@ -595,7 +585,6 @@ async function hideForReview(
     }
   });
   await logSafetyBpm(input, "formulation_safety_review_opened", severity, {
-    goalId: reviewWork.goalId,
     reason,
     reviewId,
     reviewKind: kind,
@@ -668,7 +657,6 @@ async function reduceDose(
     afterCommit: input.afterCommit,
     aiSuggestion: ingredient,
     context: {
-      goalId: reviewWork.goalId,
       normalizedSupplementName,
       reviewTaskId: reviewWork.taskId,
       safetyFlags: match.safety_flags ?? [],
@@ -677,7 +665,6 @@ async function reduceDose(
     },
     dose,
     flagReason: reason,
-    goalId: reviewWork.goalId,
     limit,
     planId: input.planId,
     reviewType: "dose_limit",
@@ -698,7 +685,6 @@ async function reduceDose(
     }
   });
   await logSafetyBpm(input, "formulation_safety_dose_reduced", "medium", {
-    goalId: reviewWork.goalId,
     maxAmount: numberOrNull(match.max_amount),
     maxUnit: match.max_unit,
     originalDose: dose.originalText,
@@ -767,7 +753,9 @@ export async function applyFormulationSafety(
       continue;
     }
 
-    if (match.list_status === "review_required" || ingredient.status === "review") {
+    // Supplement governance is authoritative. AI review flags cannot override a
+    // whitelisted supplement that passes the configured dose checks below.
+    if (match.list_status === "review_required") {
       summary.hiddenCount += 1;
       summary.reviewCount += 1;
       supplementBreakdown.push(
@@ -855,7 +843,7 @@ export async function applyFormulationSafety(
       }
     }
 
-    supplementBreakdown.push(ingredient);
+    supplementBreakdown.push(withAutomatedSafetyStatus(ingredient));
   }
 
   await audit(input, {

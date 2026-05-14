@@ -108,7 +108,7 @@ async function recordTaskXaiUsageCost({
 }
 
 async function addWorkEvent(
-  task: Pick<TaskRecord, "goalId" | "id">,
+  task: Pick<TaskRecord, "id">,
   eventType: string,
   level: AuditLevel = "low",
   eventPayload: Record<string, unknown> = {},
@@ -119,7 +119,6 @@ async function addWorkEvent(
     eventStatus:
       level === "critical" || level === "high" ? "observed" : "succeeded",
     eventType,
-    goalId: task.goalId,
     severity: level,
     taskId: task.id
   } as const;
@@ -149,7 +148,6 @@ async function recordTaskEmailCommunication(input: Readonly<{
     await recordEmailCommunicationDelivery({
       body: input.body,
       emailHtml: input.emailHtml,
-      goalId: input.task.goalId,
       messageId: textValue(input.payload.messageId),
       messageType: input.messageType,
       metadata: {

@@ -1,39 +1,33 @@
-# Prioritised Goal And Task Architecture
+# Task Queue Architecture
 
 ## Purpose
 
-MattaNutra now uses a central, auditable Goals/Tasks engine for slow or operational work.
-
-The goal is to make the operational core work like a prioritised team queue. Humans, AI agents, deterministic workers, and external systems such as OpenClaw can all reserve suitable work, process it, comment on it, and leave a clear audit trail.
+MattaNutra uses a task-only execution queue for slow or operational work. The web app owns durable state and APIs. External agents reserve and execute work through the worker API.
 
 The guiding rule is:
 
 > Tasks describe what needs doing. Agents describe who or what can do it.
 
-Tasks and agents remain separate. A task requires capabilities; it is not hard-wired to a named worker.
-
 ## Core Concepts
 
 | Concept | Meaning |
 | --- | --- |
-| Goal | Business-facing outcome the system is trying to achieve. A goal may need one task or many tasks discovered over time. |
-| Ray | BPM/session correlation trace for campaign, affiliate, funnel, and anonymous journey analysis. |
-| Task | Atomic unit of work that can be prioritised, reserved, completed, failed, blocked, or skipped. |
-| Agent | Human, AI agent, deterministic worker, system worker, or external worker. |
+| Task | Atomic execution unit with business value, status, retry state, context, audit trail, and grouping metadata. |
+| Task group | Default visual and operational chain. A root task groups with spawned child and retry tasks through `task_group_id`. |
+| Ray | Optional BPM/session correlation id for funnel, campaign, and anonymous journey analysis. |
+| Plan | Optional assessment plan id for customer context and filtering. |
+| Agent | Human, AI, deterministic, system, or external worker identity that can reserve work by capability. |
 | Capability | Skill an agent has and a task may require. |
 | Dependency | Rule that one task must complete, succeed, or be approved before another can run. |
 | Comment | Working context for humans and agents. |
 | Event | Append-only audit record of what happened. |
-| Reservation | Lease showing that an agent is currently working on a task. |
-| Approval | Normal task/dependency pattern for human or specialist sign-off when a workflow needs it. |
+| Reservation | Short lease showing that an agent is currently working on a task. |
+| Approval | Optional sign-off record used by dependency checks and human review flows. |
 
-## Current Status
+## Tables
 
-The database has been reset to a clean task-native state.
+Operational work is represented by:
 
-Operational work is now represented by:
-
-- `goals`
 - `tasks`
 - `task_dependencies`
 - `task_comments`
@@ -41,172 +35,112 @@ Operational work is now represented by:
 - `task_reservations`
 - `task_approvals`
 - `agents`
+- `worker_sessions`
 
-Communication work is represented by:
+There is no operational `goals` table. User health goals inside assessment answers are separate product data and are not part of the execution queue.
 
-- `communication_identities`
-- `plan_communication_identities`
-- `communication_channels`
-- `communication_messages`
+## Business Value
 
-The platform task service layer lives in:
+Tasks use `business_value` instead of priority. Higher values reserve first. Aging is computed at reservation time and is not persisted by cron:
 
-- `lib/task-service.ts`
-- `lib/task-service-utils.ts`
-- `lib/system-agents.ts`
-- `lib/task-worker.ts`
-- `lib/openclaw-api.ts`
+- base `business_value`
+- `+10` every 15 minutes after a 5 minute grace period
+- capped at `+200`
+- ties sort by `scheduled_for asc`, then `created_at asc`
 
-## Built-In Agent Roster
+Default values:
 
-The clean schema seeds the MattaNutra-operated agents that keep the system moving. OpenClaw is deliberately not seeded yet; it remains a future external worker.
+| Work | Value |
+| --- | ---: |
+| HealthScore analysis | `500` |
+| Formulation | `450` |
+| Human review | `400` |
+| Client notification, email, communications | `350` |
+| Content publish | `250` |
+| Reassessment | `200` |
+| Free example formulation | `150` |
+| Hosting/billing sync | `100` |
+| Default | `200` |
 
-| Agent | Type | Main responsibility |
-| --- | --- | --- |
-| HealthScore Engine | AI | HealthScore interpretation and conversion-focused score copy. |
-| Nutrition Plan Formulator | AI | Paid and Free nutrition-plan formulation. |
-| Safety Scanner | Deterministic | Supplement matching, dose normalization, safety triage, and review flags. |
-| Communications Coordinator | Deterministic | Channel choice, client follow-up orchestration, and chat-then-email fallback. |
-| Email Dispatcher | Deterministic | Free example emails and reassessment emails. |
-| Content Publisher | Deterministic | Applies approved blog/testimonial status changes requested through the admin content workflow API. |
-| Chat Dispatcher | External | LINE, WhatsApp, Telegram, and other chat delivery handoff. |
-| Human Reviewer | Human | Safety approvals, supplement governance, and formulation review. |
-| Scheduler | Deterministic | Cron orchestration, scheduled work discovery, and housekeeping. |
+## Grouping
 
-Tasks still match by capability, not by hard-coded worker name. These built-in rows give the dashboard immediate visibility and let external worker sessions reserve work under the correct operational identity.
+`task_group_id` is the default grouping key:
 
-## Goal And Ray Policy
+- root tasks set `task_group_id = id`
+- spawned child tasks inherit the parent task group
+- retry tasks inherit the failed task group
+- task sequences use the first root task group unless explicitly overridden
+- unrelated manually-created tasks get their own group
 
-Use **Goal** in the admin UI, docs, and business language.
+`ray_id` and `plan_id` remain searchable metadata, but they are not the default visual grouping key.
 
-Use `goals.id` as the operational identifier for a business outcome or milestone.
+## Retry
 
-Keep BPM `ray` as a separate trace attribute. A goal may store that trace in `goals.ray` when the work came from a web journey, campaign, funnel event, plan, or OpenClaw handoff.
+Retry state lives on tasks:
 
-Tasks point to `goal_id`. They do not use a ray as their parent. This keeps cause-and-effect clear: goals group work; rays explain where the journey came from.
+- `retry_of_task_id`
+- `retry_root_task_id`
+- `retry_attempt`
+- `max_retries`
+- `retry_policy`
 
-When no BPM ray exists, a goal can still be created and traced by `goals.id`.
-
-Goals do not need to know every task upfront. They start with the next known task, and humans or agents may spawn more tasks into the same goal as work becomes clearer.
-
-## Priority Scale
-
-Goals and tasks use a simple `1` to `5` priority scale.
-
-Goal priority is the primary business scheduling signal. It answers: which outcome matters most right now?
-
-Task priority is secondary. It answers: within that goal, which piece of work should happen next?
-
-Workers reserve eligible tasks by:
-
-1. goal priority, highest first
-2. task priority, highest first
-3. scheduled time, oldest due work first
-4. creation time, oldest first
-
-| Priority | Meaning | Use |
-| --- | --- | --- |
-| `5` | Critical | User-blocking, paid customer waiting, urgent safety or contact task. |
-| `4` | High | Customer-facing work that should move quickly. |
-| `3` | Expedited | High-value or time-sensitive work. |
-| `2` | Normal | Default operational work. |
-| `1` | Low | Background enrichment, housekeeping, or non-urgent admin. |
-
-## Implemented Flows
-
-Current task-backed flows:
-
-1. HealthScore analysis.
-2. Paid nutrition-plan formulation.
-3. Free example formulation.
-4. Free email send.
-5. Reassessment email scheduling and send.
-6. Supplement safety classification.
-7. Plan-specific supplement safety review.
-8. Dose-reduction notices.
-9. Client safety follow-up through communication channels.
-
-Human Review decisions are append-only where they affect the formulation: a reviewed formulation version is written rather than updating the old one in place.
-
-## Admin Views
-
-The dashboard now separates business and operational views:
-
-| View | Purpose |
-| --- | --- |
-| Dashboard | Business summary for traffic, assessment progress, conversions, reviews, contact issues, and trend graphing. |
-| Conversions | Funnel movement and stage loss. |
-| Execution / Goals | Outcome-level operational tracking, with tasks, comments, events, dependencies, reservations, and approvals. |
-| Execution / Visibility | Live task queue visibility across queued, active, human, blocked, failed, and completed work. |
-| Execution / Agents | Live agent roster, current work, capabilities, and success/failure rate. |
-| Human Review | Admin-facing safety and supplement decisions. |
-| Alerts | Failed/stuck tasks, failed cron work, high-severity task events, and BPM errors. |
-| Communications | Channel-aware outbound messages and contact state. |
-| Supplements | Whitelist, blacklist, inactive/review status, max dose, units, confidence, safety flags, and notes. |
+Retries create new tasks and leave the failed attempt visible. There is no goal-level retry state.
 
 ## Worker Rules
 
+Workers are external-only. The web app queues work and applies durable state changes; worker processes execute work through HTTP APIs:
+
+1. `POST /api/workers/register`
+2. `POST /api/workers/heartbeat`
+3. `POST /api/tasks/reserve`
+4. Execute the returned work item.
+5. `POST /api/tasks/[id]/complete` or `POST /api/tasks/[id]/fail`
+6. Use `/comment`, `/spawn`, and `/renew` as needed.
+
 Workers should:
 
-- reserve tasks through the protected task API
+- reserve tasks through the protected worker API
 - use capability matching
-- obey goal priority before task priority
-- write comments when useful context is needed by the next actor
-- write task events for status changes, failures, and important observations
-- fail tasks with clear error messages rather than hiding errors in logs
-- spawn child tasks under the same goal when follow-up work is needed
+- keep leases short and renew only while actively working
+- write useful comments and failure messages
+- spawn child tasks into the same task group when follow-up work is needed
+- never connect directly to the platform database
 
-Only small atomic work should be synchronous. Slow AI calls, messages, safety reviews, and follow-ups should be task-backed.
+There is no internal task worker fallback. Local demos and cloud deployments must run at least one worker process, such as `npm run worker:all`.
 
-Worker execution is external-only. The web app queues work and owns durable state; separate worker processes reserve and execute tasks through the HTTP API:
+## Admin Views
 
-1. `POST /api/workers/register` records the worker process, capabilities, version, and instance id.
-2. `POST /api/workers/heartbeat` keeps the worker session visible as idle, polling, working, or offline.
-3. `POST /api/tasks/reserve` long-polls, reserves a task, and returns comments, dependencies, goal context, reservation ID, and the task-specific work item.
-4. The worker executes the work item without owning platform state.
-5. `POST /api/tasks/[id]/complete` sends the result payload back to the platform.
-6. The platform applies durable side effects, then marks the task complete.
-7. `POST /api/tasks/[id]/fail` records the error, updates the owning flow where needed, and marks the task failed.
+The dashboard promotes the task queue as the operational view:
 
-There is no internal task worker fallback. Local demos and cloud deployments must run at least one external worker process, for example `npm run worker:all`.
+| View | Purpose |
+| --- | --- |
+| Execution / Visibility | Live task queue grouped by task group, with ray and plan as contextual ids. |
+| Execution / Agents | Agent roster, sessions, current work, capabilities, and success/failure rate. |
+| Human Review | Admin-facing safety and supplement decisions. |
+| Alerts | Failed/stuck tasks, failed cron work, high-severity task events, and BPM errors. |
+| Communications | Channel-aware outbound messages and contact state. |
+
+Task groups with one task are uncolored. Multi-task groups receive a stable subtle tint derived from `task_group_id`.
 
 ## API Rules
 
-Admin machine APIs are protected by `ADMIN_CLAW_TOKEN`.
+Admin machine APIs use `ADMIN_CLAW_TOKEN`.
 
-Dashboard URLs use `ADMIN_DASHBOARD_TOKEN` and must not be accepted for machine APIs.
+Dashboard URLs use `ADMIN_DASHBOARD_TOKEN` and must not be accepted for worker APIs.
 
-OpenClaw should use:
-
-```http
-Authorization: Bearer <ADMIN_CLAW_TOKEN>
-```
-
-Workers should use:
+Workers use:
 
 ```http
 Authorization: Bearer <WORKER_API_TOKEN>
 ```
 
-Tokens must not be passed in query strings, client bundles, BPM payloads, or logs.
-
 External workers need:
 
 - `WORKER_API_TOKEN`
 - `WORKER_API_BASE_URL` or `MATTANUTRA_API_BASE_URL`
-- provider secrets for their own capability only, such as `XAI_API_KEY`, SMTP, LINE, or `DIGITALOCEAN_ACCESS_TOKEN`
-- optional `WORKER_CONCURRENCY`, `WORKER_LEASE_SECONDS`, and `WORKER_POLL_WAIT_SECONDS`
+- provider secrets for their own capability only
+- optional `WORKER_CONCURRENCY`, profile-specific overrides such as `WORKER_HEALTHSCORE_CONCURRENCY` and `WORKER_FORMULATION_CONCURRENCY`, `WORKER_LEASE_SECONDS`, and `WORKER_POLL_WAIT_SECONDS`
 
-External agents can query admin/business state without DB access through `/api/admin/query/*` endpoints. Available views are `glance`, `conversions`, `campaigns`, `leads`, `content`, `reviews`, `supplements`, `communications`, `alerts`, `goals`, `tasks`, and `agents`.
+`WORKER_CONCURRENCY` launches independent agent sessions for each registered profile. For example, `WORKER_FORMULATION_CONCURRENCY=2` gives formulation two reserve loops, so one slow Grok call does not stop the next formulation task from being picked up. Interactive task types such as `analyze_healthscore`, `generate_formulation`, and `send_example_email` use a shorter reserve check interval while long-polling. `generate_example_formulation` is low-value background work because it does not block the assessment UX. Default worker leases are short and renewed while work is active, so a crashed worker does not hold a reserved UI-facing task for long.
 
-## Acceptance Criteria
-
-- Schema can be rebuilt from `db-schema.sql`.
-- Every task belongs to a goal.
-- Agents and tasks remain separate.
-- Tasks can require capabilities without naming a specific agent.
-- Goal priority is the first reservation ordering signal.
-- Events and comments preserve cause-and-effect.
-- Human review completion closes the review task and queues any needed client follow-up.
-- Technical alerts are task-based.
-- OpenClaw can integrate through protected task, communications, content workflow, and admin query APIs.
+External agents can query admin/business state without DB access through `/api/admin/query/*`. Available views are `glance`, `conversions`, `campaigns`, `leads`, `content`, `reviews`, `supplements`, `communications`, `alerts`, `tasks`, and `agents`.

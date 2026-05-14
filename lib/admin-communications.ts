@@ -18,8 +18,6 @@ export type AdminCommunicationRow = Readonly<{
   channelType: string | null;
   createdAt: string;
   errorMessage: string | null;
-  goalId: string | null;
-  goalTitle: string | null;
   id: string;
   identityId: string | null;
   messageType: string;
@@ -55,8 +53,6 @@ type CommunicationDbRow = Readonly<{
   channel_type: string | null;
   created_at: Date | string;
   error_message: string | null;
-  goal_id: string | null;
-  goal_title: string | null;
   id: string;
   identity_id: string | null;
   message_type: string;
@@ -119,8 +115,6 @@ function mapCommunicationRow(row: CommunicationDbRow): AdminCommunicationRow {
     channelType: row.channel_type,
     createdAt: new Date(row.created_at).toISOString(),
     errorMessage: row.error_message,
-    goalId: row.goal_id,
-    goalTitle: row.goal_title,
     id: row.id,
     identityId: row.identity_id,
     messageType: row.message_type,
@@ -189,7 +183,6 @@ export async function getAdminCommunicationsData(
           communication_messages.id::text,
           communication_messages.identity_id::text,
           communication_messages.plan_id::text,
-          communication_messages.goal_id::text,
           communication_messages.task_id::text,
           communication_messages.message_type,
           communication_messages.status,
@@ -203,13 +196,10 @@ export async function getAdminCommunicationsData(
           communication_messages.updated_at,
           communication_channels.channel_type,
           communication_channels.address,
-          goals.title as goal_title,
           tasks.title as task_title
         from public.communication_messages
         left join public.communication_channels
           on communication_channels.id = communication_messages.channel_id
-        left join public.goals
-          on goals.id = communication_messages.goal_id
         left join public.tasks
           on tasks.id = communication_messages.task_id
         ${timeFilter}

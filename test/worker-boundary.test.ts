@@ -73,8 +73,18 @@ describe("external worker boundaries", () => {
     );
     assert.match(
       source,
-      /runSupervisedAgentLoop\(profileMode, config\)/,
+      /runSupervisedAgentLoop\(profileMode, config, slotIndex, concurrency\)/,
       "worker:all must supervise each real agent profile independently"
+    );
+    assert.match(
+      source,
+      /workerConcurrency\(profileMode\)/,
+      "worker:all must apply real per-profile concurrency slots"
+    );
+    assert.match(
+      source,
+      /WORKER_\$\{mode\.toUpperCase\(\)\}_CONCURRENCY/,
+      "workers must allow profile-specific concurrency overrides"
     );
     assert.equal(
       source.includes("Promise.all(modes.map((profileMode) => runAgentLoop"),
@@ -111,6 +121,69 @@ describe("external worker boundaries", () => {
       alertsSource,
       /tasks\.required_capabilities <@ worker_sessions\.capabilities[\s\S]*and tasks\.required_capabilities <@ agents\.capabilities/,
       "worker availability alerts must use the same session-plus-agent capability envelope"
+    );
+    assert.match(
+      source,
+      /leaseSeconds: 180/,
+      "default worker leases should release crashed sessions quickly"
+    );
+  });
+
+  it("keeps interactive worker pickup on a fast reserve poll", async () => {
+    const source = await readFile("app/api/tasks/reserve/route.ts", "utf8");
+    const visibilityEventsSource = await readFile(
+      "app/api/admin/visibility/events/route.ts",
+      "utf8"
+    );
+    const adminSseSource = await readFile("lib/admin-sse.ts", "utf8");
+    const taskWorkerSource = await readFile("lib/task-worker.ts", "utf8");
+    const serviceSource = await readFile("lib/task-service.ts", "utf8");
+    const runnerSource = await readFile("workers/runner.ts", "utf8");
+
+    assert.match(
+      source,
+      /INTERACTIVE_TASK_TYPES[\s\S]*analyze_healthscore[\s\S]*generate_formulation/,
+      "blocking UI task types must be on the interactive reserve path"
+    );
+    assert.match(
+      source,
+      /waitForTaskQueueChange/,
+      "long-polling workers should wake immediately when the task queue changes"
+    );
+    assert.match(
+      serviceSource,
+      /notifyTaskQueueChanged\(\)/,
+      "task creation should notify waiting workers without constant DB polling"
+    );
+    assert.match(
+      visibilityEventsSource,
+      /waitForSnapshotSignal: waitForTaskQueueChange/,
+      "admin task visibility should refresh when the queue changes, not wait for the fallback snapshot interval"
+    );
+    assert.match(
+      adminSseSource,
+      /waitForSnapshotSignal/,
+      "admin SSE streams should support event-driven refreshes"
+    );
+    assert.equal(
+      /await client\.heartbeat\(\{[\s\S]*status: "polling"[\s\S]*reserved = await client\.reserve/.test(runnerSource),
+      false,
+      "workers should not send a redundant polling heartbeat before every reserve call"
+    );
+    assert.match(
+      source,
+      /INTERACTIVE_RESERVE_POLL_INTERVAL_MS = 2_000/,
+      "interactive fallback polling should avoid hammering the database"
+    );
+    assert.equal(
+      /INTERACTIVE_TASK_TYPES[\s\S]*generate_example_formulation/.test(source),
+      false,
+      "free example formulation must stay off the interactive path because it does not block UX"
+    );
+    assert.match(
+      taskWorkerSource,
+      /exampleFormulation: 150/,
+      "free example formulation must remain a low-value background task"
     );
   });
 

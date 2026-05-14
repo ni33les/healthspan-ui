@@ -13,7 +13,6 @@ import {
 } from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { getAdminFinancialsData } from "@/lib/admin-financials";
-import { getAdminGoalsData } from "@/lib/admin-goals";
 import {
   getAdminCampaignsData,
   getAdminContentData,
@@ -50,7 +49,6 @@ export default async function AdminDashboardPage({
     rawView === "financials" ||
     rawView === "flow" ||
     rawView === "glance" ||
-    rawView === "goals" ||
     rawView === "leads" ||
     rawView === "reviews" ||
     rawView === "supplements" ||
@@ -59,8 +57,6 @@ export default async function AdminDashboardPage({
       ? rawView
       : "glance";
   const filters = normalizeAdminDashboardFilters(params);
-  const selectedGoalFilter = firstParam(params.goalFilter);
-  const selectedGoalId = firstParam(params.goal);
   const selectedReviewTaskId = firstParam(params.review);
   const selectedTaskId = firstParam(params.task);
 
@@ -77,7 +73,6 @@ export default async function AdminDashboardPage({
     data,
     financialsData,
     flowData,
-    goalsData,
     leadsData,
     reviewQueueData,
     supplementsData,
@@ -91,7 +86,6 @@ export default async function AdminDashboardPage({
     getAdminDashboardData(range, filters),
     getAdminFinancialsData(range),
     getAdminFlowData(range, filters),
-    getAdminGoalsData(range, selectedGoalId),
     getAdminLeadsData(range, filters),
     getAdminReviewQueueData(),
     getAdminSupplementsData(),
@@ -110,10 +104,8 @@ export default async function AdminDashboardPage({
       financialsData={financialsData}
       filters={filters}
       flowData={flowData}
-      goalsData={goalsData}
       leadsData={leadsData}
       locale="en"
-      selectedGoalFilter={selectedGoalFilter}
       reviewQueueData={reviewQueueData}
       selectedReviewTaskId={selectedReviewTaskId}
       selectedTaskId={selectedTaskId}

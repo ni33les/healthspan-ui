@@ -59,20 +59,20 @@ flowchart TB
 - Free email lead capture.
 - Free email sends the top three supplement suggestions from the actual generated formulation.
 - Recurring 60-day reassessment scheduling with unsubscribe.
-- Formulation and follow-up processing now runs through the central Goals/Tasks engine.
+- Formulation and follow-up processing now runs through the central task queue.
 - Grok formulation generation with validation/retry pattern.
 - Supplement whitelist, blacklist, dose ceilings, safety flags, and admin editing.
 - Automated formulation safety check: blacklisted items are removed, over-limit doses are reduced, and uncertain/new items are hidden for review.
-- Human Review queue for supplement safety work items and dose-reduction notifications, all backed by Goals/Tasks for traceability.
+- Human Review queue for supplement safety work items and dose-reduction notifications, all backed by tasks for traceability.
 - Formulation page renders stored backend data.
 - Blog and testimonial tables, pages, and protected admin APIs.
 - BPM tracking for funnel, campaign, affiliate, safety, error, email, chat, and formulation events.
 - Admin dashboard with Dashboard and Conversions views over hour, day, week, month, year, and all-time windows.
 - Admin Technical section with task-based Alerts for failed email sends, stuck tasks, cron failures, AI/worker errors, and high-severity BPM/task events.
-- Goal-based task architecture foundation: goals group tasks, agents reserve work by goal priority first, staged task sequences support ordered work, and task events/comments preserve cause-and-effect. Supported slow work now creates task-backed work items, worker reservations are enforced, human review decisions write reviewed formulation versions, and client review follow-up is handled through the communication-channel worker.
+- Task-only architecture foundation: tasks carry business value, task-chain grouping, retry state, comments, events, and dependencies. Agents reserve by effective business value and capability, staged task sequences support ordered work, worker reservations are enforced, human review decisions write reviewed formulation versions, and client review follow-up is handled through the communication-channel worker.
 - Built-in operational agents are seeded for HealthScore analysis, nutrition-plan formulation, safety scanning, communications coordination, email dispatch, chat dispatch, human review, and scheduling. OpenClaw is not part of this built-in roster yet.
 - Communication-channel foundation: each plan can be linked to an identity with LINE, WhatsApp, Telegram, WeChat, email, SMS, or manual channels; the system chooses the best available channel, preferring chat before email unless an explicit preference exists. Customers can now leave LINE, WhatsApp, Telegram, or email details from the safety review box, admin can monitor queued/sent/failed communications, and the external communications worker can dispatch mapped LINE messages directly.
-- Admin Execution views showing goals, live task visibility, agent roster, current work, events, comments, dependencies, reservations, approvals, and agent success/failure rates.
+- Admin Execution views showing live task visibility, chain grouping, ray/plan context, agent roster, current work, events, comments, dependencies, reservations, approvals, and agent success/failure rates.
 - Dashboard filters for locale, device, source, medium, campaign, campaign ID, affiliate, promo code, selected plan, plan ID, ray, and email hash.
 
 ## Main Gaps
@@ -80,11 +80,11 @@ flowchart TB
 | Gap | Why It Matters | Suggested Next Step |
 | --- | --- | --- |
 | Payment activation | Cannot test revenue conversion yet | Wire Precision/Pro checkout once account is ready |
-| Admin operations views | Business dashboard, conversions, campaigns, leads, content workflow, goals, task visibility, technical alerts, supplement review, and supplement editing basics exist | Add deeper ray drill-down and revenue once payments are live |
+| Admin operations views | Business dashboard, conversions, campaigns, leads, content workflow, task visibility, technical alerts, supplement review, and supplement editing basics exist | Add deeper ray drill-down and revenue once payments are live |
 | Supplement governance | Whitelist, blacklist, max dose, and safety review basics exist; frequency and interaction rules are not wired yet | Add frequency, condition, medication, pregnancy, and lab interaction checks |
 | Product matching | Affiliate revenue depends on trusted products | Start with curated whitelist before marketplace automation |
 | Chat handoff | Pro needs a convincing ongoing service experience | LINE server dispatch and mapping API exist; production webhook/OpenClaw mapping and operating process still need tightening |
-| Human safety review | Flagged suggestions now enter Human Review and create Goal/Task records; decisions update the plan append-only and trigger channel-aware client follow-up; customer channel capture and communication monitoring are live | Make the first production review-to-client notification path excellent |
+| Human safety review | Flagged suggestions now enter Human Review and create task records; decisions update the plan append-only and trigger channel-aware client follow-up; customer channel capture and communication monitoring are live | Make the first production review-to-client notification path excellent |
 | Follow-up nurture | Free users need more than one email | Define post-preview sequence |
 
 ## Sales Funnel Paths
@@ -185,7 +185,7 @@ Current admin dashboard:
 7. Filters are URL-driven and server-side, so Dashboard and Conversions views use the same BPM slice.
 8. Human Review queue for supplement review tasks and dose-reduction notices.
 9. Technical Alerts queue for failed tasks, stuck tasks, failed cron tasks, high/critical task events, and error/high BPM events.
-10. Execution views for milestone-level goals, live task visibility, and agent performance over the task system.
+10. Execution views for live task visibility, task-chain grouping, and agent performance over the task system.
 11. External admin query APIs expose business and execution data to OpenClaw and remote agents with `ADMIN_CLAW_TOKEN`.
 
 How the admin sections should be read:
@@ -199,7 +199,6 @@ How the admin sections should be read:
 | Content | Which articles/testimonials are draft, scheduled, published, or deleted, and how are pages performing? | Live from content tables, BPM page views, and content workflow tasks |
 | Supplements | Which supplements are allowed, blocked, or awaiting review? | Live with editable dose ceilings and safety flags |
 | Human Review | What needs a human decision before being shown or acted on? | Live for supplement review and dose-reduction notices |
-| Execution / Goals | What outcome is being pursued, and which tasks/events explain its current state? | Live for supplement review, formulation, Free email, reassessment, and staged task-backed work |
 | Execution / Visibility | Which tasks are queued, active, blocked, failed, or complete right now? | Live from the task engine via SSE |
 | Execution / Agents | Which workers exist, what are they doing, and how reliable are they? | Live from the agents and reservation tables via SSE |
 | Communications | Which channel should be used to contact a client, and what messages were queued or sent? | Live for queued, sent, failed, delivered, and no-channel communication messages |
@@ -216,7 +215,6 @@ External agent query surface:
 - `/api/admin/query/supplements`
 - `/api/admin/query/communications`
 - `/api/admin/query/alerts`
-- `/api/admin/query/goals`
 - `/api/admin/query/tasks`
 - `/api/admin/query/agents`
 
@@ -291,7 +289,7 @@ flowchart TB
   G --> H["Log safety event"]
   B -->|Review-required| I["Hide item"]
   B -->|Unknown supplement| I
-  I --> J["Create Human Review job + Goal/Task"]
+  I --> J["Create Human Review task"]
   I --> K["Log BPM safety alert"]
   J --> L["Admin reviews and decides"]
   L --> M["Write reviewed formulation version"]
@@ -304,9 +302,9 @@ flowchart TB
   class A,B,C,D,E,F,G,H,I,J,K,L,M,N done;
 ```
 
-Supplement review work is task-native. New review work creates a Goal and Task, so admin decisions are visible in the goal timeline with task comments and events. The worker does not process these automatically; they appear in the admin Human Review queue for a human decision.
+Supplement review work is task-native. New review work creates a task, so admin decisions are visible through the task queue, comments, and events. The worker does not process these automatically; they appear in the admin Human Review queue for a human decision.
 
-The safety review record carries the operational details: supplement, dose, rule, context, linked goal/task where available, reviewer decision, reviewed formulation version, client message, and client notification state.
+The safety review record carries the operational details: supplement, dose, rule, context, linked task where available, reviewer decision, reviewed formulation version, client message, and client notification state.
 
 Worker execution is external-only. Worker services run as separate Node processes, reserve tasks through the protected worker API, receive self-contained work items, complete or fail the work, and post result payloads back to the platform. The platform remains the only component that applies durable state changes.
 
@@ -316,7 +314,7 @@ Blog articles and testimonials are database-driven and can be managed by OpenCla
 
 Blog articles use linked locale-specific records: English and Thai copies are separate rows, but related rows share a `translationGroupId`. This lets the language switcher route to the actual translated slug when it exists and avoid dead translated article URLs when it does not.
 
-The dashboard can request Draft, Schedule, Publish, and Delete workflows through `/api/admin/content/workflow`. That API creates a content goal and a `content_status_change` task. The external content worker reserves the task and reports completion through the normal task completion flow, so content changes are visible in Goals, Tasks, and task events.
+The dashboard can request Draft, Schedule, Publish, and Delete workflows through `/api/admin/content/workflow`. That API creates a `content_status_change` task. The external content worker reserves the task and reports completion through the normal task completion flow, so content changes are visible in Tasks and task events.
 
 Purpose:
 

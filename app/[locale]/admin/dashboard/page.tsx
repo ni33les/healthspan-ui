@@ -14,7 +14,6 @@ import {
 } from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { getAdminFinancialsData } from "@/lib/admin-financials";
-import { getAdminGoalsData } from "@/lib/admin-goals";
 import {
   getAdminCampaignsData,
   getAdminContentData,
@@ -73,7 +72,6 @@ export default async function LocalizedAdminDashboardPage({
     rawView === "financials" ||
     rawView === "flow" ||
     rawView === "glance" ||
-    rawView === "goals" ||
     rawView === "leads" ||
     rawView === "reviews" ||
     rawView === "supplements" ||
@@ -82,8 +80,6 @@ export default async function LocalizedAdminDashboardPage({
       ? rawView
       : "glance";
   const filters = normalizeAdminDashboardFilters(query);
-  const selectedGoalFilter = firstParam(query.goalFilter);
-  const selectedGoalId = firstParam(query.goal);
   const selectedReviewTaskId = firstParam(query.review);
   const selectedTaskId = firstParam(query.task);
 
@@ -100,7 +96,6 @@ export default async function LocalizedAdminDashboardPage({
     data,
     financialsData,
     flowData,
-    goalsData,
     leadsData,
     reviewQueueData,
     supplementsData,
@@ -114,7 +109,6 @@ export default async function LocalizedAdminDashboardPage({
     getAdminDashboardData(range, filters),
     getAdminFinancialsData(range),
     getAdminFlowData(range, filters),
-    getAdminGoalsData(range, selectedGoalId),
     getAdminLeadsData(range, filters),
     getAdminReviewQueueData(),
     getAdminSupplementsData(),
@@ -133,10 +127,8 @@ export default async function LocalizedAdminDashboardPage({
       financialsData={financialsData}
       filters={filters}
       flowData={flowData}
-      goalsData={goalsData}
       leadsData={leadsData}
       locale={locale}
-      selectedGoalFilter={selectedGoalFilter}
       reviewQueueData={reviewQueueData}
       selectedReviewTaskId={selectedReviewTaskId}
       selectedTaskId={selectedTaskId}

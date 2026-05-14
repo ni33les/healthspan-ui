@@ -30,7 +30,6 @@ export async function POST(request: Request) {
     const result = await sendCommunication({
       body: messageBody,
       channelType: normalizeCommunicationChannelType(body.channelType),
-      goalId: textValue(body.goalId),
       html: textValue(body.html),
       identityId: textValue(body.identityId),
       messageType: textValue(body.messageType),

@@ -28,6 +28,14 @@ function dbSslNegotiation() {
   return process.env.DB_SSL_NEGOTIATION === "direct" ? "direct" : null;
 }
 
+function dbPoolMax() {
+  const parsed = Number(process.env.DB_POOL_MAX ?? 6);
+
+  return Number.isFinite(parsed)
+    ? Math.min(30, Math.max(3, Math.round(parsed)))
+    : 6;
+}
+
 function handleDatabaseNotice(notice: { code?: string }) {
   if (notice.code && BENIGN_SCHEMA_NOTICE_CODES.has(notice.code)) {
     return;
@@ -45,12 +53,13 @@ export function getSql() {
 
   const useSsl = shouldUseSsl(connection);
   const sslNegotiation = dbSslNegotiation();
+  const poolMax = dbPoolMax();
   const configuredConnectTimeout = Number(
     process.env.DB_CONNECT_TIMEOUT_SECONDS ?? 5
   );
   const connectionKey = `${connection}|ssl:${String(
     useSsl
-  )}|sslNegotiation:${sslNegotiation ?? "standard"}`;
+  )}|sslNegotiation:${sslNegotiation ?? "standard"}|poolMax:${poolMax}`;
 
   if (
     globalDb.mattanutraSql &&
@@ -67,7 +76,7 @@ export function getSql() {
         : 5,
     connection: { application_name: "mattanutra-web" },
     idle_timeout: 20,
-    max: 3,
+    max: poolMax,
     onnotice: handleDatabaseNotice,
     prepare: false,
     ...(useSsl ? { ssl: "require" } : {}),

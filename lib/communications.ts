@@ -50,7 +50,6 @@ export type CommunicationMessage = Readonly<{
   deliveredAt: string | null;
   direction: "inbound" | "outbound";
   errorMessage: string | null;
-  goalId: string | null;
   html: string | null;
   id: string;
   identityId: string | null;
@@ -89,7 +88,6 @@ type MessageRow = {
   delivered_at: Date | string | null;
   direction: "inbound" | "outbound";
   error_message: string | null;
-  goal_id: string | null;
   html: string | null;
   id: string;
   identity_id: string | null;
@@ -253,7 +251,6 @@ function mapMessage(row: MessageRow): CommunicationMessage {
     deliveredAt: isoDate(row.delivered_at),
     direction: row.direction,
     errorMessage: row.error_message,
-    goalId: row.goal_id,
     html: row.html,
     id: row.id,
     identityId: row.identity_id,
@@ -339,7 +336,6 @@ export async function ensureCommunicationSchema(sql: Db = sqlOrThrow()) {
         identity_id uuid null references public.communication_identities(id) on delete set null,
         channel_id uuid null references public.communication_channels(id) on delete set null,
         plan_id uuid null references public.assessments(plan_id) on delete set null,
-        goal_id uuid null references public.goals(id) on delete set null,
         task_id uuid null references public.tasks(id) on delete set null,
         direction text not null default 'outbound',
         message_type text not null default 'general',
@@ -765,7 +761,6 @@ export async function updateCommunicationChannel(input: Readonly<{
 export async function recordEmailCommunicationDelivery(input: Readonly<{
   body: string;
   emailHtml?: string | null;
-  goalId?: string | null;
   messageId?: string | null;
   messageType: string;
   metadata?: Record<string, unknown>;
@@ -787,7 +782,6 @@ export async function recordEmailCommunicationDelivery(input: Readonly<{
   await ensureCommunicationSchema(sql);
 
   const planId = input.planId;
-  const goalId = isUuid(input.goalId ?? "") ? input.goalId! : null;
   const taskId = isUuid(input.taskId ?? "") ? input.taskId! : null;
   const status: CommunicationMessageStatus = input.sent ? "sent" : "failed";
   const errorMessage = input.sent ? null : optionalText(input.reason);
@@ -812,7 +806,6 @@ export async function recordEmailCommunicationDelivery(input: Readonly<{
       identity_id,
       channel_id,
       plan_id,
-      goal_id,
       task_id,
       direction,
       message_type,
@@ -833,7 +826,6 @@ export async function recordEmailCommunicationDelivery(input: Readonly<{
       ${identityId}::uuid,
       ${channel.id}::uuid,
       ${planId}::uuid,
-      ${goalId}::uuid,
       ${taskId}::uuid,
       'outbound',
       ${cleanText(input.messageType, "email")},
@@ -906,7 +898,6 @@ function plainTextEmailHtml(subject: string | null, body: string) {
 export async function sendCommunication(input: Readonly<{
   body: string;
   channelType?: CommunicationChannelType | null;
-  goalId?: string | null;
   html?: string | null;
   identityId?: string | null;
   messageType?: string | null;
@@ -949,7 +940,6 @@ export async function sendCommunication(input: Readonly<{
     ...(input.metadata ?? {}),
     selectedChannelType: selected?.channelType ?? forcedChannelType ?? null
   };
-  const goalId = isUuid(input.goalId ?? "") ? input.goalId! : null;
   const messageStatus = selected ? "queued" : "no_channel";
   const provider = selected?.channelType ?? null;
   const taskId = isUuid(input.taskId ?? "") ? input.taskId! : null;
@@ -959,7 +949,6 @@ export async function sendCommunication(input: Readonly<{
       identity_id,
       channel_id,
       plan_id,
-      goal_id,
       task_id,
       direction,
       message_type,
@@ -977,7 +966,6 @@ export async function sendCommunication(input: Readonly<{
       ${identityId ?? null}::uuid,
       ${selected?.id ?? null}::uuid,
       ${planId ?? null}::uuid,
-      ${goalId}::uuid,
       ${taskId}::uuid,
       'outbound',
       ${cleanText(input.messageType, "general")},
@@ -1678,7 +1666,6 @@ export async function sendClientSafetyFollowupTask(reserved: ReservedTask) {
   });
   const result = await sendCommunication({
     body,
-    goalId: reserved.task.goalId,
     messageType: "safety_review_decision",
     metadata: {
       decision,

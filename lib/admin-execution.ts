@@ -25,13 +25,11 @@ export type AdminTaskVisibilityRow = Readonly<{
   agentName: string | null;
   attempts: number;
   blockedDependencyCount: number;
+  businessValue: number;
   createdAt: string;
   errorMessage: string | null;
-  goalId: string;
-  goalPriority: number;
-  goalStatus: string;
-  goalTitle: string;
   id: string;
+  effectiveBusinessValue: number;
   leaseUntil: string | null;
   latestEventAt: string | null;
   latestEventPayload: Record<string, unknown> | null;
@@ -40,8 +38,7 @@ export type AdminTaskVisibilityRow = Readonly<{
   latestEventType: string | null;
   maxAttempts: number;
   planId: string | null;
-  priority: number;
-  ray: string | null;
+  rayId: string | null;
   reasoningEffort: string;
   reservationHeartbeatAt: string | null;
   reservationId: string | null;
@@ -51,6 +48,8 @@ export type AdminTaskVisibilityRow = Readonly<{
   requiredCapabilities: string[];
   scheduledFor: string;
   status: string;
+  taskGroupId: string;
+  groupLabel: string | null;
   taskType: string;
   title: string;
   updatedAt: string;
@@ -115,13 +114,11 @@ type VisibilityDbRow = Readonly<{
   agent_name: string | null;
   attempts: number | string;
   blocked_dependency_count: number | string | null;
+  business_value: number | string;
   created_at: Date | string;
   error_message: string | null;
-  goal_id: string;
-  goal_priority: number | string;
-  goal_status: string;
-  goal_title: string;
   id: string;
+  effective_business_value: number | string;
   lease_until: Date | string | null;
   latest_event_at: Date | string | null;
   latest_event_payload: Record<string, unknown> | null;
@@ -131,8 +128,7 @@ type VisibilityDbRow = Readonly<{
   max_attempts: number | string;
   payload: Record<string, unknown> | null;
   plan_id: string | null;
-  priority: number | string;
-  ray: string | null;
+  ray_id: string | null;
   reasoning_effort: string;
   reservation_heartbeat_at: Date | string | null;
   reservation_id: string | null;
@@ -142,6 +138,8 @@ type VisibilityDbRow = Readonly<{
   required_capabilities: string[] | null;
   scheduled_for: Date | string;
   status: string;
+  task_group_id: string;
+  group_label: string | null;
   task_type: string;
   title: string;
   updated_at: Date | string;
@@ -200,21 +198,6 @@ function textFromPayload(
   const value = payload?.[key];
 
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function displayGoalTitle(value: string) {
-  if (value.startsWith("Review supplement safety for plan ")) {
-    return "Review plan";
-  }
-
-  if (
-    value.startsWith("Classify supplement: ") ||
-    value.startsWith("Classify new supplement: ")
-  ) {
-    return "Review supplement";
-  }
-
-  return value;
 }
 
 function displayTaskTitle(value: string, payload: Record<string, unknown> | null) {
@@ -284,13 +267,11 @@ function visibilityRowFromDb(row: VisibilityDbRow): AdminTaskVisibilityRow {
     agentName: row.agent_name,
     attempts: numberValue(row.attempts),
     blockedDependencyCount: numberValue(row.blocked_dependency_count),
+    businessValue: numberValue(row.business_value),
     createdAt: iso(row.created_at),
     errorMessage: row.error_message,
-    goalId: row.goal_id,
-    goalPriority: numberValue(row.goal_priority),
-    goalStatus: row.goal_status,
-    goalTitle: displayGoalTitle(row.goal_title),
     id: row.id,
+    effectiveBusinessValue: numberValue(row.effective_business_value),
     leaseUntil: isoOrNull(row.lease_until),
     latestEventAt: isoOrNull(row.latest_event_at),
     latestEventPayload: row.latest_event_payload,
@@ -299,8 +280,7 @@ function visibilityRowFromDb(row: VisibilityDbRow): AdminTaskVisibilityRow {
     latestEventType: row.latest_event_type,
     maxAttempts: numberValue(row.max_attempts),
     planId: row.plan_id,
-    priority: numberValue(row.priority),
-    ray: row.ray,
+    rayId: row.ray_id,
     reasoningEffort: row.reasoning_effort,
     reservationHeartbeatAt: isoOrNull(row.reservation_heartbeat_at),
     reservationId: row.reservation_id,
@@ -310,6 +290,8 @@ function visibilityRowFromDb(row: VisibilityDbRow): AdminTaskVisibilityRow {
     requiredCapabilities: row.required_capabilities ?? [],
     scheduledFor: iso(row.scheduled_for),
     status: row.status,
+    taskGroupId: row.task_group_id,
+    groupLabel: row.group_label,
     taskType: row.task_type,
     title: displayTaskTitle(row.title, row.payload),
     updatedAt: iso(row.updated_at),
@@ -452,7 +434,14 @@ export async function getAdminTaskVisibilityData(
           tasks.title,
           tasks.actor_type,
           tasks.status,
-          tasks.priority,
+          tasks.business_value,
+          (
+            tasks.business_value
+            + least(
+              200,
+              floor(greatest(0, extract(epoch from now() - tasks.scheduled_for) - 300) / 900) * 10
+            )
+          )::int as effective_business_value,
           tasks.required_capabilities,
           tasks.reasoning_effort,
           tasks.attempts,
@@ -463,6 +452,10 @@ export async function getAdminTaskVisibilityData(
           tasks.error_message,
           tasks.created_at,
           tasks.updated_at,
+          tasks.task_group_id::text,
+          tasks.group_label,
+          tasks.plan_id::text,
+          tasks.ray_id::text,
           latest_reservation.id::text as reservation_id,
           latest_reservation.status as reservation_status,
           latest_reservation.reserved_at,
@@ -476,17 +469,10 @@ export async function getAdminTaskVisibilityData(
           latest_event.severity as latest_event_severity,
           latest_event.event_payload as latest_event_payload,
           latest_event.occurred_at as latest_event_at,
-          goals.id::text as goal_id,
-          goals.title as goal_title,
-          goals.status as goal_status,
-          goals.priority as goal_priority,
-          goals.plan_id::text,
-          goals.ray::text,
           agents.id::text as agent_id,
           agents.name as agent_name,
           tasks.blocked_dependency_count
         from task_flags as tasks
-        inner join public.goals on goals.id = tasks.goal_id
         left join lateral (
           select *
           from public.task_reservations
@@ -523,8 +509,13 @@ export async function getAdminTaskVisibilityData(
             ) then 0
             else 1
           end,
-          goals.priority desc,
-          tasks.priority desc,
+          (
+            tasks.business_value
+            + least(
+              200,
+              floor(greatest(0, extract(epoch from now() - tasks.scheduled_for) - 300) / 900) * 10
+            )
+          ) desc,
           tasks.scheduled_for asc,
           case tasks.status
             when 'queued' then 0
@@ -652,7 +643,16 @@ export async function getAdminAgentsData(
             'running',
             'waiting_approval'
           )
-        order by priority desc, scheduled_for asc, created_at asc
+        order by
+          (
+            business_value
+            + least(
+              200,
+              floor(greatest(0, extract(epoch from now() - scheduled_for) - 300) / 900) * 10
+            )
+          ) desc,
+          scheduled_for asc,
+          created_at asc
         limit 1
       ),
       worker_session_stats as (

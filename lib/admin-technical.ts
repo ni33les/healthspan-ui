@@ -91,7 +91,7 @@ function usefulCause(value: unknown) {
   if (
     !text ||
     text === "Task failed." ||
-    text === "High-priority task event." ||
+    text === "High business-value task event." ||
     text === "Task failed without a recorded error." ||
     text === "Scheduled action failed without a recorded error."
   ) {
@@ -316,11 +316,10 @@ export async function getAdminTechnicalAlertsData(
               tasks.result_payload ->> 'errorMessage',
               tasks.result_payload #>> '{resultPayload,errorMessage}'
             ),
-            'goalTitle', goals.title,
             'idempotencyKey', tasks.idempotency_key,
             'maxAttempts', tasks.max_attempts,
             'maxRetries', tasks.max_retries,
-            'priority', tasks.priority,
+            'businessValue', tasks.business_value,
             'reasoningEffort', tasks.reasoning_effort,
             'retryAttempt', tasks.retry_attempt,
             'payload', tasks.payload,
@@ -330,7 +329,6 @@ export async function getAdminTechnicalAlertsData(
             'taskType', tasks.task_type
           ) as details
         from public.tasks
-        left join public.goals on goals.id = tasks.goal_id
         left join public.agents on agents.id = tasks.reserved_by_agent_id
         where tasks.status = 'failed'
           ${start ? sql`and coalesce(tasks.completed_at, tasks.updated_at, tasks.created_at) >= ${start}` : sql``}
@@ -354,8 +352,7 @@ export async function getAdminTechnicalAlertsData(
           jsonb_build_object(
             'agentName', agents.name,
             'attempts', tasks.attempts,
-            'goalTitle', goals.title,
-            'priority', tasks.priority,
+            'businessValue', tasks.business_value,
             'leaseUntil', tasks.lease_until,
             'maxAttempts', tasks.max_attempts,
             'payload', tasks.payload,
@@ -364,7 +361,6 @@ export async function getAdminTechnicalAlertsData(
             'taskType', tasks.task_type
           ) as details
         from public.tasks
-        left join public.goals on goals.id = tasks.goal_id
         left join public.agents on agents.id = tasks.reserved_by_agent_id
         where tasks.status in ('reserved', 'running')
           and coalesce(tasks.lease_until, tasks.updated_at) < now()
@@ -395,16 +391,14 @@ export async function getAdminTechnicalAlertsData(
           tasks.created_at as occurred_at,
           jsonb_build_object(
             'availableCapableWorkerCount', coalesce(worker_state.available_capable_count, 0),
-            'goalTitle', goals.title,
             'onlineCapableWorkerCount', coalesce(worker_state.online_capable_count, 0),
-            'priority', tasks.priority,
+            'businessValue', tasks.business_value,
             'requiredCapabilities', tasks.required_capabilities,
             'scheduledFor', tasks.scheduled_for,
             'taskTitle', tasks.title,
             'taskType', tasks.task_type
           ) as details
         from public.tasks
-        left join public.goals on goals.id = tasks.goal_id
         left join lateral (
           select
             count(*) filter (
@@ -437,7 +431,7 @@ export async function getAdminTechnicalAlertsData(
           ${start ? sql`and tasks.created_at >= ${start}` : sql``}
         order by
           case when coalesce(worker_state.online_capable_count, 0) = 0 then 0 else 1 end,
-          tasks.priority desc,
+          tasks.business_value desc,
           tasks.scheduled_for asc,
           tasks.created_at asc
         limit 100
@@ -479,7 +473,7 @@ export async function getAdminTechnicalAlertsData(
             task_events.event_payload ->> 'message',
             task_events.event_payload ->> 'errorMessage',
             task_events.event_payload ->> 'error',
-            'High-priority task event.'
+            'High business-value task event.'
           ) as message,
           null::text as cron_id,
           tasks.plan_id::text as plan_id,
@@ -490,14 +484,12 @@ export async function getAdminTechnicalAlertsData(
           task_events.created_at as occurred_at,
           task_events.event_payload || jsonb_build_object(
             'agentName', agents.name,
-            'goalTitle', goals.title,
             'taskTitle', tasks.title,
             'taskType', tasks.task_type,
             'taskStatus', tasks.status
           ) as details
         from public.task_events
         left join public.tasks on tasks.id = task_events.task_id
-        left join public.goals on goals.id = task_events.goal_id
         left join public.agents on agents.id = task_events.agent_id
         where task_events.severity in ('high', 'critical')
           ${start ? sql`and task_events.created_at >= ${start}` : sql``}

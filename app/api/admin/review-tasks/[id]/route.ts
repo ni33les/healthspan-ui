@@ -154,7 +154,7 @@ export async function PATCH(
   }
 
   try {
-    const data =
+    const result =
       action === "dismiss"
         ? await dismissAdminReviewTask({
             actor: "admin_dashboard",
@@ -184,7 +184,7 @@ export async function PATCH(
           });
 
     return NextResponse.json(
-      { data },
+      { result },
       {
         headers: {
           "Cache-Control": "no-store"

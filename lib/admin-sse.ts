@@ -16,23 +16,33 @@ export function streamAdminSnapshots<T>({
   heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS,
   load,
   request,
-  snapshotIntervalMs = DEFAULT_SNAPSHOT_INTERVAL_MS
+  snapshotIntervalMs = DEFAULT_SNAPSHOT_INTERVAL_MS,
+  waitForSnapshotSignal
 }: Readonly<{
   eventName: string;
   heartbeatIntervalMs?: number;
   load: () => Promise<T>;
   request: Request;
   snapshotIntervalMs?: number;
+  waitForSnapshotSignal?: (timeoutMs: number) => Promise<boolean>;
 }>) {
   let closed = false;
   let streaming = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
-  let interval: ReturnType<typeof setInterval> | undefined;
 
   function stop() {
     closed = true;
-    clearInterval(interval);
     clearInterval(heartbeat);
+  }
+
+  function waitForNextSnapshot() {
+    if (waitForSnapshotSignal) {
+      return waitForSnapshotSignal(snapshotIntervalMs);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), snapshotIntervalMs);
+    });
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -71,9 +81,17 @@ export function streamAdminSnapshots<T>({
 
       void sendSnapshot();
 
-      interval = setInterval(() => {
-        void sendSnapshot();
-      }, snapshotIntervalMs);
+      void (async function streamSnapshots() {
+        while (!closed) {
+          try {
+            await waitForNextSnapshot();
+          } catch {
+            await new Promise((resolve) => setTimeout(resolve, snapshotIntervalMs));
+          }
+
+          await sendSnapshot();
+        }
+      })();
 
       heartbeat = setInterval(() => {
         if (!closed) {

@@ -6,8 +6,7 @@ import {
 import { isUuid } from "@/lib/assessment-store";
 import { writeBpmEvent } from "@/lib/bpm";
 import { AGENT_CAPABILITIES } from "@/lib/system-agents";
-import { createGoal, createTask } from "@/lib/task-service";
-import { TASK_PRIORITY } from "@/lib/task-service-utils";
+import { createTask } from "@/lib/task-service";
 
 export const runtime = "nodejs";
 
@@ -138,7 +137,9 @@ export async function POST(request: Request) {
     const targetStatus = storageStatus(requestedStatus);
     const scheduledFor =
       requestedStatus === "scheduled" && publishAt ? publishAt : new Date();
-    const goal = await createGoal({
+    const { task } = await createTask({
+      actorType: "deterministic",
+      businessValue: 250,
       context: {
         contentId,
         contentType: selectedContentType,
@@ -146,16 +147,10 @@ export async function POST(request: Request) {
         requestedStatus,
         targetStatus
       },
-      priority: TASK_PRIORITY.normal,
-      source: "admin_content_workflow",
-      title: `${statusVerb(requestedStatus)} content`,
-      type: "system"
-    });
-    const { task } = await createTask({
-      actorType: "deterministic",
       description: "Apply an approved content status change through the platform API.",
-      goalId: goal.id,
+      groupLabel: `${statusVerb(requestedStatus)} content`,
       idempotencyKey: `content-status:${selectedContentType}:${contentId}:${requestedStatus}:${scheduledFor.toISOString()}`,
+      idempotencyScopeKey: `content:${selectedContentType}:${contentId}`,
       initialComment: {
         authorName: "Admin API",
         authorType: "system",
@@ -185,7 +180,6 @@ export async function POST(request: Request) {
       properties: {
         contentId,
         contentType: selectedContentType,
-        goalId: goal.id,
         publishAt: publishAt?.toISOString() ?? null,
         requestedStatus,
         targetStatus,
@@ -194,7 +188,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { goal, task },
+      { task },
       {
         headers: {
           "Cache-Control": "no-store"

@@ -15,9 +15,18 @@ import {
   reserveNextTask
 } from "@/lib/task-service";
 import type { AgentType } from "@/lib/task-service";
+import { waitForTaskQueueChange } from "@/lib/task-wakeup";
 import { requireWorkerRequest } from "@/lib/worker-auth";
 
 export const runtime = "nodejs";
+
+const DEFAULT_RESERVE_POLL_INTERVAL_MS = 5_000;
+const INTERACTIVE_RESERVE_POLL_INTERVAL_MS = 2_000;
+const INTERACTIVE_TASK_TYPES = new Set([
+  "analyze_healthscore",
+  "generate_formulation",
+  "send_example_email"
+]);
 
 function agentType(value: unknown): AgentType {
   const text = textValue(value);
@@ -44,8 +53,10 @@ function waitSeconds(value: unknown) {
     : 0;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function reservePollIntervalMs(taskTypes: readonly string[]) {
+  return taskTypes.some((taskType) => INTERACTIVE_TASK_TYPES.has(taskType))
+    ? INTERACTIVE_RESERVE_POLL_INTERVAL_MS
+    : DEFAULT_RESERVE_POLL_INTERVAL_MS;
 }
 
 export async function POST(request: Request) {
@@ -58,7 +69,9 @@ export async function POST(request: Request) {
   const body = await readJsonObject(request);
   const agent = objectValue(body.agent);
   const workerSessionId = textValue(body.workerSessionId);
+  const taskTypes = textArray(body.taskTypes);
   const deadline = Date.now() + waitSeconds(body.waitSeconds) * 1000;
+  const pollIntervalMs = reservePollIntervalMs(taskTypes);
 
   if (!workerSessionId) {
     return openClawJson(
@@ -99,7 +112,7 @@ export async function POST(request: Request) {
         },
         leaseSeconds: body.leaseSeconds,
         mustRequireCapability: textValue(body.mustRequireCapability),
-        taskTypes: textArray(body.taskTypes),
+        taskTypes,
         workerSessionId
       });
 
@@ -116,7 +129,9 @@ export async function POST(request: Request) {
           return openClawJson({ task: null });
         }
 
-        await sleep(750);
+        await waitForTaskQueueChange(
+          Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()))
+        );
         continue;
       }
 
@@ -160,7 +175,6 @@ export async function POST(request: Request) {
         agent: reserved.agent,
         comments: bundle.comments,
         dependencies: bundle.dependencies,
-        goal: bundle.goal,
         reservationId: reserved.reservationId,
         task: bundle.task,
         workItem

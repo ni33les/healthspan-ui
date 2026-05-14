@@ -38,7 +38,6 @@ import {
   CpuChipIcon,
   DocumentTextIcon,
   EnvelopeIcon,
-  FlagIcon,
   ExclamationTriangleIcon,
   FunnelIcon,
   HomeIcon,
@@ -91,7 +90,6 @@ import {
   hasAdminDashboardFilters,
   type AdminDashboardFilters
 } from "@/lib/admin-dashboard-filters";
-import { groupRetryLineages } from "@/lib/admin-goal-task-lineage";
 import type {
   AdminConversionTargetId,
   AdminConversionTargets,
@@ -104,12 +102,6 @@ import type {
   AdminFinancialTransactionRow,
   AdminFinancialsData
 } from "@/lib/admin-financials";
-import type {
-  AdminGoalsData,
-  AdminGoalRow,
-  AdminGoalTaskRow,
-  AdminGoalStatus
-} from "@/lib/admin-goals";
 import type {
   AdminCampaignRow,
   AdminCampaignsData,
@@ -132,20 +124,12 @@ type AdminDashboardView =
   | "financials"
   | "flow"
   | "glance"
-  | "goals"
   | "leads"
   | "reviews"
   | "supplements"
   | "testimonials"
   | "visibility";
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
-type GoalMetricId =
-  | "goalsBlocked"
-  | "goalsFailed"
-  | "goalsProcessing"
-  | "goalsScheduled"
-  | "goalsSucceeded"
-  | "goalsTotal";
 type ContentMetricId =
   | "contentBlogPosts"
   | "contentDeleted"
@@ -359,38 +343,6 @@ type AdminContent = Readonly<{
     stage: string;
     target: string;
   };
-  goals: {
-    active: string;
-    approvals: string;
-    attempt: string;
-    attempts: string;
-    blocked: string;
-    cancelled: string;
-    comments: string;
-    dependencies: string;
-    empty: string;
-    events: string;
-    failed: string;
-    age: string;
-    lastActivity: string;
-    live: string;
-    noSelection: string;
-    plan: string;
-    priority: string;
-    processing: string;
-    reservations: string;
-    retry: string;
-    retryFailed: string;
-    retrying: string;
-    retryOf: string;
-    scheduled: string;
-    source: string;
-    succeeded: string;
-    tasks: string;
-    trace: string;
-    total: string;
-    updated: string;
-  };
   flowNodes: Record<AdminFlowNodeId, string>;
   flowMetrics: {
     dropped: string;
@@ -462,9 +414,9 @@ type AdminContent = Readonly<{
     doseReduced: string;
     empty: string;
     flagReason: string;
-    highPriority: string;
-    lowPriority: string;
-    mediumPriority: string;
+    highValue: string;
+    lowValue: string;
+    mediumValue: string;
     newDose: string;
     originalDose: string;
     plan: string;
@@ -501,9 +453,7 @@ type AdminContent = Readonly<{
     completed: string;
     empty: string;
     failed: string;
-    goal: string;
     human: string;
-    priority: string;
     queued: string;
     status: string;
     task: string;
@@ -729,38 +679,6 @@ const content = {
       target: "Target",
       targetSaveError: "Could not save targets."
     },
-    goals: {
-      active: "Active",
-      approvals: "Approvals",
-      attempt: "Attempt",
-      attempts: "Attempts",
-      blocked: "Blocked",
-      cancelled: "Cancelled",
-      comments: "Comments",
-      dependencies: "Dependencies",
-      empty: "No goals in this timeframe.",
-      events: "Events",
-      failed: "Failed",
-      age: "Age",
-      lastActivity: "Last activity",
-      live: "Live",
-      noSelection: "Select a goal to see its timeline.",
-      plan: "Plan",
-      priority: "Priority",
-      processing: "Processing",
-      reservations: "Reservations",
-      retry: "Retry",
-      retryFailed: "Could not retry this task.",
-      retrying: "Retrying...",
-      retryOf: "Retry of",
-      scheduled: "Scheduled",
-      source: "Source",
-      succeeded: "Succeeded",
-      tasks: "Tasks",
-      trace: "Trace",
-      total: "Total",
-      updated: "Updated"
-    },
     flowNodes: {
       assessmentStarted: "Started",
       assessmentSubmitted: "Submitted",
@@ -868,7 +786,6 @@ const content = {
     governanceTitle: "Safety",
     openSidebar: "Open sidebar",
     execution: [
-      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: QueueListIcon, name: "Tasks", view: "visibility" },
       { icon: CpuChipIcon, name: "Agents", view: "agents" },
       { icon: ExclamationTriangleIcon, name: "Alerts", view: "alerts" }
@@ -884,7 +801,6 @@ const content = {
       financials: "Financials",
       flow: "Conversions",
       glance: "Dashboard",
-      goals: "Goals",
       leads: "Leads",
       reviews: "Reviews",
       supplements: "Supplements",
@@ -906,9 +822,9 @@ const content = {
       doseReduced: "Dose reduced",
       empty: "No supplement review tasks are waiting.",
       flagReason: "Review reason",
-      highPriority: "High Priority",
-      lowPriority: "Low Priority",
-      mediumPriority: "Medium Priority",
+      highValue: "High Value",
+      lowValue: "Low Value",
+      mediumValue: "Medium Value",
       newDose: "New dose",
       originalDose: "Original dose",
       plan: "Plan",
@@ -945,9 +861,7 @@ const content = {
       completed: "Completed",
       empty: "No tasks are visible in this timeframe.",
       failed: "Failed",
-      goal: "Goal",
       human: "Human",
-      priority: "Priority",
       queued: "Queued",
       status: "Status",
       task: "Task",
@@ -1178,38 +1092,6 @@ const content = {
       target: "เป้า",
       targetSaveError: "ไม่สามารถบันทึกเป้าได้"
     },
-    goals: {
-      active: "กำลังทำ",
-      approvals: "การอนุมัติ",
-      attempt: "ครั้งที่",
-      attempts: "ความพยายาม",
-      blocked: "ติดขัด",
-      cancelled: "ยกเลิก",
-      comments: "ความคิดเห็น",
-      dependencies: "เงื่อนไขก่อนหน้า",
-      empty: "ไม่มี Goals ในช่วงเวลานี้",
-      events: "อีเวนต์",
-      failed: "ล้มเหลว",
-      age: "อายุ",
-      lastActivity: "กิจกรรมล่าสุด",
-      live: "สด",
-      noSelection: "เลือก Goal เพื่อดูไทม์ไลน์",
-      plan: "แผน",
-      priority: "ความสำคัญ",
-      processing: "กำลังดำเนินการ",
-      reservations: "การจองงาน",
-      retry: "ลองอีกครั้ง",
-      retryFailed: "ไม่สามารถลองงานนี้อีกครั้งได้",
-      retrying: "กำลังลองอีกครั้ง...",
-      retryOf: "ลองจาก",
-      scheduled: "ตั้งเวลาแล้ว",
-      source: "แหล่งที่มา",
-      succeeded: "สำเร็จ",
-      tasks: "งาน",
-      trace: "Trace",
-      total: "ทั้งหมด",
-      updated: "อัปเดต"
-    },
     flowNodes: {
       assessmentStarted: "เริ่มทำ",
       assessmentSubmitted: "ส่งแบบประเมิน",
@@ -1317,7 +1199,6 @@ const content = {
     governanceTitle: "ความปลอดภัย",
     openSidebar: "เปิดแถบเมนู",
     execution: [
-      { icon: FlagIcon, name: "Goals", view: "goals" },
       { icon: QueueListIcon, name: "Tasks", view: "visibility" },
       { icon: CpuChipIcon, name: "Agents", view: "agents" },
       { icon: ExclamationTriangleIcon, name: "แจ้งเตือน", view: "alerts" }
@@ -1333,7 +1214,6 @@ const content = {
       financials: "Financials",
       flow: "Conversions",
       glance: "Dashboard",
-      goals: "Goals",
       leads: "ลีด",
       reviews: "รีวิว",
       supplements: "อาหารเสริม",
@@ -1355,9 +1235,9 @@ const content = {
       doseReduced: "ลดขนาดแล้ว",
       empty: "ไม่มีงานรีวิวอาหารเสริมที่รอดำเนินการ",
       flagReason: "เหตุผลที่ต้องรีวิว",
-      highPriority: "ความสำคัญสูง",
-      lowPriority: "ความสำคัญต่ำ",
-      mediumPriority: "ความสำคัญปานกลาง",
+      highValue: "มูลค่าสูง",
+      lowValue: "มูลค่าต่ำ",
+      mediumValue: "มูลค่าปานกลาง",
       newDose: "ขนาดใหม่",
       originalDose: "ขนาดเดิม",
       plan: "แผน",
@@ -1394,9 +1274,7 @@ const content = {
       completed: "สำเร็จ",
       empty: "ไม่มีงานในช่วงเวลานี้",
       failed: "ล้มเหลว",
-      goal: "Goal",
       human: "คน",
-      priority: "ความสำคัญ",
       queued: "รอคิว",
       status: "สถานะ",
       task: "งาน",
@@ -1500,80 +1378,6 @@ function adminHref(
   return `/${locale}/admin/dashboard?${params.toString()}`;
 }
 
-function adminGoalsHref({
-  accessToken,
-  filters,
-  goalFilter,
-  goalId,
-  locale,
-  range
-}: Readonly<{
-  accessToken: string;
-  filters: AdminDashboardFilters;
-  goalFilter?: GoalMetricId;
-  goalId?: string | null;
-  locale: Locale;
-  range: AdminDashboardRange;
-}>) {
-  const params = new URLSearchParams({
-    access_token: accessToken,
-    range,
-    view: "goals"
-  });
-
-  if (goalId) {
-    params.set("goal", goalId);
-  }
-
-  adminDashboardFilterEntries(filters).forEach(([key, value]) => {
-    params.set(key, value);
-  });
-
-  if (goalFilter && goalFilter !== "goalsTotal") {
-    params.set("goalFilter", goalFilter);
-  }
-
-  return `/${locale}/admin/dashboard?${params.toString()}`;
-}
-
-function adminGoalHref(input: Readonly<{
-  accessToken: string;
-  filters: AdminDashboardFilters;
-  goalFilter?: GoalMetricId;
-  goalId: string;
-  locale: Locale;
-  range: AdminDashboardRange;
-}>) {
-  return adminGoalsHref(input);
-}
-
-function adminReviewTaskHref({
-  accessToken,
-  filters,
-  locale,
-  range,
-  reviewTaskId
-}: Readonly<{
-  accessToken: string;
-  filters: AdminDashboardFilters;
-  locale: Locale;
-  range: AdminDashboardRange;
-  reviewTaskId: string;
-}>) {
-  const params = new URLSearchParams({
-    access_token: accessToken,
-    range,
-    review: reviewTaskId,
-    view: "reviews"
-  });
-
-  adminDashboardFilterEntries(filters).forEach(([key, value]) => {
-    params.set(key, value);
-  });
-
-  return `/${locale}/admin/dashboard?${params.toString()}`;
-}
-
 function adminTaskVisibilityHref({
   accessToken,
   locale,
@@ -1593,27 +1397,6 @@ function adminTaskVisibilityHref({
   });
 
   return `/${locale}/admin/dashboard?${params.toString()}`;
-}
-
-function adminGoalsEventsHref({
-  accessToken,
-  goalId,
-  range
-}: Readonly<{
-  accessToken: string;
-  goalId: string | null;
-  range: AdminDashboardRange;
-}>) {
-  const params = new URLSearchParams({
-    access_token: accessToken,
-    range
-  });
-
-  if (goalId) {
-    params.set("goal", goalId);
-  }
-
-  return `/api/admin/goals/events?${params.toString()}`;
 }
 
 function adminExecutionEventsHref({
@@ -1986,45 +1769,6 @@ function combinedSeries(...seriesList: number[][]) {
   return Array.from({ length: maxLength }, (_, index) =>
     seriesList.reduce((total, series) => total + (series[index] ?? 0), 0)
   );
-}
-
-function normalizeGoalMetricId(value?: string | null): GoalMetricId {
-  return value === "goalsBlocked" ||
-    value === "goalsFailed" ||
-    value === "goalsProcessing" ||
-    value === "goalsScheduled" ||
-    value === "goalsSucceeded" ||
-    value === "goalsTotal"
-    ? value
-    : "goalsTotal";
-}
-
-function goalMatchesMetric(goal: AdminGoalRow, metricId: GoalMetricId) {
-  if (metricId === "goalsProcessing") {
-    return goal.status === "processing";
-  }
-
-  if (metricId === "goalsBlocked") {
-    return goal.status === "blocked";
-  }
-
-  if (metricId === "goalsScheduled") {
-    return goal.status === "scheduled";
-  }
-
-  if (metricId === "goalsFailed") {
-    return goal.status === "failed";
-  }
-
-  if (metricId === "goalsSucceeded") {
-    return goal.status === "succeeded";
-  }
-
-  return true;
-}
-
-function filterGoalsByMetric(rows: AdminGoalRow[], metricId: GoalMetricId) {
-  return rows.filter((goal) => goalMatchesMetric(goal, metricId));
 }
 
 function taskMatchesMetric(
@@ -5609,11 +5353,11 @@ function reviewScopeLabel(labels: AdminContent, row: AdminReviewTaskRow) {
     : labels.reviewQueue.supplementReview;
 }
 
-type ReviewGoalGroup = Readonly<{
+type ReviewTaskGroup = Readonly<{
   createdAt: string;
   key: string;
   planId: string | null;
-  priority: number;
+  businessValue: number;
   rows: AdminReviewTaskRow[];
   title: string;
 }>;
@@ -5622,10 +5366,10 @@ function sortReviewRows(
   left: AdminReviewTaskRow,
   right: AdminReviewTaskRow
 ) {
-  const priorityDifference = right.priority - left.priority;
+  const valueDifference = right.businessValue - left.businessValue;
 
-  if (priorityDifference !== 0) {
-    return priorityDifference;
+  if (valueDifference !== 0) {
+    return valueDifference;
   }
 
   return new Date(left.queuedAt).getTime() - new Date(right.queuedAt).getTime();
@@ -5634,24 +5378,22 @@ function sortReviewRows(
 function groupReviewRows(
   labels: AdminContent,
   rows: AdminReviewTaskRow[]
-): ReviewGoalGroup[] {
-  const groups = new Map<string, ReviewGoalGroup>();
+): ReviewTaskGroup[] {
+  const groups = new Map<string, ReviewTaskGroup>();
 
   rows.forEach((row) => {
-    const key = row.goalId ?? row.id;
+    const key = row.taskGroupId ?? row.id;
     const existing = groups.get(key);
-    const createdAt = existing
-      ? existing.createdAt
-      : row.goalQueuedAt || row.queuedAt;
-    const priority = Math.max(existing?.priority ?? 0, row.goalPriority, row.priority);
+    const createdAt = existing ? existing.createdAt : row.queuedAt;
+    const businessValue = Math.max(existing?.businessValue ?? 0, row.businessValue);
 
     groups.set(key, {
+      businessValue,
       createdAt,
       key,
       planId: existing?.planId ?? row.planId,
-      priority,
       rows: [...(existing?.rows ?? []), row],
-      title: existing?.title ?? row.goalTitle ?? reviewScopeLabel(labels, row)
+      title: existing?.title ?? row.groupLabel ?? reviewScopeLabel(labels, row)
     });
   });
 
@@ -5661,10 +5403,10 @@ function groupReviewRows(
       rows: [...group.rows].sort(sortReviewRows)
     }))
     .sort((left, right) => {
-      const priorityDifference = right.priority - left.priority;
+      const valueDifference = right.businessValue - left.businessValue;
 
-      if (priorityDifference !== 0) {
-        return priorityDifference;
+      if (valueDifference !== 0) {
+        return valueDifference;
       }
 
       return (
@@ -5674,24 +5416,24 @@ function groupReviewRows(
     });
 }
 
-function reviewPriorityPill(labels: AdminContent, priority: number) {
-  if (priority >= 5) {
+function reviewValuePill(labels: AdminContent, value: number) {
+  if (value >= 500) {
     return {
       className: "bg-red-50 text-red-700 ring-red-200",
-      label: labels.reviewQueue.highPriority
+      label: labels.reviewQueue.highValue
     };
   }
 
-  if (priority >= 3) {
+  if (value >= 300) {
     return {
       className: "bg-amber-50 text-amber-800 ring-amber-200",
-      label: labels.reviewQueue.mediumPriority
+      label: labels.reviewQueue.mediumValue
     };
   }
 
   return {
     className: "bg-[#ECFDF5] text-[#126B4F] ring-[#A7F3D0]",
-    label: labels.reviewQueue.lowPriority
+    label: labels.reviewQueue.lowValue
   };
 }
 
@@ -5714,14 +5456,14 @@ function reviewRowToSupplementDraft(
   labels: AdminContent,
   row: AdminReviewTaskRow
 ): AdminSupplementRow {
-  const priority = reviewPriorityPill(labels, row.priority);
+  const value = reviewValuePill(labels, row.businessValue);
 
   return {
     aliases: [],
     category: reviewKindLabel(labels, row),
     confidence: row.reviewKind === "unknown_supplement" ? "low" : "moderate",
     id: row.id,
-    ingredientType: `${reviewKindLabel(labels, row)} · ${priority.label}`,
+    ingredientType: `${reviewKindLabel(labels, row)} · ${value.label}`,
     listStatus: "review_required",
     maxAmount: row.maxAmount,
     maxUnit: row.maxUnit ?? "",
@@ -6065,13 +5807,24 @@ function AdminReviewQueueView({
 
       const payload = (await response.json()) as {
         data?: AdminReviewQueueData;
+        result?: {
+          removedTaskIds?: string[];
+        };
       };
 
       if (payload.data) {
         setLocalQueueData(payload.data);
       } else {
+        const removedTaskIds = new Set(
+          payload.result?.removedTaskIds?.length
+            ? payload.result.removedTaskIds
+            : [row.id]
+        );
+
         setLocalQueueData((currentData) => {
-          const rows = currentData.rows.filter((item) => item.id !== row.id);
+          const rows = currentData.rows.filter(
+            (item) => !removedTaskIds.has(item.id)
+          );
 
           return {
             ...currentData,
@@ -6141,10 +5894,44 @@ function AdminReviewQueueView({
 
       const payload = (await response.json()) as {
         data?: AdminReviewQueueData;
+        result?: {
+          removedTaskIds?: string[];
+        };
       };
 
       if (payload.data) {
         setLocalQueueData(payload.data);
+      } else {
+        const removedTaskIds = new Set(
+          payload.result?.removedTaskIds?.length
+            ? payload.result.removedTaskIds
+            : [row.id]
+        );
+
+        setLocalQueueData((currentData) => {
+          const rows = currentData.rows.filter(
+            (item) => !removedTaskIds.has(item.id)
+          );
+
+          return {
+            ...currentData,
+            rows,
+            summary: {
+              doseReduced: rows.filter(
+                (item) => item.reviewKind === "dose_reduced"
+              ).length,
+              reviewRequired: rows.filter(
+                (item) =>
+                  item.reviewKind !== "dose_reduced" &&
+                  item.reviewKind !== "unknown_supplement"
+              ).length,
+              total: rows.length,
+              unknown: rows.filter(
+                (item) => item.reviewKind === "unknown_supplement"
+              ).length
+            }
+          };
+        });
       }
 
       setDismissedReviewTaskId(row.id);
@@ -6236,7 +6023,7 @@ function AdminReviewQueueView({
                     )}
                   </h3>
                   <p className="mt-0.5 text-xs font-medium text-gray-500">
-                    <ReviewGoalAgeTimer
+                    <ReviewAgeTimer
                       createdAt={group.createdAt}
                       initialNow={queueData.generatedAt}
                       locale={locale}
@@ -6246,11 +6033,11 @@ function AdminReviewQueueView({
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={classNames(
-                      taskPriorityClass(group.priority),
+                      taskValueClass(group.businessValue),
                       "w-max rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
                     )}
                   >
-                    {taskPriorityLabel(group.priority, locale)}
+                    {taskValueLabel(group.businessValue, locale)}
                   </span>
                 </div>
               </div>
@@ -6286,11 +6073,11 @@ function AdminReviewQueueView({
                     </span>
                     <span
                       className={classNames(
-                        taskPriorityClass(row.priority),
+                        taskValueClass(row.businessValue),
                         "w-max rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
                       )}
                     >
-                      {taskPriorityLabel(row.priority, locale)}
+                      {taskValueLabel(row.businessValue, locale)}
                     </span>
                     <span className="w-max rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
                       {reviewScopeLabel(labels, row)}
@@ -6400,32 +6187,40 @@ function readableToken(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function taskPriorityLabel(priority: number, locale: Locale) {
-  const labels =
-    locale === "th"
-      ? ["ต่ำ", "ปกติ", "เร่งด่วน", "สูง", "วิกฤต"]
-      : ["Low", "Normal", "Expedited", "High", "Critical"];
-  const index = Math.min(Math.max(Math.round(priority), 1), 5) - 1;
+function taskValueLabel(value: number, locale: Locale) {
+  if (value >= 500) {
+    return locale === "th" ? "วิกฤต" : "Critical";
+  }
 
-  return labels[index];
+  if (value >= 400) {
+    return locale === "th" ? "สูง" : "High";
+  }
+
+  if (value >= 300) {
+    return locale === "th" ? "เร่งด่วน" : "Expedited";
+  }
+
+  if (value >= 200) {
+    return locale === "th" ? "ปกติ" : "Normal";
+  }
+
+  return locale === "th" ? "ต่ำ" : "Low";
 }
 
-function taskPriorityClass(priority: number) {
-  const normalized = Math.min(Math.max(Math.round(priority), 1), 5);
-
-  if (normalized >= 5) {
+function taskValueClass(value: number) {
+  if (value >= 500) {
     return "bg-red-50 text-red-700 ring-red-100";
   }
 
-  if (normalized === 4) {
+  if (value >= 400) {
     return "bg-amber-50 text-amber-800 ring-amber-200";
   }
 
-  if (normalized === 3) {
+  if (value >= 300) {
     return "bg-sky-50 text-sky-700 ring-sky-100";
   }
 
-  if (normalized === 2) {
+  if (value >= 200) {
     return "bg-gray-50 text-gray-700 ring-gray-200";
   }
 
@@ -6442,14 +6237,6 @@ function taskActorClass(actorType: string) {
 
 function taskActorLabel(actorType: string) {
   return actorType === "human" ? "Human" : "Agent";
-}
-
-function isReviewTaskType(taskType: string) {
-  return [
-    "classify_supplement",
-    "dose_reduction_notice",
-    "review_supplement_for_plan"
-  ].includes(taskType);
 }
 
 function taskIsTerminal(status: string) {
@@ -6586,30 +6373,7 @@ function TaskAgeTimer({
   return formatTaskDuration(endAt - createdAt, locale);
 }
 
-function GoalAgeTimer({
-  goal,
-  initialNow,
-  locale
-}: Readonly<{
-  goal: AdminGoalRow;
-  initialNow: string;
-  locale: Locale;
-}>) {
-  const terminal = ["cancelled", "failed", "stuck", "succeeded"].includes(
-    goal.status
-  );
-  const now = useNowTimer(!terminal, initialNow);
-  const createdAt = new Date(goal.createdAt).getTime();
-  const endAt = terminal ? new Date(goal.lastActivityAt).getTime() : now;
-
-  if (!Number.isFinite(createdAt) || endAt === null || !Number.isFinite(endAt)) {
-    return "";
-  }
-
-  return formatTaskDuration(endAt - createdAt, locale);
-}
-
-function ReviewGoalAgeTimer({
+function ReviewAgeTimer({
   createdAt,
   initialNow,
   locale
@@ -6672,8 +6436,8 @@ function alertTaskLabel(row: AdminTechnicalAlertRow) {
   return parts.join(" · ");
 }
 
-function alertGoalLabel(row: AdminTechnicalAlertRow) {
-  return alertDetailText(row, "goalTitle");
+function alertGroupLabel(row: AdminTechnicalAlertRow) {
+  return alertDetailText(row, "groupLabel");
 }
 
 function communicationStatusLabel(
@@ -6711,7 +6475,6 @@ function communicationTitle(row: AdminCommunicationRow) {
   return (
     row.subject ||
     row.taskTitle ||
-    row.goalTitle ||
     readableToken(row.messageType)
   );
 }
@@ -6807,7 +6570,7 @@ function AdminCommunicationsView({
       <div className="flex justify-end">
         <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
           <span className="size-2 rounded-full bg-[#1FA77A]" />
-          {labels.goals.live} · {labels.goals.updated}{" "}
+          Live · {labels.contentPages.updated}{" "}
           {formatGeneratedAt(data.generatedAt, locale)}
         </span>
       </div>
@@ -6979,9 +6742,9 @@ function AdminTechnicalAlertsView({
                     <h3 className="mt-3 text-base font-semibold text-gray-900">
                       {readableToken(row.title)}
                     </h3>
-                    {alertGoalLabel(row) ? (
+                    {alertGroupLabel(row) ? (
                       <p className="mt-1 text-sm font-medium text-gray-500">
-                        {alertGoalLabel(row)}
+                        {alertGroupLabel(row)}
                       </p>
                     ) : null}
                     <div className="mt-3 rounded-xl bg-red-50 px-4 py-3 ring-1 ring-red-100">
@@ -7042,34 +6805,6 @@ function AdminTechnicalAlertsView({
   );
 }
 
-function goalStatusLabel(labels: AdminContent, status: AdminGoalStatus) {
-  return labels.goals[status];
-}
-
-function goalStatusClass(status: AdminGoalStatus) {
-  if (status === "succeeded") {
-    return "bg-[#ECFDF5] text-[#126B4F] ring-[#A7F3D0]";
-  }
-
-  if (status === "blocked") {
-    return "bg-amber-50 text-amber-800 ring-amber-200";
-  }
-
-  if (status === "scheduled") {
-    return "bg-sky-50 text-sky-700 ring-sky-100";
-  }
-
-  if (status === "failed") {
-    return "bg-red-50 text-red-700 ring-red-100";
-  }
-
-  if (status === "cancelled") {
-    return "bg-gray-50 text-gray-700 ring-gray-200";
-  }
-
-  return "bg-blue-50 text-blue-700 ring-blue-100";
-}
-
 function compactId(value: string) {
   return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
 }
@@ -7127,7 +6862,7 @@ function LiveUpdatedBadge({
     <div className="flex justify-end">
       <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
         <span className="size-2 rounded-full bg-[#1FA77A]" />
-        {labels.goals.live} · {labels.goals.updated}{" "}
+        Live · {labels.contentPages.updated}{" "}
         {formatGeneratedAt(generatedAt, locale)}
       </span>
     </div>
@@ -7202,6 +6937,22 @@ function CapabilityList({ values }: Readonly<{ values: string[] }>) {
   );
 }
 
+function taskGroupTint(taskGroupId: string) {
+  const palette = [
+    "bg-emerald-50/70",
+    "bg-sky-50/70",
+    "bg-amber-50/70",
+    "bg-violet-50/70",
+    "bg-rose-50/70"
+  ];
+  const hash = [...taskGroupId].reduce(
+    (total, char) => total + char.charCodeAt(0),
+    0
+  );
+
+  return palette[hash % palette.length];
+}
+
 function AdminVisibilityView({
   data,
   labels,
@@ -7228,6 +6979,10 @@ function AdminVisibilityView({
   const visibleRows = data.rows.filter((row) =>
     taskMatchesMetric(row, selectedMetricId, data.generatedAt)
   );
+  const groupCounts = visibleRows.reduce<Record<string, number>>((counts, row) => {
+    counts[row.taskGroupId] = (counts[row.taskGroupId] ?? 0) + 1;
+    return counts;
+  }, {});
   const selectMetric = (metricId: BusinessMetric["id"]) => {
     setSelectedMetricId(metricId as TaskMetricId);
     setSelectedTaskOverrideId(null);
@@ -7308,6 +7063,7 @@ function AdminVisibilityView({
                 locale={locale}
                 onClick={() => setSelectedTaskOverrideId(row.id)}
                 row={row}
+                groupCount={groupCounts[row.taskGroupId] ?? 1}
                 snapshotAt={data.generatedAt}
               />
             ))}
@@ -7333,12 +7089,14 @@ function AdminVisibilityView({
 }
 
 function VisibilityTaskRow({
+  groupCount,
   labels,
   locale,
   onClick,
   row,
   snapshotAt
 }: Readonly<{
+  groupCount: number;
   labels: AdminContent;
   locale: Locale;
   onClick: () => void;
@@ -7347,11 +7105,15 @@ function VisibilityTaskRow({
 }>) {
   const runtimeSummary = taskRuntimeSummary(row, snapshotAt, locale);
   const runtimeWarning = taskRuntimeWarning(row, snapshotAt);
+  const groupTint = groupCount > 1 ? taskGroupTint(row.taskGroupId) : "";
 
   return (
     <button
       aria-label={`${labels.supplements.details}: ${row.title}`}
-      className="block w-full px-5 py-3 text-left transition hover:bg-gray-50 focus:outline-none focus-visible:bg-gray-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1FA77A]"
+      className={classNames(
+        groupTint,
+        "block w-full px-5 py-3 text-left transition hover:bg-gray-50 focus:outline-none focus-visible:bg-gray-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1FA77A]"
+      )}
       onClick={onClick}
       type="button"
     >
@@ -7366,11 +7128,11 @@ function VisibilityTaskRow({
         </span>
         <span
           className={classNames(
-            taskPriorityClass(row.goalPriority),
+            taskValueClass(row.effectiveBusinessValue),
             "w-max rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
           )}
         >
-          {taskPriorityLabel(row.goalPriority, locale)}
+          {taskValueLabel(row.effectiveBusinessValue, locale)}
         </span>
         <span
           className={classNames(
@@ -7444,11 +7206,11 @@ function VisibilityTaskDetailsModal({
                 </span>
                 <span
                   className={classNames(
-                    taskPriorityClass(row.goalPriority),
+                    taskValueClass(row.effectiveBusinessValue),
                     "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
                   )}
                 >
-                  {taskPriorityLabel(row.goalPriority, locale)}
+                  {taskValueLabel(row.effectiveBusinessValue, locale)}
                 </span>
               </div>
               <h2 className="mt-3 text-xl font-semibold text-gray-900">
@@ -7471,8 +7233,8 @@ function VisibilityTaskDetailsModal({
           <div className="max-h-[75vh] space-y-6 overflow-y-auto px-6 py-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <SupplementListMeta
-                label={labels.visibility.goal}
-                value={row.goalTitle}
+                label="Group"
+                value={row.groupLabel ?? compactId(row.taskGroupId)}
               />
               <SupplementListMeta
                 label={labels.visibility.actor}
@@ -7484,7 +7246,7 @@ function VisibilityTaskDetailsModal({
               />
               <SupplementListMeta
                 label={labels.visibility.task}
-                value={taskPriorityLabel(row.priority, locale)}
+                value={taskValueLabel(row.businessValue, locale)}
               />
               <SupplementListMeta
                 label={labels.visibility.status}
@@ -7495,7 +7257,7 @@ function VisibilityTaskDetailsModal({
                 value={formatNumber(row.blockedDependencyCount, locale)}
               />
               <SupplementListMeta
-                label={labels.goals.lastActivity}
+                label={labels.contentPages.updated}
                 value={formatGeneratedAt(row.updatedAt, locale)}
               />
               <SupplementListMeta
@@ -7524,7 +7286,7 @@ function VisibilityTaskDetailsModal({
               />
               <SupplementListMeta
                 label="Ray"
-                value={row.ray ? compactId(row.ray) : ""}
+                value={row.rayId ? compactId(row.rayId) : ""}
               />
               <SupplementListMeta
                 label="Reasoning"
@@ -7798,638 +7560,6 @@ function AgentCard({
         <CapabilityList values={row.capabilities} />
       </div>
     </article>
-  );
-}
-
-function AdminGoalsView({
-  accessToken,
-  data,
-  filters,
-  labels,
-  locale,
-  range,
-  selectedGoalFilter
-}: Readonly<{
-  accessToken: string;
-  data: AdminGoalsData;
-  filters: AdminDashboardFilters;
-  labels: AdminContent;
-  locale: Locale;
-  range: AdminDashboardRange;
-  selectedGoalFilter?: string | null;
-}>) {
-  const selectedMetricId = normalizeGoalMetricId(selectedGoalFilter);
-  const visibleGoals = filterGoalsByMetric(data.rows, selectedMetricId);
-  const selectedGoal =
-    data.selectedGoal && visibleGoals.some((goal) => goal.id === data.selectedGoal?.id)
-      ? data.selectedGoal
-      : null;
-  const goalMetrics: BusinessMetric[] = [
-    {
-      color: businessMetricColors.total,
-      id: "goalsTotal",
-      label: labels.goals.total,
-      series: [],
-      value: formatNumber(data.summary.total, locale)
-    },
-    {
-      color: businessMetricColors.scheduled,
-      id: "goalsScheduled",
-      label: labels.goals.scheduled,
-      series: [],
-      value: formatNumber(data.summary.scheduled, locale)
-    },
-    {
-      color: businessMetricColors.processing,
-      id: "goalsProcessing",
-      label: labels.goals.processing,
-      series: [],
-      value: formatNumber(data.summary.processing, locale)
-    },
-    {
-      color: businessMetricColors.blocked,
-      id: "goalsBlocked",
-      label: labels.goals.blocked,
-      series: [],
-      value: formatNumber(data.summary.blocked, locale)
-    },
-    {
-      color: businessMetricColors.failed,
-      id: "goalsFailed",
-      label: labels.goals.failed,
-      series: [],
-      value: formatNumber(data.summary.failed, locale)
-    },
-    {
-      color: businessMetricColors.succeeded,
-      id: "goalsSucceeded",
-      label: labels.goals.succeeded,
-      series: [],
-      value: formatNumber(data.summary.succeeded, locale)
-    }
-  ];
-  const selectMetric = (metricId: BusinessMetric["id"]) => {
-    const goalFilter = normalizeGoalMetricId(metricId);
-    const goal = filterGoalsByMetric(data.rows, goalFilter)[0];
-    const href = goal
-      ? adminGoalHref({
-          accessToken,
-          filters,
-          goalFilter,
-          goalId: goal.id,
-          locale,
-          range
-        })
-      : adminGoalsHref({
-          accessToken,
-          filters,
-          goalFilter,
-          locale,
-          range
-        });
-
-    window.location.assign(href);
-  };
-
-  return (
-    <section className="mt-8 space-y-6">
-      <LiveUpdatedBadge
-        generatedAt={data.generatedAt}
-        labels={labels}
-        locale={locale}
-      />
-
-      <BusinessStatsGrid
-        metrics={goalMetrics}
-        onMetricSelect={selectMetric}
-        selectedMetricId={selectedMetricId}
-      />
-
-      {visibleGoals.length > 0 ? (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.55fr)]">
-          <div className="space-y-3">
-            {visibleGoals.map((goal) => (
-              <a
-                key={goal.id}
-                aria-current={goal.id === selectedGoal?.id ? "page" : undefined}
-                className={classNames(
-                  goal.id === selectedGoal?.id
-                    ? "ring-[#1FA77A]"
-                    : "ring-gray-200 hover:bg-gray-50",
-                  "block rounded-2xl bg-white p-4 shadow-sm ring-1 transition"
-                )}
-                href={adminGoalHref({
-                  accessToken,
-                  filters,
-                  goalFilter: selectedMetricId,
-                  goalId: goal.id,
-                  locale,
-                  range
-                })}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold text-gray-900">
-                      {goal.title}
-                    </h2>
-                    <p className="mt-1 text-xs font-medium text-gray-500">
-                      {compactId(goal.id)}
-                    </p>
-                  </div>
-                  <span
-                    className={classNames(
-                      taskPriorityClass(goal.priority),
-                      "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-                    )}
-                  >
-                    {taskPriorityLabel(goal.priority, locale)}
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <SupplementListMeta
-                    label={labels.goals.tasks}
-                    value={`${formatNumber(goal.completedTaskCount, locale)} / ${formatNumber(goal.taskCount, locale)}`}
-                  />
-                  <SupplementListMeta
-                    label={labels.goals.age}
-                    value={
-                      <GoalAgeTimer
-                        goal={goal}
-                        initialNow={data.generatedAt}
-                        locale={locale}
-                      />
-                    }
-                  />
-                </div>
-              </a>
-            ))}
-          </div>
-
-          <GoalDetailPanel
-            accessToken={accessToken}
-            data={data}
-            filters={filters}
-            goal={selectedGoal}
-            labels={labels}
-            locale={locale}
-            range={range}
-          />
-        </div>
-      ) : (
-        <div className="rounded-2xl bg-white px-5 py-12 text-center text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
-          {labels.goals.empty}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function GoalDetailPanel({
-  accessToken,
-  data,
-  filters,
-  goal,
-  labels,
-  locale,
-  range
-}: Readonly<{
-  accessToken: string;
-  data: AdminGoalsData;
-  filters: AdminDashboardFilters;
-  goal: AdminGoalRow | null;
-  labels: AdminContent;
-  locale: Locale;
-  range: AdminDashboardRange;
-}>) {
-  const [retryingTaskId, setRetryingTaskId] = useState<string | null>(null);
-  const [retryErrorTaskId, setRetryErrorTaskId] = useState<string | null>(null);
-  const taskLineageGroups = groupRetryLineages(data.tasks);
-
-  async function retryTask(task: AdminGoalTaskRow) {
-    setRetryingTaskId(task.id);
-    setRetryErrorTaskId(null);
-
-    try {
-      const response = await fetch(`/api/admin/tasks/${task.id}/retry`, {
-        body: JSON.stringify({ accessToken }),
-        headers: {
-          "Content-Type": "application/json"
-        },
-        method: "POST"
-      });
-
-      if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => null)) as
-          | { message?: string }
-          | null;
-
-        throw new Error(errorPayload?.message ?? labels.goals.retryFailed);
-      }
-
-      window.location.reload();
-    } catch (error) {
-      console.error("Unable to retry task", error);
-      setRetryErrorTaskId(task.id);
-    } finally {
-      setRetryingTaskId(null);
-    }
-  }
-
-  if (!goal) {
-    return (
-      <div className="rounded-2xl bg-white p-6 text-sm font-medium text-gray-500 shadow-sm ring-1 ring-gray-200">
-        {labels.goals.noSelection}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <span
-              className={classNames(
-                goalStatusClass(goal.status),
-                "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-              )}
-            >
-              {goalStatusLabel(labels, goal.status)}
-            </span>
-            <h2 className="mt-3 text-xl font-semibold text-gray-900">
-              {goal.title}
-            </h2>
-            <p className="mt-1 text-sm">
-              <PlanIdLink locale={locale} planId={goal.planId} />
-            </p>
-          </div>
-          <div
-            className={classNames(
-              taskPriorityClass(goal.priority),
-              "shrink-0 rounded-full px-3 py-1 text-xs font-semibold ring-1"
-            )}
-          >
-            {taskPriorityLabel(goal.priority, locale)}
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <SupplementListMeta
-            label={labels.goals.trace}
-            value={goal.ray ?? ""}
-          />
-          <SupplementListMeta
-            label={labels.goals.source}
-            value={goal.source ?? ""}
-          />
-          <SupplementListMeta
-            label={labels.goals.lastActivity}
-            value={formatGeneratedAt(goal.lastActivityAt, locale)}
-          />
-        </div>
-      </section>
-
-      <GoalDetailSection
-        count={data.tasks.length}
-        defaultOpen={true}
-        locale={locale}
-        title={labels.goals.tasks}
-      >
-        <div className="space-y-3">
-          {taskLineageGroups.map((group) => (
-            <div
-              key={group.key}
-              className={classNames(
-                "space-y-2",
-                group.hasRetryLineage && "border-l-2 border-gray-200 pl-3"
-              )}
-            >
-              {group.hasRetryLineage ? (
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
-                  {labels.goals.attempts}
-                </p>
-              ) : null}
-              {group.tasks.map((task) => {
-                const reviewTaskIsOpen =
-                  isReviewTaskType(task.taskType) &&
-                  !taskIsTerminal(task.status);
-                const reviewHref = reviewTaskIsOpen
-                  ? adminReviewTaskHref({
-                      accessToken,
-                      filters,
-                      locale,
-                      range,
-                      reviewTaskId: task.id
-                    })
-                  : null;
-                const retrying = retryingTaskId === task.id;
-
-                return (
-                  <GoalTaskCard
-                    key={task.id}
-                    labels={labels}
-                    locale={locale}
-                    onRetry={retryTask}
-                    retryError={retryErrorTaskId === task.id}
-                    retrying={retrying}
-                    retryingTaskId={retryingTaskId}
-                    reviewHref={reviewHref}
-                    task={task}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </GoalDetailSection>
-
-      <GoalEventsSection data={data} labels={labels} locale={locale} />
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <GoalDetailCompactList
-          empty=""
-          items={data.dependencies.map(
-            (item) =>
-              `${compactId(item.taskId)} → ${compactId(item.dependsOnTaskId)} · ${readableToken(item.dependencyType)}`
-          )}
-          title={labels.goals.dependencies}
-        />
-        <GoalDetailCompactList
-          empty=""
-          items={data.reservations.map(
-            (item) =>
-              `${item.agentName ?? "Agent"} · ${readableToken(item.status)} · ${formatGeneratedAt(item.reservedAt, locale)}`
-          )}
-          title={labels.goals.reservations}
-        />
-        <GoalDetailCompactList
-          empty=""
-          items={data.approvals.map(
-            (item) =>
-              `${readableToken(item.approvalType)} · ${readableToken(item.status)} · ${formatGeneratedAt(item.requestedAt, locale)}`
-          )}
-          title={labels.goals.approvals}
-        />
-      </div>
-    </div>
-  );
-}
-
-function GoalTaskCard({
-  labels,
-  locale,
-  onRetry,
-  retryError,
-  retrying,
-  retryingTaskId,
-  reviewHref,
-  task
-}: Readonly<{
-  labels: AdminContent;
-  locale: Locale;
-  onRetry: (task: AdminGoalTaskRow) => Promise<void>;
-  retryError: boolean;
-  retrying: boolean;
-  retryingTaskId: string | null;
-  reviewHref: string | null;
-  task: AdminGoalTaskRow;
-}>) {
-  return (
-    <article className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-gray-900">
-            {reviewHref ? (
-              <a
-                className="text-[#1FA77A] underline-offset-2 hover:underline"
-                href={reviewHref}
-              >
-                {task.title}
-              </a>
-            ) : (
-              task.title
-            )}
-          </h3>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-gray-500">
-            <span>
-              {labels.goals.attempt}{" "}
-              {formatNumber(task.retryAttempt + 1, locale)}
-            </span>
-            <span>{readableToken(task.taskType)}</span>
-            <span>{compactId(task.id)}</span>
-            {task.retryOfTaskId ? (
-              <span>
-                {labels.goals.retryOf} {compactId(task.retryOfTaskId)}
-              </span>
-            ) : null}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-          <span
-            className={classNames(
-              taskActorClass(task.actorType),
-              "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-            )}
-          >
-            {taskActorLabel(task.actorType)}
-          </span>
-          <span
-            className={classNames(
-              taskStatusClass(task.status),
-              "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
-            )}
-          >
-            {readableToken(task.status)}
-          </span>
-          {task.canRetry ? (
-            <button
-              className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-300 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A] disabled:cursor-wait disabled:opacity-60"
-              disabled={Boolean(retryingTaskId)}
-              onClick={() => void onRetry(task)}
-              type="button"
-            >
-              {retrying ? labels.goals.retrying : labels.goals.retry}
-            </button>
-          ) : null}
-        </div>
-      </div>
-      {task.errorMessage ? (
-        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 ring-1 ring-red-100">
-          {task.errorMessage}
-        </p>
-      ) : null}
-      {retryError ? (
-        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 ring-1 ring-amber-100">
-          {labels.goals.retryFailed}
-        </p>
-      ) : null}
-    </article>
-  );
-}
-
-function GoalEventsSection({
-  data,
-  labels,
-  locale
-}: Readonly<{
-  data: AdminGoalsData;
-  labels: AdminContent;
-  locale: Locale;
-}>) {
-  const [open, setOpen] = useState(false);
-  const timelineItems = [...data.events, ...data.comments]
-    .sort((left, right) => {
-      const leftDate = "occurredAt" in left ? left.occurredAt : left.createdAt;
-      const rightDate =
-        "occurredAt" in right ? right.occurredAt : right.createdAt;
-
-      return new Date(rightDate).getTime() - new Date(leftDate).getTime();
-    })
-    .slice(0, 30);
-
-  return (
-    <section>
-      <button
-        className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm ring-1 ring-gray-200 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A]"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
-          {labels.goals.events}
-        </span>
-        <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-          {formatNumber(timelineItems.length, locale)}
-          <ChevronDownIcon
-            aria-hidden={true}
-            className={classNames(
-              "size-4 transition-transform",
-              open ? "rotate-180" : ""
-            )}
-          />
-        </span>
-      </button>
-
-      {open ? (
-        <div className="mt-3 space-y-3">
-          {timelineItems.map((item) =>
-            "occurredAt" in item ? (
-              <TimelineItem
-                key={`event:${item.id}`}
-                eyebrow={`${readableToken(item.eventStatus)} · ${item.agentName ?? "System"}`}
-                title={readableToken(item.eventType)}
-                time={formatGeneratedAt(item.occurredAt, locale)}
-              />
-            ) : (
-              <TimelineItem
-                key={`comment:${item.id}`}
-                eyebrow={`${readableToken(item.commentType)} · ${item.authorName ?? readableToken(item.authorType)}`}
-                title={item.body}
-                time={formatGeneratedAt(item.createdAt, locale)}
-              />
-            )
-          )}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function GoalDetailSection({
-  children,
-  count,
-  defaultOpen = false,
-  locale,
-  title
-}: Readonly<{
-  children: ReactNode;
-  count?: number;
-  defaultOpen?: boolean;
-  locale?: Locale;
-  title: string;
-}>) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <section>
-      <button
-        className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm ring-1 ring-gray-200 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1FA77A]"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
-          {title}
-        </span>
-        <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-          {typeof count === "number" && locale
-            ? formatNumber(count, locale)
-            : null}
-          <ChevronDownIcon
-            aria-hidden={true}
-            className={classNames(
-              "size-4 transition-transform",
-              open ? "rotate-180" : ""
-            )}
-          />
-        </span>
-      </button>
-      {open ? <div className="mt-3">{children}</div> : null}
-    </section>
-  );
-}
-
-function TimelineItem({
-  eyebrow,
-  time,
-  title
-}: Readonly<{
-  eyebrow: string;
-  time: string;
-  title: string;
-}>) {
-  return (
-    <article className="rounded-xl bg-white p-4 ring-1 ring-gray-200">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
-            {eyebrow}
-          </p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">{title}</p>
-        </div>
-        <p className="shrink-0 text-xs font-medium text-gray-500">{time}</p>
-      </div>
-    </article>
-  );
-}
-
-function GoalDetailCompactList({
-  empty,
-  items,
-  title
-}: Readonly<{
-  empty: string;
-  items: string[];
-  title: string;
-}>) {
-  return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
-        {title}
-      </h2>
-      <div className="mt-3 space-y-2">
-        {items.length > 0 ? (
-          items.slice(0, 6).map((item) => (
-            <p
-              className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 ring-1 ring-gray-100"
-              key={item}
-            >
-              {item}
-            </p>
-          ))
-        ) : (
-          <p className="text-sm font-medium text-gray-400">{empty}</p>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -9282,7 +8412,6 @@ function adminViewDatabaseAvailable({
   data,
   financialsData,
   flowData,
-  goalsData,
   leadsData,
   reviewQueueData,
   supplementsData,
@@ -9297,7 +8426,6 @@ function adminViewDatabaseAvailable({
   data: AdminDashboardData;
   financialsData: AdminFinancialsData;
   flowData: AdminFlowData;
-  goalsData: AdminGoalsData;
   leadsData: AdminLeadsData;
   reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
@@ -9342,10 +8470,6 @@ function adminViewDatabaseAvailable({
     return financialsData.databaseAvailable;
   }
 
-  if (view === "goals") {
-    return goalsData.databaseAvailable;
-  }
-
   if (view === "leads") {
     return leadsData.databaseAvailable;
   }
@@ -9376,12 +8500,10 @@ export function AdminDashboard({
   financialsData,
   filters,
   flowData,
-  goalsData,
   leadsData,
   locale,
   reviewQueueData,
   selectedReviewTaskId,
-  selectedGoalFilter,
   selectedTaskId,
   supplementsData,
   visibilityData,
@@ -9397,11 +8519,9 @@ export function AdminDashboard({
   financialsData: AdminFinancialsData;
   filters: AdminDashboardFilters;
   flowData: AdminFlowData;
-  goalsData: AdminGoalsData;
   leadsData: AdminLeadsData;
   locale: Locale;
   reviewQueueData: AdminReviewQueueData;
-  selectedGoalFilter?: string | null;
   selectedReviewTaskId?: string | null;
   selectedTaskId?: string | null;
   supplementsData: AdminSupplementsData;
@@ -9412,21 +8532,6 @@ export function AdminDashboard({
   const contentManagementView =
     view === "blogs" || view === "content" || view === "testimonials";
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const goalsStreamKey = `${view}:${data.range}:${goalsData.selectedGoalId ?? ""}`;
-  const liveGoalsData = useLiveAdminData({
-    enabled: view === "goals" && Boolean(accessToken),
-    eventName: "goals",
-    href:
-      accessToken && view === "goals"
-        ? adminGoalsEventsHref({
-            accessToken,
-            goalId: goalsData.selectedGoalId,
-            range: data.range
-          })
-        : "",
-    initialData: goalsData,
-    streamKey: goalsStreamKey
-  });
   const visibilityStreamKey = `${view}:${data.range}:visibility`;
   const liveVisibilityData = useLiveAdminData({
     enabled: view === "visibility" && Boolean(accessToken),
@@ -9467,7 +8572,6 @@ export function AdminDashboard({
     data,
     financialsData,
     flowData,
-    goalsData: liveGoalsData,
     leadsData,
     reviewQueueData,
     supplementsData,
@@ -9564,7 +8668,6 @@ export function AdminDashboard({
           view === "financials" ||
           view === "flow" ||
           view === "glance" ||
-          view === "goals" ||
           view === "leads" ||
           view === "visibility") ? (
             <>
@@ -9667,16 +8770,6 @@ export function AdminDashboard({
               data={communicationsData}
               labels={labels}
               locale={locale}
-            />
-          ) : view === "goals" ? (
-            <AdminGoalsView
-              accessToken={accessToken}
-              data={liveGoalsData}
-              filters={filters}
-              labels={labels}
-              locale={locale}
-              range={data.range}
-              selectedGoalFilter={selectedGoalFilter}
             />
           ) : view === "alerts" ? (
             <AdminTechnicalAlertsView

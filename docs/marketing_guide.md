@@ -133,7 +133,7 @@ Current views:
 - Supplements: the current supplement catalogue, list status, dose ceiling, confidence, and safety flags.
 - Reviews: supplement decisions and dose-reduction notices that need or needed a person.
 - Technical Alerts: operational failures or stuck work that may affect customer experience.
-- Goals: customer or operational outcomes grouped by ray, with their task progress and current status.
+- Tasks: operational work grouped by task chain, with ray and plan context available for filtering.
 
 ## Demo Campaign Data
 

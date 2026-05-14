@@ -18,7 +18,6 @@ import {
   type AdminFlowData,
   type AdminFlowNodeId
 } from "@/lib/admin-flow-data";
-import { getAdminGoalsData } from "@/lib/admin-goals";
 import { getAdminReviewQueueData } from "@/lib/admin-review-queue";
 import { getAdminSupplementsData } from "@/lib/admin-supplements";
 import { getAdminTechnicalAlertsData } from "@/lib/admin-technical";
@@ -33,7 +32,6 @@ export type AdminExternalQueryView =
   | "content"
   | "conversions"
   | "glance"
-  | "goals"
   | "leads"
   | "reviews"
   | "supplements"
@@ -188,7 +186,6 @@ const views = new Set<AdminExternalQueryView>([
   "content",
   "conversions",
   "glance",
-  "goals",
   "leads",
   "reviews",
   "supplements",
@@ -1195,16 +1192,6 @@ export async function getAdminExternalQueryData(
         !params.status ||
         row.adminStatus === params.status ||
         row.status === params.status
-    );
-    const { pageRows, pagination } = paginate(rows, params);
-
-    return queryEnvelope({ ...data, rows: pageRows }, params, pagination);
-  }
-
-  if (view === "goals") {
-    const data = await getAdminGoalsData(params.range, null);
-    const rows = data.rows.filter(
-      (row) => !params.status || row.status === params.status
     );
     const { pageRows, pagination } = paginate(rows, params);
 

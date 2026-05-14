@@ -6,17 +6,19 @@ import {
   buildTaskSequenceDependencyPlan,
   normalizeCapabilities,
   normalizeLeaseSeconds,
+  normalizeTaskBusinessValue,
   normalizeTaskIdempotencyScope,
   normalizeTaskDependencyType,
-  normalizeTaskPriority,
   normalizeTaskRetryPolicy,
-  TASK_PRIORITY,
+  TASK_BUSINESS_VALUE,
   taskRetryDelaySeconds,
   type TaskDependencyType,
   type TaskIdempotencyScope,
   type TaskRetryPolicyInput,
-  type TaskPriority
+  type NormalizedTaskRetryPolicy,
+  type TaskBusinessValue
 } from "@/lib/task-service-utils";
+import { notifyTaskQueueChanged } from "@/lib/task-wakeup";
 
 const globalTaskService = globalThis as typeof globalThis & {
   mattanutraWorkerSessionSchemaReady?: Promise<void>;
@@ -36,15 +38,6 @@ export type WorkerSessionStatus =
   | "offline"
   | "polling"
   | "working";
-
-export type GoalStatus =
-  | "active"
-  | "cancelled"
-  | "completed"
-  | "failed"
-  | "open";
-
-export type GoalType = "goal" | "journey" | "system" | "task_run";
 
 export type TaskActorType =
   | "ai"
@@ -127,27 +120,12 @@ export type WorkerSession = Readonly<{
   workerVersion: string | null;
 }>;
 
-export type TaskGoal = Readonly<{
-  completedAt: string | null;
-  context: unknown;
-  createdAt: string;
-  createdByAgentId: string | null;
-  emailHash: string | null;
-  id: string;
-  planId: string | null;
-  priority: TaskPriority;
-  ray: string | null;
-  source: string | null;
-  status: GoalStatus;
-  title: string;
-  type: GoalType;
-  updatedAt: string;
-}>;
-
 export type TaskRecord = Readonly<{
   actorType: TaskActorType;
   attempts: number;
+  businessValue: TaskBusinessValue;
   completedAt: string | null;
+  context: unknown;
   createdAt: string;
   createdByAgentId: string | null;
   createdByTaskId: string | null;
@@ -155,27 +133,30 @@ export type TaskRecord = Readonly<{
   errorMessage: string | null;
   id: string;
   idempotencyKey: string | null;
+  idempotencyScopeKey: string;
   leaseUntil: string | null;
   maxAttempts: number;
   maxRetries: number;
   parentTaskId: string | null;
   payload: unknown;
   planId: string | null;
-  priority: TaskPriority;
-  goalId: string;
+  rayId: string | null;
   reasoningEffort: TaskReasoningEffort;
   requiredCapabilities: string[];
   reservedByAgentId: string | null;
   resultPayload: unknown;
   retryAttempt: number;
   retryOfTaskId: string | null;
+  retryPolicy: NormalizedTaskRetryPolicy | null;
   retryRootTaskId: string | null;
   scheduledFor: string;
   startedAt: string | null;
   status: TaskStatus;
+  taskGroupId: string;
   taskType: string;
   title: string;
   updatedAt: string;
+  groupLabel: string | null;
 }>;
 
 export type TaskComment = Readonly<{
@@ -187,7 +168,6 @@ export type TaskComment = Readonly<{
   createdAt: string;
   id: string;
   metadata: unknown;
-  goalId: string;
   taskId: string;
   visibility: TaskCommentVisibility;
 }>;
@@ -202,7 +182,6 @@ export type TaskDependency = Readonly<{
 export type TaskBundle = Readonly<{
   comments: TaskComment[];
   dependencies: TaskDependency[];
-  goal: TaskGoal;
   task: TaskRecord;
 }>;
 
@@ -247,27 +226,12 @@ type WorkerSessionRow = {
   worker_version: string | null;
 };
 
-type GoalRow = {
-  completed_at: Date | string | null;
-  context: unknown;
-  created_at: Date | string;
-  created_by_agent_id: string | null;
-  email_hash: string | null;
-  id: string;
-  plan_id: string | null;
-  priority: number;
-  ray: string | null;
-  goal_type: GoalType;
-  source: string | null;
-  status: GoalStatus;
-  title: string;
-  updated_at: Date | string;
-};
-
 type TaskRow = {
   actor_type: TaskActorType;
   attempts: number;
+  business_value: number;
   completed_at: Date | string | null;
+  context: unknown;
   created_at: Date | string;
   created_by_agent_id: string | null;
   created_by_task_id: string | null;
@@ -275,27 +239,30 @@ type TaskRow = {
   error_message: string | null;
   id: string;
   idempotency_key: string | null;
+  idempotency_scope_key: string;
   lease_until: Date | string | null;
   max_attempts: number;
   max_retries: number;
   parent_task_id: string | null;
   payload: unknown;
   plan_id: string | null;
-  priority: number;
-  goal_id: string;
+  ray_id: string | null;
   reasoning_effort: TaskReasoningEffort;
   required_capabilities: string[];
   reserved_by_agent_id: string | null;
   result_payload: unknown;
   retry_attempt: number;
   retry_of_task_id: string | null;
+  retry_policy: unknown;
   retry_root_task_id: string | null;
   scheduled_for: Date | string;
   started_at: Date | string | null;
   status: TaskStatus;
+  task_group_id: string;
   task_type: string;
   title: string;
   updated_at: Date | string;
+  group_label: string | null;
 };
 
 type CommentRow = {
@@ -307,7 +274,6 @@ type CommentRow = {
   created_at: Date | string;
   id: string;
   metadata: unknown;
-  goal_id: string;
   task_id: string;
   visibility: TaskCommentVisibility;
 };
@@ -325,24 +291,10 @@ type ExpiredReservationRow = TaskRow & {
   reservation_worker_session_id: string | null;
 };
 
-const TASK_RETRY_METADATA_KEY = "__taskRetry";
-
-export type CreateGoalInput = Readonly<{
-  context?: Record<string, unknown>;
-  createdByAgentId?: string | null;
-  emailHash?: string | null;
-  id?: string | null;
-  planId?: string | null;
-  priority?: unknown;
-  ray?: string | null;
-  source?: string | null;
-  status?: GoalStatus;
-  title: string;
-  type?: GoalType;
-}>;
-
 export type CreateTaskInput = Readonly<{
   actorType?: TaskActorType;
+  businessValue?: unknown;
+  context?: Record<string, unknown>;
   createdByAgentId?: string | null;
   createdByTaskId?: string | null;
   dependencies?: ReadonlyArray<{
@@ -353,14 +305,14 @@ export type CreateTaskInput = Readonly<{
   id?: string | null;
   idempotencyKey?: string | null;
   idempotencyScope?: TaskIdempotencyScope;
+  idempotencyScopeKey?: string | null;
   initialComment?: Omit<AddTaskCommentInput, "taskId">;
   maxAttempts?: number;
   maxRetries?: unknown;
   parentTaskId?: string | null;
   payload?: Record<string, unknown>;
   planId?: string | null;
-  priority?: unknown;
-  goalId: string;
+  rayId?: string | null;
   reasoningEffort?: TaskReasoningEffort;
   requiredCapabilities?: unknown;
   retryAttempt?: unknown;
@@ -368,6 +320,8 @@ export type CreateTaskInput = Readonly<{
   retryPolicy?: TaskRetryPolicyInput;
   retryRootTaskId?: string | null;
   scheduledFor?: Date | string | null;
+  taskGroupId?: string | null;
+  groupLabel?: string | null;
   taskType: string;
   title: string;
 }>;
@@ -388,7 +342,6 @@ export type AddTaskEventInput = Readonly<{
   eventPayload?: Record<string, unknown>;
   eventStatus?: TaskEventStatus;
   eventType: string;
-  goalId?: string | null;
   severity?: TaskEventSeverity;
   taskId?: string | null;
 }>;
@@ -491,7 +444,7 @@ export type HeartbeatWorkerSessionInput = Readonly<{
   workerSessionId: string;
 }>;
 
-export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId" | "goalId"> &
+export type SpawnChildTaskInput = Omit<CreateTaskInput, "createdByTaskId" | "parentTaskId"> &
   Readonly<{
     parentTaskId: string;
   }>;
@@ -502,7 +455,7 @@ export type TaskSequenceDependencyInput = Readonly<{
   type?: TaskDependencyType;
 }>;
 
-export type TaskSequenceTaskInput = Omit<CreateTaskInput, "dependencies" | "goalId"> &
+export type TaskSequenceTaskInput = Omit<CreateTaskInput, "dependencies"> &
   Readonly<{
     dependsOn?: ReadonlyArray<TaskSequenceDependencyInput>;
     key?: string | null;
@@ -516,7 +469,7 @@ export type TaskSequenceStageInput = Readonly<{
 
 export type CreateTaskSequenceInput = Readonly<{
   createdByAgentId?: string | null;
-  goalId: string;
+  taskGroupId?: string | null;
   sequenceKey?: string | null;
   stages: ReadonlyArray<TaskSequenceStageInput>;
 }>;
@@ -751,25 +704,13 @@ function payloadRecord(payload: unknown) {
     : {};
 }
 
-function retryMetadataRecord(payload: unknown) {
-  return payloadRecord(payloadRecord(payload)[TASK_RETRY_METADATA_KEY]);
-}
-
-function retryPolicyFromTask(task: Pick<TaskRecord, "payload">) {
-  return normalizeTaskRetryPolicy(
-    retryMetadataRecord(task.payload).policy as TaskRetryPolicyInput
-  );
-}
-
 function retryPolicyForTask(
-  task: Pick<TaskRecord, "maxRetries" | "payload">
+  task: Pick<TaskRecord, "maxRetries" | "retryPolicy">
 ) {
-  const legacyPolicy = retryPolicyFromTask(task);
-
   return {
-    backoffMultiplier: legacyPolicy?.backoffMultiplier ?? 2,
-    initialDelaySeconds: legacyPolicy?.initialDelaySeconds ?? 300,
-    maxDelaySeconds: legacyPolicy?.maxDelaySeconds ?? 3_600,
+    backoffMultiplier: task.retryPolicy?.backoffMultiplier ?? 2,
+    initialDelaySeconds: task.retryPolicy?.initialDelaySeconds ?? 300,
+    maxDelaySeconds: task.retryPolicy?.maxDelaySeconds ?? 3_600,
     maxRetries: task.maxRetries
   };
 }
@@ -782,6 +723,12 @@ function taskLineageRootId(
 
 function taskRetryWillBeScheduled(task: TaskRecord) {
   return Boolean(task.idempotencyKey) && task.retryAttempt < task.maxRetries;
+}
+
+function normalizedRetryPolicyJson(
+  policy: NormalizedTaskRetryPolicy | null
+) {
+  return policy ? toJsonValue(policy) : {};
 }
 
 function mapAgent(row: AgentRow): TaskAgent {
@@ -824,30 +771,17 @@ function intersectCapabilities(left: readonly string[], right: readonly string[]
   return left.filter((item) => rightSet.has(item));
 }
 
-function mapGoal(row: GoalRow): TaskGoal {
-  return {
-    completedAt: isoDate(row.completed_at),
-    context: row.context,
-    createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
-    createdByAgentId: row.created_by_agent_id,
-    emailHash: row.email_hash,
-    id: row.id,
-    planId: row.plan_id,
-    priority: normalizeTaskPriority(row.priority),
-    ray: row.ray,
-    source: row.source,
-    status: row.status,
-    title: row.title,
-    type: row.goal_type,
-    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
-  };
-}
-
 function mapTask(row: TaskRow): TaskRecord {
+  const retryPolicy = normalizeTaskRetryPolicy(
+    payloadRecord(row.retry_policy) as TaskRetryPolicyInput
+  );
+
   return {
     actorType: row.actor_type,
     attempts: row.attempts,
+    businessValue: normalizeTaskBusinessValue(row.business_value),
     completedAt: isoDate(row.completed_at),
+    context: row.context,
     createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
     createdByAgentId: row.created_by_agent_id,
     createdByTaskId: row.created_by_task_id,
@@ -855,27 +789,30 @@ function mapTask(row: TaskRow): TaskRecord {
     errorMessage: row.error_message,
     id: row.id,
     idempotencyKey: row.idempotency_key,
+    idempotencyScopeKey: row.idempotency_scope_key,
     leaseUntil: isoDate(row.lease_until),
     maxAttempts: row.max_attempts,
     maxRetries: row.max_retries,
     parentTaskId: row.parent_task_id,
     payload: row.payload,
     planId: row.plan_id,
-    priority: normalizeTaskPriority(row.priority),
-    goalId: row.goal_id,
+    rayId: row.ray_id,
     reasoningEffort: row.reasoning_effort,
     requiredCapabilities: normalizeCapabilities(row.required_capabilities),
     reservedByAgentId: row.reserved_by_agent_id,
     resultPayload: row.result_payload,
     retryAttempt: row.retry_attempt,
     retryOfTaskId: row.retry_of_task_id,
+    retryPolicy,
     retryRootTaskId: row.retry_root_task_id,
     scheduledFor: isoDate(row.scheduled_for) ?? new Date().toISOString(),
     startedAt: isoDate(row.started_at),
     status: row.status,
+    taskGroupId: row.task_group_id,
     taskType: row.task_type,
     title: row.title,
-    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString()
+    updatedAt: isoDate(row.updated_at) ?? new Date().toISOString(),
+    groupLabel: row.group_label
   };
 }
 
@@ -889,7 +826,6 @@ function mapComment(row: CommentRow): TaskComment {
     createdAt: isoDate(row.created_at) ?? new Date().toISOString(),
     id: row.id,
     metadata: row.metadata,
-    goalId: row.goal_id,
     taskId: row.task_id,
     visibility: row.visibility
   };
@@ -904,28 +840,8 @@ function mapDependency(row: DependencyRow): TaskDependency {
   };
 }
 
-async function taskGoalId(sql: Db, taskId: string) {
-  const rows = await sql<{ goal_id: string }[]>`
-    select goal_id::text
-    from public.tasks
-    where id = ${taskId}::uuid
-    limit 1
-  `;
-
-  if (!rows[0]) {
-    throw new Error(`Task ${taskId} not found`);
-  }
-
-  return rows[0].goal_id;
-}
-
 async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
   const taskId = uuidOrNull(input.taskId);
-  const goalId = uuidOrNull(input.goalId) ?? (taskId ? await taskGoalId(sql, taskId) : null);
-
-  if (!goalId) {
-    throw new Error("Task event requires a goalId or valid taskId");
-  }
 
   const id = randomUUID();
 
@@ -933,7 +849,6 @@ async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
     insert into public.task_events (
       id,
       task_id,
-      goal_id,
       agent_id,
       event_type,
       event_status,
@@ -945,7 +860,6 @@ async function addTaskEventInTransaction(sql: Db, input: AddTaskEventInput) {
     values (
       ${id}::uuid,
       ${taskId}::uuid,
-      ${goalId}::uuid,
       ${uuidOrNull(input.agentId)}::uuid,
       ${cleanText(input.eventType, "unknown")},
       ${input.eventStatus ?? "observed"},
@@ -964,82 +878,6 @@ export async function addTaskEventToTransaction(
   input: AddTaskEventInput
 ) {
   return addTaskEventInTransaction(sql, input);
-}
-
-async function refreshGoalStateInTransaction(sql: Db, goalId: string) {
-  const rows = await sql<
-    Array<{
-      active_count: number | string;
-      failed_count: number | string;
-      task_count: number | string;
-    }>
-  >`
-    select
-      count(*)::int as task_count,
-      count(*) filter (
-        where status in (
-          'queued',
-          'reserved',
-          'running',
-          'needs_review',
-          'waiting_approval'
-        )
-      )::int as active_count,
-      count(*) filter (
-        where status = 'failed'
-          and not exists (
-            select 1
-            from public.tasks as successor
-            where successor.goal_id = tasks.goal_id
-              and successor.status in (
-                'queued',
-                'reserved',
-                'running',
-                'needs_review',
-                'waiting_approval',
-                'completed',
-                'skipped'
-              )
-              and (
-                (
-                  coalesce(successor.retry_root_task_id, successor.id)
-                    = coalesce(tasks.retry_root_task_id, tasks.id)
-                  and successor.retry_attempt > tasks.retry_attempt
-                )
-                or (
-                  tasks.idempotency_key is not null
-                  and successor.idempotency_key = tasks.idempotency_key
-                  and successor.created_at > tasks.created_at
-                )
-              )
-          )
-      )::int as failed_count
-    from public.tasks
-    where goal_id = ${goalId}::uuid
-  `;
-  const counts = rows[0];
-
-  if (!counts || Number(counts.task_count) < 1) {
-    return;
-  }
-
-  const activeCount = Number(counts.active_count);
-  const failedCount = Number(counts.failed_count);
-  const status =
-    activeCount > 0 ? "active" : failedCount > 0 ? "failed" : "completed";
-
-  await sql`
-    update public.goals
-    set
-      status = ${status},
-      completed_at = case
-        when ${status} = 'completed' then coalesce(completed_at, now())
-        else null
-      end,
-      updated_at = now()
-    where id = ${goalId}::uuid
-      and status <> 'cancelled'
-  `;
 }
 
 async function activeReservationInTransaction(
@@ -1231,54 +1069,6 @@ async function hideLegacyAggregateWorkerAgent(sql: Db) {
   `;
 }
 
-async function createGoalInTransaction(sql: Db, input: CreateGoalInput) {
-  const goalId = uuidOrNew(input.id);
-  const ray = uuidOrNull(input.ray) ?? goalId;
-  const rows = await sql<GoalRow[]>`
-    insert into public.goals (
-      id,
-      ray,
-      goal_type,
-      title,
-      status,
-      priority,
-      plan_id,
-      email_hash,
-      source,
-      context,
-      created_by_agent_id,
-      created_at,
-      updated_at
-    )
-    values (
-      ${goalId}::uuid,
-      ${ray}::uuid,
-      ${input.type ?? "goal"},
-      ${cleanText(input.title, "Untitled goal")},
-      ${input.status ?? "open"},
-      ${normalizeTaskPriority(input.priority)},
-      ${uuidOrNull(input.planId)}::uuid,
-      ${optionalText(input.emailHash)},
-      ${optionalText(input.source)},
-      ${sql.json(toJsonValue(input.context ?? {}))},
-      ${uuidOrNull(input.createdByAgentId)}::uuid,
-      now(),
-      now()
-    )
-    on conflict (id) do update set
-      ray = coalesce(public.goals.ray, excluded.ray),
-      plan_id = coalesce(public.goals.plan_id, excluded.plan_id),
-      email_hash = coalesce(public.goals.email_hash, excluded.email_hash),
-      source = coalesce(public.goals.source, excluded.source),
-      context = public.goals.context || excluded.context,
-      priority = greatest(public.goals.priority, excluded.priority),
-      updated_at = now()
-    returning *
-  `;
-
-  return mapGoal(rows[0]);
-}
-
 async function addTaskCommentInTransaction(
   sql: Db,
   input: AddTaskCommentInput
@@ -1289,13 +1079,11 @@ async function addTaskCommentInTransaction(
     throw new Error("Task comment requires a valid taskId");
   }
 
-  const goalId = await taskGoalId(sql, taskId);
   const id = randomUUID();
   const rows = await sql<CommentRow[]>`
     insert into public.task_comments (
       id,
       task_id,
-      goal_id,
       agent_id,
       author_type,
       author_name,
@@ -1308,7 +1096,6 @@ async function addTaskCommentInTransaction(
     values (
       ${id}::uuid,
       ${taskId}::uuid,
-      ${goalId}::uuid,
       ${uuidOrNull(input.agentId)}::uuid,
       ${input.authorType ?? "system"},
       ${optionalText(input.authorName)},
@@ -1329,7 +1116,6 @@ async function addTaskCommentInTransaction(
       visibility: input.visibility ?? "internal"
     },
     eventType: "comment_added",
-    goalId,
     taskId
   });
 
@@ -1424,13 +1210,46 @@ async function ensureTaskDependenciesInTransaction(
 }
 
 async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
-  const goalId = uuidOrNull(input.goalId);
+  const taskId = uuidOrNew(input.id);
+  const parentTaskId = uuidOrNull(input.parentTaskId);
+  const createdByTaskId = uuidOrNull(input.createdByTaskId);
+  const parentContextTaskId = parentTaskId ?? createdByTaskId;
+  let inheritedGroupId: string | null = null;
+  let inheritedRayId: string | null = null;
+  let inheritedPlanId: string | null = null;
+  let inheritedGroupLabel: string | null = null;
 
-  if (!goalId) {
-    throw new Error("Task requires a valid goalId");
+  if (parentContextTaskId) {
+    const parentRows = await sql<Array<{
+      group_label: string | null;
+      plan_id: string | null;
+      ray_id: string | null;
+      task_group_id: string;
+    }>>`
+      select
+        group_label,
+        plan_id::text,
+        ray_id::text,
+        task_group_id::text
+      from public.tasks
+      where id = ${parentContextTaskId}::uuid
+      limit 1
+    `;
+    inheritedGroupId = parentRows[0]?.task_group_id ?? null;
+    inheritedRayId = parentRows[0]?.ray_id ?? null;
+    inheritedPlanId = parentRows[0]?.plan_id ?? null;
+    inheritedGroupLabel = parentRows[0]?.group_label ?? null;
   }
 
+  const taskGroupId =
+    uuidOrNull(input.taskGroupId) ?? inheritedGroupId ?? taskId;
+  const rayId = uuidOrNull(input.rayId) ?? inheritedRayId;
+  const planId = uuidOrNull(input.planId) ?? inheritedPlanId;
   const idempotencyKey = optionalText(input.idempotencyKey);
+  const idempotencyScopeKey =
+    optionalText(input.idempotencyScopeKey) ??
+    taskGroupId ??
+    cleanText(input.taskType, "unknown");
   const idempotencyScope = normalizeTaskIdempotencyScope(
     input.idempotencyScope
   );
@@ -1445,12 +1264,17 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
   const retryOfTaskId = uuidOrNull(input.retryOfTaskId);
   const retryRootTaskId = uuidOrNull(input.retryRootTaskId) ?? retryOfTaskId;
   const payload = input.payload ?? {};
+  const businessValue = normalizeTaskBusinessValue(input.businessValue);
+  const groupLabel =
+    optionalText(input.groupLabel) ??
+    inheritedGroupLabel ??
+    cleanText(input.title, "Untitled task");
 
   if (idempotencyKey) {
     const existing = await sql<TaskRow[]>`
       select *
       from public.tasks
-      where goal_id = ${goalId}::uuid
+      where idempotency_scope_key = ${idempotencyScopeKey}
         and idempotency_key = ${idempotencyKey}
         and (
           status not in ('completed', 'failed', 'cancelled', 'skipped')
@@ -1471,42 +1295,27 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
     }
   }
 
-  const goals = await sql<Array<{ priority: number | string }>>`
-    select priority
-    from public.goals
-    where id = ${goalId}::uuid
-    limit 1
-  `;
-  const goalPriority = normalizeTaskPriority(goals[0]?.priority);
-  const hasExplicitPriority =
-    input.priority !== undefined &&
-    input.priority !== null &&
-    !(typeof input.priority === "string" && input.priority.trim() === "");
-  const taskPriority = hasExplicitPriority
-    ? normalizeTaskPriority(input.priority)
-    : goalPriority;
-
-  if (!goals[0]) {
-    throw new Error(`Goal ${goalId} not found`);
-  }
-
   const inserted = await sql<TaskRow[]>`
     insert into public.tasks (
       id,
-      goal_id,
       parent_task_id,
       plan_id,
+      ray_id,
+      task_group_id,
+      group_label,
       task_type,
       title,
       description,
       actor_type,
       status,
-      priority,
+      business_value,
       required_capabilities,
       reasoning_effort,
+      context,
       payload,
       result_payload,
       idempotency_key,
+      idempotency_scope_key,
       scheduled_for,
       attempts,
       max_attempts,
@@ -1514,27 +1323,32 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       retry_root_task_id,
       retry_attempt,
       max_retries,
+      retry_policy,
       created_by_agent_id,
       created_by_task_id,
       created_at,
       updated_at
     )
     values (
-      ${uuidOrNew(input.id)}::uuid,
-      ${goalId}::uuid,
-      ${uuidOrNull(input.parentTaskId)}::uuid,
-      ${uuidOrNull(input.planId)}::uuid,
+      ${taskId}::uuid,
+      ${parentTaskId}::uuid,
+      ${planId}::uuid,
+      ${rayId}::uuid,
+      ${taskGroupId}::uuid,
+      ${groupLabel},
       ${cleanText(input.taskType, "unknown")},
       ${cleanText(input.title, "Untitled task")},
       ${optionalText(input.description)},
       ${input.actorType ?? "system"},
       'queued',
-      ${taskPriority},
+      ${businessValue},
       ${normalizeCapabilities(input.requiredCapabilities)},
       ${input.reasoningEffort ?? "none"},
+      ${sql.json(toJsonValue(input.context ?? {}))},
       ${sql.json(toJsonValue(payload))},
       '{}'::jsonb,
       ${idempotencyKey},
+      ${idempotencyScopeKey},
       ${input.scheduledFor ? new Date(input.scheduledFor) : new Date()},
       0,
       ${positiveInteger(input.maxAttempts, 3)},
@@ -1542,8 +1356,9 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       ${retryRootTaskId}::uuid,
       ${retryAttempt},
       ${maxRetries},
+      ${sql.json(normalizedRetryPolicyJson(retryPolicy))},
       ${uuidOrNull(input.createdByAgentId)}::uuid,
-      ${uuidOrNull(input.createdByTaskId)}::uuid,
+      ${createdByTaskId}::uuid,
       now(),
       now()
     )
@@ -1557,7 +1372,7 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       await sql<TaskRow[]>`
         select *
         from public.tasks
-        where goal_id = ${goalId}::uuid
+        where idempotency_scope_key = ${idempotencyScopeKey}
           and idempotency_key = ${idempotencyKey}
           and (
             status not in ('completed', 'failed', 'cancelled', 'skipped')
@@ -1591,12 +1406,11 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
   await addTaskEventInTransaction(sql, {
     agentId: input.createdByAgentId,
     eventPayload: {
-      goalPriority,
+      businessValue: task.businessValue,
       idempotencyKey,
+      idempotencyScopeKey,
       idempotencyScope,
       maxRetries,
-      priority: task.priority,
-      prioritySource: hasExplicitPriority ? "explicit" : "goal",
       requiredCapabilities: task.requiredCapabilities,
       retryAttempt,
       retryOfTaskId,
@@ -1604,25 +1418,8 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       retryPolicy
     },
     eventType: "task_created",
-    goalId,
     taskId: task.id
   });
-
-  if (hasExplicitPriority && task.priority !== goalPriority) {
-    await addTaskEventInTransaction(sql, {
-      agentId: input.createdByAgentId,
-      eventPayload: {
-        goalPriority,
-        requestedPriority: input.priority,
-        taskPriority: task.priority
-      },
-      eventStatus: "observed",
-      eventType: "task_priority_overridden",
-      goalId,
-      severity: "low",
-      taskId: task.id
-    });
-  }
 
   if (input.initialComment) {
     await addTaskCommentInTransaction(sql, {
@@ -1630,6 +1427,8 @@ async function createTaskInTransaction(sql: Db, input: CreateTaskInput) {
       taskId: task.id
     });
   }
+
+  notifyTaskQueueChanged();
 
   return { created: true, task };
 }
@@ -1708,7 +1507,7 @@ export async function registerWorkerSession(input: RegisterWorkerSessionInput) {
   return {
     agent,
     polling: {
-      leaseSeconds: 600,
+      leaseSeconds: 180,
       waitSeconds: 20
     },
     session: mapWorkerSession(rows[0])
@@ -1758,12 +1557,6 @@ export async function heartbeatWorkerSession(input: HeartbeatWorkerSessionInput)
   return mapWorkerSession(rows[0]);
 }
 
-export async function createGoal(input: CreateGoalInput) {
-  const sql = getRequiredSql();
-
-  return createGoalInTransaction(sql, input);
-}
-
 export async function createTask(input: CreateTaskInput) {
   const sql = getRequiredSql();
 
@@ -1803,7 +1596,6 @@ export async function retryFailedTask(input: RetryFailedTaskInput) {
     const retryAttempt = failedTask.retryAttempt + 1;
     const retryRootTaskId = taskLineageRootId(failedTask);
     const payload = { ...payloadRecord(failedTask.payload) };
-    delete payload[TASK_RETRY_METADATA_KEY];
     const dependencyRows = await tx<DependencyRow[]>`
       select
         task_id::text,
@@ -1823,9 +1615,9 @@ export async function retryFailedTask(input: RetryFailedTaskInput) {
         type: dependency.dependency_type
       })),
       description: failedTask.description,
-      goalId: failedTask.goalId,
       idempotencyKey: failedTask.idempotencyKey,
       idempotencyScope: "active",
+      idempotencyScopeKey: failedTask.idempotencyScopeKey,
       initialComment: {
         authorName: "MattaNutra admin",
         authorType: "system",
@@ -1841,7 +1633,11 @@ export async function retryFailedTask(input: RetryFailedTaskInput) {
       maxRetries: retryAttempt,
       payload,
       planId: failedTask.planId,
-      priority: failedTask.priority,
+      rayId: failedTask.rayId,
+      businessValue: failedTask.businessValue,
+      context: payloadRecord(failedTask.context),
+      groupLabel: failedTask.groupLabel,
+      taskGroupId: failedTask.taskGroupId,
       reasoningEffort: failedTask.reasoningEffort,
       requiredCapabilities: failedTask.requiredCapabilities,
       retryAttempt,
@@ -1868,12 +1664,9 @@ export async function retryFailedTask(input: RetryFailedTaskInput) {
       eventType: created.created
         ? "task_manual_retry_requested"
         : "task_manual_retry_already_exists",
-      goalId: failedTask.goalId,
       severity: "medium",
       taskId: failedTask.id
     });
-
-    await refreshGoalStateInTransaction(tx, failedTask.goalId);
 
     return {
       created: created.created,
@@ -1887,12 +1680,6 @@ async function createTaskSequenceInTransaction(
   sql: Db,
   input: CreateTaskSequenceInput
 ): Promise<CreatedTaskSequence> {
-  const goalId = uuidOrNull(input.goalId);
-
-  if (!goalId) {
-    throw new Error("Task sequence requires a valid goalId");
-  }
-
   const plan = buildTaskSequenceDependencyPlan(input.stages);
 
   if (plan.length < 1) {
@@ -1900,6 +1687,7 @@ async function createTaskSequenceInTransaction(
   }
 
   const sequenceKey = optionalText(input.sequenceKey);
+  let taskGroupId = uuidOrNull(input.taskGroupId);
   const dependencies: TaskDependency[] = [];
   const tasks: TaskRecord[] = [];
   const tasksByKey = new Map<string, TaskRecord>();
@@ -1941,11 +1729,13 @@ async function createTaskSequenceInTransaction(
       ...taskInput,
       createdByAgentId: taskInput.createdByAgentId ?? input.createdByAgentId,
       dependencies: [],
-      goalId,
       idempotencyKey:
         optionalText(taskInput.idempotencyKey) ??
-        (sequenceKey ? `${sequenceKey}:${planItem.key}` : null)
+        (sequenceKey ? `${sequenceKey}:${planItem.key}` : null),
+      idempotencyScopeKey: taskInput.idempotencyScopeKey ?? sequenceKey,
+      taskGroupId: taskGroupId ?? undefined
     });
+    taskGroupId ??= created.task.taskGroupId;
     const savedDependencies = await ensureTaskDependenciesInTransaction(
       sql,
       created.task.id,
@@ -1968,7 +1758,7 @@ async function createTaskSequenceInTransaction(
     },
     eventStatus: "requested",
     eventType: "task_sequence_created",
-    goalId
+    taskId: tasks[0]?.id
   });
 
   return {
@@ -2015,13 +1805,7 @@ export async function getTaskBundle(input: Readonly<{ taskId: string }>) {
   }
 
   const task = mapTask(taskRows[0]);
-  const [goalRows, commentRows, dependencyRows] = await Promise.all([
-    sql<GoalRow[]>`
-      select *
-      from public.goals
-      where id = ${task.goalId}::uuid
-      limit 1
-    `,
+  const [commentRows, dependencyRows] = await Promise.all([
     sql<CommentRow[]>`
       select *
       from public.task_comments
@@ -2040,14 +1824,9 @@ export async function getTaskBundle(input: Readonly<{ taskId: string }>) {
     `
   ]);
 
-  if (!goalRows[0]) {
-    throw new Error(`Goal ${task.goalId} not found`);
-  }
-
   return {
     comments: commentRows.map(mapComment),
     dependencies: dependencyRows.map(mapDependency),
-    goal: mapGoal(goalRows[0]),
     task
   } satisfies TaskBundle;
 }
@@ -2067,72 +1846,20 @@ export async function assertActiveTaskReservation(
   return activeReservationInTransaction(sql, input);
 }
 
-export async function listGoalTasks(input: Readonly<{ goalId: string }>) {
-  const sql = getRequiredSql();
-  const goalId = uuidOrNull(input.goalId);
-
-  if (!goalId) {
-    throw new Error("Goal not found");
-  }
-
-  const goalRows = await sql<GoalRow[]>`
-    select *
-    from public.goals
-    where id = ${goalId}::uuid
-    limit 1
-  `;
-
-  if (!goalRows[0]) {
-    throw new Error(`Goal ${goalId} not found`);
-  }
-
-  const taskRows = await sql<TaskRow[]>`
-    select *
-    from public.tasks
-    where goal_id = ${goalId}::uuid
-    order by
-      case
-        when status in (
-          'queued',
-          'reserved',
-          'running',
-          'needs_review',
-          'waiting_approval'
-        ) then 0
-        else 1
-      end,
-      priority desc,
-      scheduled_for asc,
-      created_at asc
-  `;
-  const taskIds = taskRows.map((row) => row.id);
-  const dependencyRows =
-    taskIds.length > 0
-      ? await sql<DependencyRow[]>`
-          select
-            task_id::text,
-            depends_on_task_id::text,
-            dependency_type,
-            created_at
-          from public.task_dependencies
-          where task_id = any(${taskIds}::uuid[])
-          order by created_at asc
-        `
-      : [];
-
-  return {
-    dependencies: dependencyRows.map(mapDependency),
-    goal: mapGoal(goalRows[0]),
-    tasks: taskRows.map(mapTask)
-  };
-}
-
 export async function releaseExpiredReservations(
   input: ReleaseExpiredReservationsInput = {}
 ) {
   const sql = getRequiredSql();
 
-  return sql.begin((tx) => releaseExpiredReservationsInTransaction(tx, input));
+  const releasedCount = await sql.begin((tx) =>
+    releaseExpiredReservationsInTransaction(tx, input)
+  );
+
+  if (releasedCount > 0) {
+    notifyTaskQueueChanged();
+  }
+
+  return releasedCount;
 }
 
 async function releaseExpiredReservationsInTransaction(
@@ -2215,7 +1942,6 @@ async function releaseExpiredReservationsInTransaction(
       },
       eventStatus: exhausted ? "failed" : "observed",
       eventType: exhausted ? "task_failed_after_lease_expiry" : "lease_expired",
-      goalId: row.goal_id,
       severity: exhausted ? "high" : "medium",
       taskId: row.id
     });
@@ -2228,8 +1954,6 @@ async function releaseExpiredReservationsInTransaction(
         task: mapTask(updatedTasks[0])
       });
     }
-
-    await refreshGoalStateInTransaction(sql, row.goal_id);
   }
 
   return expired.length;
@@ -2244,8 +1968,7 @@ async function taskHasSuccessfulRetryInTransaction(sql: Db, task: TaskRecord) {
   const rows = await sql<Array<{ id: string }>>`
     select id::text
     from public.tasks
-    where goal_id = ${task.goalId}::uuid
-      and status in ('completed', 'skipped')
+    where status in ('completed', 'skipped')
       and (
         (
           coalesce(retry_root_task_id, id) = ${lineageRootId}::uuid
@@ -2253,6 +1976,7 @@ async function taskHasSuccessfulRetryInTransaction(sql: Db, task: TaskRecord) {
         )
         or (
           idempotency_key = ${task.idempotencyKey}
+          and idempotency_scope_key = ${task.idempotencyScopeKey}
           and created_at > ${new Date(task.createdAt)}
         )
       )
@@ -2271,8 +1995,7 @@ async function taskHasLaterRetrySuccessorInTransaction(
   const rows = await sql<Array<{ id: string }>>`
     select id::text
     from public.tasks as successor
-    where successor.goal_id = ${task.goalId}::uuid
-      and successor.id <> ${task.id}::uuid
+    where successor.id <> ${task.id}::uuid
       and successor.status <> 'cancelled'
       and (
         (
@@ -2282,6 +2005,7 @@ async function taskHasLaterRetrySuccessorInTransaction(
         or (
           ${task.idempotencyKey}::text is not null
           and successor.idempotency_key = ${task.idempotencyKey}
+          and successor.idempotency_scope_key = ${task.idempotencyScopeKey}
           and successor.created_at > ${new Date(task.createdAt)}
         )
       )
@@ -2316,7 +2040,6 @@ async function scheduleRetryForFailedTaskInTransaction(
       },
       eventStatus: "observed",
       eventType: "task_retry_not_needed",
-      goalId: input.task.goalId,
       taskId: input.task.id
     });
 
@@ -2334,7 +2057,6 @@ async function scheduleRetryForFailedTaskInTransaction(
       },
       eventStatus: "failed",
       eventType: "task_retry_exhausted",
-      goalId: input.task.goalId,
       severity: "high",
       taskId: input.task.id
     });
@@ -2351,9 +2073,9 @@ async function scheduleRetryForFailedTaskInTransaction(
     createdByAgentId: input.failedByAgentId,
     createdByTaskId: input.task.id,
     description: input.task.description,
-    goalId: input.task.goalId,
     idempotencyKey: input.task.idempotencyKey,
     idempotencyScope: "active",
+    idempotencyScopeKey: input.task.idempotencyScopeKey,
     initialComment: {
       authorName: "MattaNutra agent",
       authorType: "system",
@@ -2369,7 +2091,11 @@ async function scheduleRetryForFailedTaskInTransaction(
     maxRetries: input.task.maxRetries,
     payload,
     planId: input.task.planId,
-    priority: input.task.priority,
+    rayId: input.task.rayId,
+    businessValue: input.task.businessValue,
+    context: payloadRecord(input.task.context),
+    groupLabel: input.task.groupLabel,
+    taskGroupId: input.task.taskGroupId,
     reasoningEffort: input.task.reasoningEffort,
     requiredCapabilities: input.task.requiredCapabilities,
     retryAttempt,
@@ -2394,7 +2120,6 @@ async function scheduleRetryForFailedTaskInTransaction(
     eventType: created.created
       ? "task_retry_scheduled"
       : "task_retry_already_scheduled",
-    goalId: input.task.goalId,
     severity: "medium",
     taskId: input.task.id
   });
@@ -2481,9 +2206,7 @@ export async function reserveNextTask(
       with candidate as (
         select tasks.*
         from public.tasks
-        join public.goals on goals.id = tasks.goal_id
         where tasks.status = 'queued'
-          and goals.status in ('open', 'active')
           and tasks.scheduled_for <= now()
           and tasks.attempts < tasks.max_attempts
           and (
@@ -2524,7 +2247,16 @@ export async function reserveNextTask(
                 )
               )
           )
-        order by goals.priority desc, tasks.priority desc, tasks.scheduled_for asc, tasks.created_at asc
+        order by
+          (
+            tasks.business_value
+            + least(
+              200,
+              floor(greatest(0, extract(epoch from now() - tasks.scheduled_for) - 300) / 900) * 10
+            )
+          ) desc,
+          tasks.scheduled_for asc,
+          tasks.created_at asc
         limit 1
         for update skip locked
       )
@@ -2546,15 +2278,6 @@ export async function reserveNextTask(
 
     const task = mapTask(rows[0]);
     const reservationId = randomUUID();
-
-    await tx`
-      update public.goals
-      set
-        status = 'active',
-        updated_at = now()
-      where id = ${task.goalId}::uuid
-        and status = 'open'
-    `;
 
     await tx`
       insert into public.task_reservations (
@@ -2606,7 +2329,6 @@ export async function reserveNextTask(
       },
       eventStatus: "accepted",
       eventType: "task_reserved",
-      goalId: task.goalId,
       taskId: task.id
     });
 
@@ -2620,6 +2342,8 @@ export async function reserveNextTask(
   if (!reserved) {
     return null;
   }
+
+  notifyTaskQueueChanged();
 
   const commentRows = await sql<CommentRow[]>`
     select *
@@ -2738,13 +2462,13 @@ export async function completeTask(input: CompleteTaskInput) {
       },
       eventStatus: "succeeded",
       eventType: "task_completed",
-      goalId: task.goalId,
       taskId: task.id
     });
-    await refreshGoalStateInTransaction(tx, task.goalId);
 
     return task;
   });
+
+  notifyTaskQueueChanged();
 
   for (const effect of afterCommitEffects) {
     try {
@@ -2759,7 +2483,6 @@ export async function completeTask(input: CompleteTaskInput) {
           },
           eventStatus: "failed",
           eventType: "task_after_commit_effect_failed",
-          goalId: task.goalId,
           severity: "medium",
           taskId: task.id
         });
@@ -2859,7 +2582,6 @@ export async function renewTaskLease(input: RenewTaskLeaseInput) {
       },
       eventStatus: "accepted",
       eventType: "task_lease_renewed",
-      goalId: task.goalId,
       taskId: task.id
     });
 
@@ -2972,7 +2694,6 @@ export async function failTask(input: FailTaskInput) {
       },
       eventStatus: "failed",
       eventType: "task_failed",
-      goalId: task.goalId,
       severity: "high",
       taskId: task.id
     });
@@ -2983,11 +2704,10 @@ export async function failTask(input: FailTaskInput) {
       resultPayload,
       task
     });
-
-    await refreshGoalStateInTransaction(tx, task.goalId);
-
     return task;
   });
+
+  notifyTaskQueueChanged();
 
   for (const effect of afterCommitEffects) {
     try {
@@ -3002,7 +2722,6 @@ export async function failTask(input: FailTaskInput) {
           },
           eventStatus: "failed",
           eventType: "task_after_commit_effect_failed",
-          goalId: task.goalId,
           severity: "medium",
           taskId: task.id
         });
@@ -3034,7 +2753,10 @@ export async function spawnChildTask(input: SpawnChildTaskInput) {
     ...input,
     createdByTaskId: parent.id,
     parentTaskId: parent.id,
-    goalId: parent.goalId
+    planId: input.planId ?? parent.planId,
+    rayId: input.rayId ?? parent.rayId,
+    taskGroupId: input.taskGroupId ?? parent.taskGroupId,
+    groupLabel: input.groupLabel ?? parent.groupLabel
   });
 
   await addTaskEventInTransaction(sql, {
@@ -3044,7 +2766,6 @@ export async function spawnChildTask(input: SpawnChildTaskInput) {
       childTaskType: created.task.taskType
     },
     eventType: "child_task_created",
-    goalId: parent.goalId,
     taskId: parent.id
   });
 
@@ -3053,7 +2774,7 @@ export async function spawnChildTask(input: SpawnChildTaskInput) {
 
 export {
   buildTaskSequenceDependencyPlan,
-  TASK_PRIORITY,
-  normalizeTaskPriority
+  TASK_BUSINESS_VALUE,
+  normalizeTaskBusinessValue
 };
 export type { TaskDependencyType };

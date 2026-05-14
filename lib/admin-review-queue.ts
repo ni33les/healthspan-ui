@@ -10,6 +10,7 @@ import {
   normalizeSupplementSafetyFlags,
   type SupplementSafetyFlag
 } from "@/lib/supplement-safety-flags";
+import { notifyTaskQueueChanged } from "@/lib/task-wakeup";
 
 export type AdminReviewTaskRow = Readonly<{
   actionOptions: string[];
@@ -17,10 +18,9 @@ export type AdminReviewTaskRow = Readonly<{
   clientDoseText: string | null;
   clientDoseUnit: string | null;
   flagReason: string | null;
-  goalId: string | null;
-  goalPriority: number;
-  goalQueuedAt: string;
-  goalTitle: string | null;
+  businessValue: number;
+  taskGroupId: string | null;
+  groupLabel: string | null;
   id: string;
   limitAmount: number | null;
   limitUnit: string | null;
@@ -29,7 +29,6 @@ export type AdminReviewTaskRow = Readonly<{
   newDose: string | null;
   originalDose: string | null;
   planId: string | null;
-  priority: number;
   queuedAt: string;
   requiredFields: string[];
   reviewId: string | null;
@@ -50,19 +49,22 @@ export type AdminReviewQueueData = Readonly<{
   };
 }>;
 
+export type AdminReviewMutationResult = Readonly<{
+  followupTaskId?: string | null;
+  removedTaskIds: string[];
+}>;
+
 type ReviewTaskDbRow = Readonly<{
   ai_suggestion: Record<string, unknown> | null;
   flag_reason: string | null;
-  goal_created_at: Date | string | null;
-  goal_id: string | null;
-  goal_priority: number | string | null;
-  goal_title: string | null;
+  business_value: number | string;
+  task_group_id: string | null;
+  group_label: string | null;
   id: string;
   limit_unit: string | null;
   limit_value: number | string | null;
   payload: Record<string, unknown> | null;
   plan_id: string | null;
-  priority: number | string;
   queued_at: Date | string;
   review_id: string | null;
   status: string;
@@ -74,7 +76,6 @@ type ReviewTaskDbRow = Readonly<{
 type Db = postgres.Sql | postgres.TransactionSql;
 
 type CompletedTaskRow = Readonly<{
-  goal_id: string;
   id: string;
 }>;
 
@@ -87,7 +88,6 @@ type FormulationRow = Readonly<{
 type SafetyReviewDecisionRow = Readonly<{
   ai_suggestion: Record<string, unknown> | null;
   client_notification_status: string;
-  goal_id: string | null;
   id: string;
   supplement_name: string;
   task_id: string | null;
@@ -258,10 +258,9 @@ function rowFromDb(row: ReviewTaskDbRow): AdminReviewTaskRow {
       formatReviewDose(clientDoseAmount, clientDoseUnit),
     clientDoseUnit,
     flagReason: row.flag_reason,
-    goalId: row.goal_id,
-    goalPriority: Number(row.goal_priority ?? row.priority) || 0,
-    goalQueuedAt: new Date(row.goal_created_at ?? row.queued_at).toISOString(),
-    goalTitle: row.goal_title,
+    businessValue: Number(row.business_value) || 0,
+    taskGroupId: row.task_group_id,
+    groupLabel: row.group_label,
     id: row.id,
     limitAmount: numberOrNull(row.limit_value),
     limitUnit: row.limit_unit,
@@ -270,7 +269,6 @@ function rowFromDb(row: ReviewTaskDbRow): AdminReviewTaskRow {
     newDose: textOrNull(payload.newDose),
     originalDose: textOrNull(payload.originalDose),
     planId: row.plan_id,
-    priority: Number(row.priority) || 0,
     queuedAt: new Date(row.queued_at).toISOString(),
     requiredFields: textArray(payload.requiredFields),
     reviewId: row.review_id,
@@ -311,11 +309,12 @@ async function loadReviewTaskRows(sql: postgres.Sql) {
   return sql<ReviewTaskDbRow[]>`
     select
       tasks.id::text,
-      tasks.goal_id::text,
       tasks.id::text as task_id,
       tasks.plan_id::text,
       tasks.status,
-      tasks.priority,
+      tasks.business_value,
+      tasks.task_group_id::text,
+      tasks.group_label,
       tasks.payload,
       tasks.created_at as queued_at,
       safety_reviews.id::text as review_id,
@@ -324,13 +323,8 @@ async function loadReviewTaskRows(sql: postgres.Sql) {
       safety_reviews.suggested_dose_unit,
       safety_reviews.limit_value,
       safety_reviews.limit_unit,
-      safety_reviews.ai_suggestion,
-      goals.title as goal_title,
-      goals.priority as goal_priority,
-      goals.created_at as goal_created_at
+      safety_reviews.ai_suggestion
     from public.tasks tasks
-    left join public.goals goals
-      on goals.id = tasks.goal_id
     left join lateral (
       select *
       from public.safety_reviews safety_reviews
@@ -341,9 +335,7 @@ async function loadReviewTaskRows(sql: postgres.Sql) {
     where tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
       and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
     order by
-      coalesce(goals.priority, tasks.priority) desc,
-      coalesce(goals.created_at, tasks.created_at) asc,
-      tasks.priority desc,
+      tasks.business_value desc,
       tasks.created_at asc
     limit 200
   `;
@@ -419,7 +411,7 @@ async function completeSupplementReviewTasks(
     where task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
       and status not in ('completed', 'failed', 'cancelled', 'skipped')
       and id = any(${taskIds}::uuid[])
-    returning id::text, goal_id::text
+    returning id::text
   `;
 
   for (const task of tasks) {
@@ -427,7 +419,6 @@ async function completeSupplementReviewTasks(
       insert into public.task_comments (
         id,
         task_id,
-        goal_id,
         author_type,
         author_name,
         visibility,
@@ -439,7 +430,6 @@ async function completeSupplementReviewTasks(
       values (
         ${randomUUID()}::uuid,
         ${task.id}::uuid,
-        ${task.goal_id}::uuid,
         'human',
         ${input.actor ?? "admin_dashboard"},
         'admin',
@@ -454,7 +444,6 @@ async function completeSupplementReviewTasks(
       insert into public.task_events (
         id,
         task_id,
-        goal_id,
         event_type,
         event_status,
         severity,
@@ -465,7 +454,6 @@ async function completeSupplementReviewTasks(
       values (
         ${randomUUID()}::uuid,
         ${task.id}::uuid,
-        ${task.goal_id}::uuid,
         ${input.eventType},
         'succeeded',
         'medium',
@@ -473,25 +461,6 @@ async function completeSupplementReviewTasks(
         now(),
         now()
       )
-    `;
-  }
-
-  const goalIds = Array.from(new Set(tasks.map((task) => task.goal_id)));
-
-  if (goalIds.length > 0) {
-    await transaction`
-      update public.goals
-      set
-        status = 'completed',
-        completed_at = coalesce(completed_at, now()),
-        updated_at = now()
-      where id = any(${goalIds}::uuid[])
-        and not exists (
-          select 1
-          from public.tasks
-          where tasks.goal_id = goals.id
-            and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
-        )
     `;
   }
 
@@ -544,19 +513,18 @@ async function queueClientSafetyFollowupTask(
   transaction: Db,
   input: Readonly<{
     actor?: string | null;
-    goalId: string | null;
     parentTaskId: string | null;
     planId: string;
   }>
 ) {
-  if (!input.goalId || !(await taskTablesAvailable(transaction))) {
+  if (!(await taskTablesAvailable(transaction))) {
     return null;
   }
 
   const remainingReviewTasks = await transaction<{ count: number | string }[]>`
     select count(*)::int as count
     from public.tasks
-    where goal_id = ${input.goalId}::uuid
+    where plan_id = ${input.planId}::uuid
       and task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
       and status not in ('completed', 'failed', 'cancelled', 'skipped')
   `;
@@ -571,8 +539,7 @@ async function queueClientSafetyFollowupTask(
       supplement_name,
       client_message
     from public.safety_reviews
-    where goal_id = ${input.goalId}::uuid
-      and plan_id = ${input.planId}::uuid
+    where plan_id = ${input.planId}::uuid
       and status in ('accepted', 'rejected')
       and client_notification_status <> 'not_required'
     order by reviewed_at asc, opened_at asc
@@ -595,11 +562,12 @@ async function queueClientSafetyFollowupTask(
     };
   });
   const safetyReviewIds = reviewedRows.map((row) => row.id);
-  const idempotencyKey = `client-safety-followup:${input.goalId}`;
+  const idempotencyScopeKey = `client-safety-followup:${input.planId}`;
+  const idempotencyKey = idempotencyScopeKey;
   const existing = await transaction<{ id: string }[]>`
     select id::text
     from public.tasks
-    where goal_id = ${input.goalId}::uuid
+    where idempotency_scope_key = ${idempotencyScopeKey}
       and idempotency_key = ${idempotencyKey}
       and status not in ('completed', 'failed', 'cancelled', 'skipped')
     order by created_at desc
@@ -622,25 +590,28 @@ async function queueClientSafetyFollowupTask(
       )}::jsonb,
       completed_at = coalesce(completed_at, now()),
       updated_at = now()
-    where goal_id = ${input.goalId}::uuid
+    where plan_id = ${input.planId}::uuid
       and task_type = 'client_safety_followup'
       and coalesce(idempotency_key, '') <> ${idempotencyKey}
       and status in ('queued', 'needs_review', 'waiting_approval')
   `;
-
-  const goalRows = await transaction<{ priority: number | string }[]>`
-    select priority
-    from public.goals
-    where id = ${input.goalId}::uuid
-    limit 1
-  `;
-  const goalPriority = Number(goalRows[0]?.priority ?? 2);
-  const priority = Math.min(
-    5,
-    Math.max(4, Number.isFinite(goalPriority) ? goalPriority : 2)
-  );
   const taskId = randomUUID();
   const title = "Notify client about completed safety review";
+  const parentRows = input.parentTaskId
+    ? await transaction<Array<{
+        group_label: string | null;
+        task_group_id: string;
+      }>>`
+        select
+          group_label,
+          task_group_id::text
+        from public.tasks
+        where id = ${input.parentTaskId}::uuid
+        limit 1
+      `
+    : [];
+  const taskGroupId = parentRows[0]?.task_group_id ?? taskId;
+  const groupLabel = parentRows[0]?.group_label ?? title;
   const payloadObject = {
     planId: input.planId,
     reviewedItems,
@@ -653,19 +624,22 @@ async function queueClientSafetyFollowupTask(
   await transaction`
     insert into public.tasks (
       id,
-      goal_id,
       parent_task_id,
       plan_id,
+      task_group_id,
+      group_label,
       task_type,
       title,
       description,
       actor_type,
       status,
-      priority,
+      business_value,
       required_capabilities,
       reasoning_effort,
+      context,
       payload,
       idempotency_key,
+      idempotency_scope_key,
       max_attempts,
       scheduled_for,
       created_at,
@@ -673,25 +647,30 @@ async function queueClientSafetyFollowupTask(
     )
     values (
       ${taskId}::uuid,
-      ${input.goalId}::uuid,
       ${input.parentTaskId ?? null}::uuid,
       ${input.planId}::uuid,
+      ${taskGroupId}::uuid,
+      ${groupLabel},
       'client_safety_followup',
       ${title},
       'Tell the client that a human safety review has been completed.',
       'deterministic',
       'queued',
-      ${priority},
+      350,
       ${["client_safety_followup"]}::text[],
       'none',
+      ${transaction.json(toJsonValue({ source: "human_review_completion" }))},
       ${transaction.json(payload)},
       ${idempotencyKey},
+      ${idempotencyScopeKey},
       1,
       now(),
       now(),
       now()
     )
   `;
+
+  notifyTaskQueueChanged();
 
   await transaction`
     update public.safety_reviews
@@ -704,25 +683,9 @@ async function queueClientSafetyFollowupTask(
   `;
 
   await transaction`
-    update public.goals
-    set
-      status = case
-        when status in ('completed', 'open') then 'active'
-        else status
-      end,
-      completed_at = case
-        when status = 'completed' then null
-        else completed_at
-      end,
-      updated_at = now()
-    where id = ${input.goalId}::uuid
-  `;
-
-  await transaction`
     insert into public.task_comments (
       id,
       task_id,
-      goal_id,
       author_type,
       author_name,
       visibility,
@@ -734,12 +697,11 @@ async function queueClientSafetyFollowupTask(
     values (
       ${randomUUID()}::uuid,
       ${taskId}::uuid,
-      ${input.goalId}::uuid,
       'system',
       'MattaNutra safety',
       'admin',
       'instruction',
-      'All human safety reviews in this goal are complete. Contact the client once through the best available channel.',
+      'All human safety reviews for this plan are complete. Contact the client once through the best available channel.',
       ${transaction.json(payload)},
       now()
     )
@@ -749,7 +711,6 @@ async function queueClientSafetyFollowupTask(
     insert into public.task_events (
       id,
       task_id,
-      goal_id,
       event_type,
       event_status,
       severity,
@@ -760,7 +721,6 @@ async function queueClientSafetyFollowupTask(
     values (
       ${randomUUID()}::uuid,
       ${taskId}::uuid,
-      ${input.goalId}::uuid,
       'client_safety_followup_queued',
       'requested',
       'medium',
@@ -784,7 +744,7 @@ export async function dismissAdminReviewTask({
 }: Readonly<{
   actor?: string | null;
   id: string;
-}>) {
+}>): Promise<AdminReviewMutationResult> {
   const sql = getSql();
 
   if (!sql) {
@@ -827,10 +787,14 @@ export async function dismissAdminReviewTask({
     taskIds: [id]
   });
 
-  return getAdminReviewQueueData();
+  return {
+    removedTaskIds: [id]
+  };
 }
 
-export async function resolveAdminReviewTask(input: ResolveAdminReviewTaskInput) {
+export async function resolveAdminReviewTask(
+  input: ResolveAdminReviewTaskInput
+): Promise<AdminReviewMutationResult> {
   const sql = getSql();
 
   if (!sql) {
@@ -843,6 +807,8 @@ export async function resolveAdminReviewTask(input: ResolveAdminReviewTaskInput)
   if (!supplementName || !normalizedSupplementName) {
     throw new Error("Supplement name is required");
   }
+
+  let completedTaskIds: string[] = [];
 
   {
     const transaction = sql;
@@ -1039,7 +1005,7 @@ export async function resolveAdminReviewTask(input: ResolveAdminReviewTaskInput)
           or trim(both '_' from regexp_replace(lower(coalesce(payload ->> 'supplementName', '')), '[^a-z0-9]+', '_', 'g')) = ${normalizedSupplementName}
       )
     `;
-    const completedTaskIds = completedTasks.map((row) => row.id);
+    completedTaskIds = completedTasks.map((row) => row.id);
     const resolutionLabel = associatedSupplementName
       ? `Associated with ${associatedSupplementName}.`
       : `Resolved as ${input.listStatus}.`;
@@ -1114,7 +1080,9 @@ export async function resolveAdminReviewTask(input: ResolveAdminReviewTaskInput)
     `;
   }
 
-  return getAdminReviewQueueData();
+  return {
+    removedTaskIds: completedTaskIds.length > 0 ? completedTaskIds : [input.id]
+  };
 }
 
 function localized(en: string) {
@@ -1270,7 +1238,7 @@ function applyReviewDecisionToFormulation(
 
 export async function decideAdminPlanReviewTask(
   input: DecideAdminPlanReviewTaskInput
-) {
+): Promise<AdminReviewMutationResult> {
   const sql = getSql();
 
   if (!sql) {
@@ -1285,6 +1253,8 @@ export async function decideAdminPlanReviewTask(
   ) {
     throw new Error("Client dose is required to approve a review");
   }
+
+  let followupTaskId: string | null = null;
 
   {
     const transaction = sql;
@@ -1310,7 +1280,6 @@ export async function decideAdminPlanReviewTask(
     const safetyReviews = await transaction<SafetyReviewDecisionRow[]>`
       select
         client_notification_status,
-        goal_id::text,
         id::text,
         ai_suggestion,
         supplement_name,
@@ -1416,12 +1385,11 @@ export async function decideAdminPlanReviewTask(
       taskIds: [input.id]
     });
 
-    const followupTaskId =
+    followupTaskId =
       review.client_notification_status === "not_required"
         ? null
         : await queueClientSafetyFollowupTask(transaction, {
             actor: input.actor,
-            goalId: review.goal_id,
             parentTaskId: review.task_id,
             planId: task.plan_id
           });
@@ -1431,7 +1399,6 @@ export async function decideAdminPlanReviewTask(
         insert into public.task_events (
           id,
           task_id,
-          goal_id,
           event_type,
           event_status,
           severity,
@@ -1442,7 +1409,6 @@ export async function decideAdminPlanReviewTask(
         values (
           ${randomUUID()}::uuid,
           ${input.id}::uuid,
-          ${review.goal_id ?? null}::uuid,
           'client_safety_followup_grouped',
           'requested',
           'medium',
@@ -1459,5 +1425,8 @@ export async function decideAdminPlanReviewTask(
     }
   }
 
-  return getAdminReviewQueueData();
+  return {
+    followupTaskId,
+    removedTaskIds: [input.id]
+  };
 }

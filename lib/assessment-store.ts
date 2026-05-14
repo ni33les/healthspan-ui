@@ -429,25 +429,42 @@ export async function getStoredAssessmentSnapshot(planId: string) {
 
   if (status === "queued") {
     const positions = await sql`
-      with current_task as (
-        select priority, created_at
+      with queued_tasks as (
+        select
+          plan_id,
+          scheduled_for,
+          created_at,
+          (
+            business_value
+            + least(
+              200,
+              floor(greatest(0, extract(epoch from now() - scheduled_for) - 300) / 900) * 10
+            )
+          ) as effective_business_value
         from public.tasks
-        where plan_id = ${planId}::uuid
+        where status = 'queued'
           and task_type in ('generate_formulation', 'generate_example_formulation')
-          and status = 'queued'
+      ),
+      current_task as (
+        select effective_business_value, scheduled_for, created_at
+        from queued_tasks
+        where plan_id = ${planId}::uuid
         order by created_at desc
         limit 1
       )
       select count(*)::int as queue_position
-      from public.tasks
+      from queued_tasks
       cross join current_task
-      where tasks.status = 'queued'
-        and tasks.task_type in ('generate_formulation', 'generate_example_formulation')
-        and (
-          tasks.priority > current_task.priority
+      where (
+          queued_tasks.effective_business_value > current_task.effective_business_value
           or (
-            tasks.priority = current_task.priority
-            and tasks.created_at <= current_task.created_at
+            queued_tasks.effective_business_value = current_task.effective_business_value
+            and queued_tasks.scheduled_for < current_task.scheduled_for
+          )
+          or (
+            queued_tasks.effective_business_value = current_task.effective_business_value
+            and queued_tasks.scheduled_for = current_task.scheduled_for
+            and queued_tasks.created_at <= current_task.created_at
           )
         )
     `;

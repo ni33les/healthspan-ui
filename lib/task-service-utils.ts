@@ -1,12 +1,12 @@
-export const TASK_PRIORITY = {
-  critical: 5,
-  expedited: 3,
-  high: 4,
-  low: 1,
-  normal: 2
+export const TASK_BUSINESS_VALUE = {
+  critical: 500,
+  expedited: 300,
+  high: 400,
+  low: 100,
+  normal: 200
 } as const;
 
-export type TaskPriority = 1 | 2 | 3 | 4 | 5;
+export type TaskBusinessValue = number;
 export type TaskDependencyType = "approved" | "complete" | "successful";
 export type TaskIdempotencyScope = "active" | "successful";
 
@@ -66,19 +66,43 @@ export type TaskSequencePlanItem = Readonly<{
   taskIndex: number;
 }>;
 
-export function normalizeTaskPriority(value: unknown): TaskPriority {
+export function normalizeTaskBusinessValue(value: unknown): TaskBusinessValue {
   const numeric =
     typeof value === "number"
       ? value
       : typeof value === "string" && value.trim()
         ? Number(value)
-        : TASK_PRIORITY.normal;
+        : TASK_BUSINESS_VALUE.normal;
 
   if (!Number.isFinite(numeric)) {
-    return TASK_PRIORITY.normal;
+    return TASK_BUSINESS_VALUE.normal;
   }
 
-  return Math.max(1, Math.min(5, Math.round(numeric))) as TaskPriority;
+  if (numeric >= 1 && numeric <= 5) {
+    return Math.max(100, Math.min(500, Math.round(numeric) * 100));
+  }
+
+  return Math.max(1, Math.min(10_000, Math.round(numeric)));
+}
+
+export function taskEffectiveBusinessValue(
+  input: Readonly<{
+    businessValue: number;
+    scheduledFor: Date | string;
+  }>,
+  now = new Date()
+) {
+  const scheduledAt =
+    input.scheduledFor instanceof Date
+      ? input.scheduledFor.getTime()
+      : new Date(input.scheduledFor).getTime();
+  const waitSeconds = Math.max(
+    0,
+    Math.floor((now.getTime() - scheduledAt) / 1000) - 300
+  );
+  const boost = Math.min(200, Math.floor(waitSeconds / 900) * 10);
+
+  return normalizeTaskBusinessValue(input.businessValue) + boost;
 }
 
 function boundedNumber(

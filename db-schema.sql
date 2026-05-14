@@ -707,140 +707,13 @@ on conflict ((lower(name))) do update set
   end,
   updated_at = now();
 
-create table public.goals (
-  id uuid primary key,
-  ray uuid null,
-  goal_type text not null default 'goal' check (
-    goal_type in ('journey', 'goal', 'task_run', 'system')
-  ),
-  title text not null,
-  status text not null default 'open' check (
-    status in ('open', 'active', 'completed', 'cancelled', 'failed')
-  ),
-  priority integer not null default 2 check (
-    priority >= 1 and priority <= 5
-  ),
-  plan_id uuid null references public.assessments(plan_id) on delete set null,
-  email_hash text null,
-  source text null,
-  context jsonb not null default '{}'::jsonb,
-  created_by_agent_id uuid null references public.agents(id) on delete set null,
-  completed_at timestamptz null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-alter table public.goals
-  add column if not exists ray uuid null,
-  add column if not exists goal_type text default 'goal',
-  add column if not exists title text,
-  add column if not exists status text default 'open',
-  add column if not exists priority integer default 2,
-  add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
-  add column if not exists email_hash text null,
-  add column if not exists source text null,
-  add column if not exists context jsonb default '{}'::jsonb,
-  add column if not exists created_by_agent_id uuid null references public.agents(id) on delete set null,
-  add column if not exists completed_at timestamptz null,
-  add column if not exists created_at timestamptz default now(),
-  add column if not exists updated_at timestamptz default now();
-
-update public.goals
-set
-  ray = coalesce(ray, id),
-  goal_type = case
-    when goal_type in ('journey', 'goal', 'task_run', 'system') then goal_type
-    else 'goal'
-  end,
-  title = coalesce(nullif(title, ''), 'Untitled goal'),
-  status = case
-    when status = 'blocked' then 'active'
-    when status in ('open', 'active', 'completed', 'cancelled', 'failed')
-      then status
-    else 'open'
-  end,
-  priority = greatest(1, least(coalesce(priority, 2), 5)),
-  context = coalesce(context, '{}'::jsonb),
-  created_at = coalesce(created_at, now()),
-  updated_at = coalesce(updated_at, now())
-where ray is null
-  or goal_type is null
-  or goal_type not in ('journey', 'goal', 'task_run', 'system')
-  or title is null
-  or title = ''
-  or status is null
-  or status = 'blocked'
-  or status not in ('open', 'active', 'completed', 'cancelled', 'failed')
-  or priority is null
-  or priority < 1
-  or priority > 5
-  or context is null
-  or created_at is null
-  or updated_at is null;
-
-alter table public.goals
-  alter column goal_type set default 'goal',
-  alter column goal_type set not null,
-  alter column title set not null,
-  alter column status set default 'open',
-  alter column status set not null,
-  alter column priority set default 2,
-  alter column priority set not null,
-  alter column context set default '{}'::jsonb,
-  alter column context set not null,
-  alter column created_at set default now(),
-  alter column created_at set not null,
-  alter column updated_at set default now(),
-  alter column updated_at set not null;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.goals'::regclass
-      and conname = 'goals_type_check'
-  ) then
-    alter table public.goals
-      add constraint goals_type_check
-      check (goal_type in ('journey', 'goal', 'task_run', 'system'));
-  end if;
-
-  alter table public.goals
-    drop constraint if exists goals_status_check;
-
-  alter table public.goals
-    add constraint goals_status_check
-    check (status in ('open', 'active', 'completed', 'cancelled', 'failed'));
-
-  alter table public.goals
-    drop constraint if exists goals_priority_check;
-
-  alter table public.goals
-    add constraint goals_priority_check
-    check (priority >= 1 and priority <= 5);
-end $$;
-
-create index goals_status_idx
-  on public.goals (status, priority desc, created_at asc);
-
-create index goals_ray_idx
-  on public.goals (ray, created_at desc)
-  where ray is not null;
-
-create index goals_plan_idx
-  on public.goals (plan_id, created_at desc)
-  where plan_id is not null;
-
-create index goals_email_hash_idx
-  on public.goals (email_hash, created_at desc)
-  where email_hash is not null;
-
 create table public.tasks (
   id uuid primary key,
-  goal_id uuid not null references public.goals(id) on delete cascade,
   parent_task_id uuid null references public.tasks(id) on delete set null,
   plan_id uuid null references public.assessments(plan_id) on delete set null,
+  ray_id uuid null,
+  task_group_id uuid not null,
+  group_label text null,
   task_type text not null,
   title text not null,
   description text null,
@@ -860,17 +733,17 @@ create table public.tasks (
       'skipped'
     )
   ),
-  priority integer not null default 2 check (
-    priority >= 1 and priority <= 5
-  ),
+  business_value integer not null default 200 check (business_value > 0),
   required_capabilities text[] not null default '{}'::text[],
   reasoning_effort text not null default 'none' check (
     reasoning_effort in ('none', 'low', 'medium', 'high', 'xhigh')
   ),
+  context jsonb not null default '{}'::jsonb,
   payload jsonb not null default '{}'::jsonb,
   result_payload jsonb not null default '{}'::jsonb,
   error_message text null,
   idempotency_key text null,
+  idempotency_scope_key text not null default 'global',
   scheduled_for timestamptz not null default now(),
   reserved_by_agent_id uuid null references public.agents(id) on delete set null,
   lease_until timestamptz null,
@@ -880,6 +753,7 @@ create table public.tasks (
   retry_root_task_id uuid null references public.tasks(id) on delete set null,
   retry_attempt integer not null default 0 check (retry_attempt >= 0),
   max_retries integer not null default 0 check (max_retries >= 0),
+  retry_policy jsonb not null default '{}'::jsonb,
   created_by_agent_id uuid null references public.agents(id) on delete set null,
   created_by_task_id uuid null references public.tasks(id) on delete set null,
   started_at timestamptz null,
@@ -888,284 +762,43 @@ create table public.tasks (
   updated_at timestamptz not null default now()
 );
 
-alter table public.tasks
-  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
-  add column if not exists parent_task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
-  add column if not exists task_type text,
-  add column if not exists title text,
-  add column if not exists description text null,
-  add column if not exists actor_type text default 'system',
-  add column if not exists status text default 'queued',
-  add column if not exists priority integer default 2,
-  add column if not exists required_capabilities text[] default '{}'::text[],
-  add column if not exists reasoning_effort text default 'none',
-  add column if not exists payload jsonb default '{}'::jsonb,
-  add column if not exists result_payload jsonb default '{}'::jsonb,
-  add column if not exists error_message text null,
-  add column if not exists idempotency_key text null,
-  add column if not exists scheduled_for timestamptz default now(),
-  add column if not exists reserved_by_agent_id uuid null references public.agents(id) on delete set null,
-  add column if not exists lease_until timestamptz null,
-  add column if not exists attempts integer default 0,
-  add column if not exists max_attempts integer default 3,
-  add column if not exists retry_of_task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists retry_root_task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists retry_attempt integer default 0,
-  add column if not exists max_retries integer default 0,
-  add column if not exists created_by_agent_id uuid null references public.agents(id) on delete set null,
-  add column if not exists created_by_task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists started_at timestamptz null,
-  add column if not exists completed_at timestamptz null,
-  add column if not exists created_at timestamptz default now(),
-  add column if not exists updated_at timestamptz default now();
-
-update public.tasks
-set
-  task_type = coalesce(nullif(task_type, ''), 'unknown'),
-  title = coalesce(nullif(title, ''), nullif(task_type, ''), 'Untitled task'),
-  actor_type = case
-    when actor_type in ('human', 'ai', 'deterministic', 'external', 'system', 'worker')
-      then actor_type
-    else 'system'
-  end,
-  status = case
-    when status = 'blocked' then 'queued'
-    when status in (
-      'queued',
-      'reserved',
-      'running',
-      'needs_review',
-      'waiting_approval',
-      'completed',
-      'failed',
-      'cancelled',
-      'skipped'
-    ) then status
-    else 'queued'
-  end,
-  priority = greatest(1, least(coalesce(priority, 2), 5)),
-  required_capabilities = coalesce(required_capabilities, '{}'::text[]),
-  reasoning_effort = case
-    when reasoning_effort in ('none', 'low', 'medium', 'high', 'xhigh')
-      then reasoning_effort
-    else 'none'
-  end,
-  payload = coalesce(payload, '{}'::jsonb),
-  result_payload = coalesce(result_payload, '{}'::jsonb),
-  scheduled_for = coalesce(scheduled_for, now()),
-  attempts = greatest(coalesce(attempts, 0), 0),
-  max_attempts = greatest(coalesce(max_attempts, 3), 1),
-  retry_attempt = greatest(coalesce(retry_attempt, 0), 0),
-  max_retries = greatest(coalesce(max_retries, 0), 0),
-  created_at = coalesce(created_at, now()),
-  updated_at = coalesce(updated_at, now())
-where task_type is null
-  or task_type = ''
-  or title is null
-  or title = ''
-  or actor_type is null
-  or actor_type not in ('human', 'ai', 'deterministic', 'external', 'system', 'worker')
-  or status is null
-  or status = 'blocked'
-  or status not in (
-    'queued',
-    'reserved',
-    'running',
-    'needs_review',
-    'waiting_approval',
-    'completed',
-    'failed',
-    'cancelled',
-    'skipped'
-  )
-  or priority is null
-  or priority < 1
-  or priority > 5
-  or required_capabilities is null
-  or reasoning_effort is null
-  or reasoning_effort not in ('none', 'low', 'medium', 'high', 'xhigh')
-  or payload is null
-  or result_payload is null
-  or scheduled_for is null
-  or attempts is null
-  or attempts < 0
-  or max_attempts is null
-  or max_attempts < 1
-  or retry_attempt is null
-  or retry_attempt < 0
-  or max_retries is null
-  or max_retries < 0
-  or created_at is null
-  or updated_at is null;
-
-update public.tasks
-set
-  retry_of_task_id = case
-    when retry_of_task_id is null
-      and payload #>> '{__taskRetry,retryOfTaskId}' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-      then (payload #>> '{__taskRetry,retryOfTaskId}')::uuid
-    else retry_of_task_id
-  end,
-  retry_root_task_id = case
-    when retry_root_task_id is null
-      and payload #>> '{__taskRetry,rootTaskId}' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-      then (payload #>> '{__taskRetry,rootTaskId}')::uuid
-    else retry_root_task_id
-  end,
-  retry_attempt = greatest(
-    retry_attempt,
-    case
-      when payload #>> '{__taskRetry,retryAttempt}' ~ '^[0-9]+$'
-        then (payload #>> '{__taskRetry,retryAttempt}')::integer
-      else 0
-    end
-  ),
-  max_retries = greatest(
-    max_retries,
-    case
-      when payload #>> '{__taskRetry,policy,maxRetries}' ~ '^[0-9]+$'
-        then (payload #>> '{__taskRetry,policy,maxRetries}')::integer
-      else 0
-    end
-  )
-where payload ? '__taskRetry';
-
-alter table public.tasks
-  alter column goal_id set not null,
-  alter column task_type set not null,
-  alter column title set not null,
-  alter column actor_type set default 'system',
-  alter column actor_type set not null,
-  alter column status set default 'queued',
-  alter column status set not null,
-  alter column priority set default 2,
-  alter column priority set not null,
-  alter column required_capabilities set default '{}'::text[],
-  alter column required_capabilities set not null,
-  alter column reasoning_effort set default 'none',
-  alter column reasoning_effort set not null,
-  alter column payload set default '{}'::jsonb,
-  alter column payload set not null,
-  alter column result_payload set default '{}'::jsonb,
-  alter column result_payload set not null,
-  alter column scheduled_for set default now(),
-  alter column scheduled_for set not null,
-  alter column attempts set default 0,
-  alter column attempts set not null,
-  alter column max_attempts set default 3,
-  alter column max_attempts set not null,
-  alter column retry_attempt set default 0,
-  alter column retry_attempt set not null,
-  alter column max_retries set default 0,
-  alter column max_retries set not null,
-  alter column created_at set default now(),
-  alter column created_at set not null,
-  alter column updated_at set default now(),
-  alter column updated_at set not null;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.tasks'::regclass
-      and conname = 'tasks_actor_type_check'
-  ) then
-    alter table public.tasks
-      add constraint tasks_actor_type_check
-      check (actor_type in ('human', 'ai', 'deterministic', 'external', 'system', 'worker'));
-  end if;
-
-  alter table public.tasks
-    drop constraint if exists tasks_status_check;
-
-  alter table public.tasks
-    add constraint tasks_status_check
-    check (
-      status in (
-        'queued',
-        'reserved',
-        'running',
-        'needs_review',
-        'waiting_approval',
-        'completed',
-        'failed',
-        'cancelled',
-        'skipped'
-      )
-    );
-
-  alter table public.tasks
-    drop constraint if exists tasks_priority_check;
-
-  alter table public.tasks
-    add constraint tasks_priority_check
-    check (priority >= 1 and priority <= 5);
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.tasks'::regclass
-      and conname = 'tasks_reasoning_effort_check'
-  ) then
-    alter table public.tasks
-      add constraint tasks_reasoning_effort_check
-      check (reasoning_effort in ('none', 'low', 'medium', 'high', 'xhigh'));
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.tasks'::regclass
-      and conname = 'tasks_attempts_check'
-  ) then
-    alter table public.tasks
-      add constraint tasks_attempts_check
-      check (attempts >= 0 and max_attempts > 0);
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.tasks'::regclass
-      and conname = 'tasks_retry_check'
-  ) then
-    alter table public.tasks
-      add constraint tasks_retry_check
-      check (retry_attempt >= 0 and max_retries >= 0);
-  end if;
-end $$;
-
 comment on table public.agents is
   'Humans, AI agents, deterministic workers, and external workers that may reserve and process tasks by capability.';
-comment on table public.goals is
-  'Business goals or milestones of work, tying related tasks, comments, events, plans, and customer context together. The optional ray column preserves BPM/session traceability.';
 comment on table public.tasks is
-  'Prioritised atomic work items. Tasks describe what must be done; agents describe who or what can do it.';
-comment on column public.tasks.priority is
-  'Higher numbers run first. Scale is 1-5: 5 is critical, 3 is expedited, 2 is normal, and 1 is low.';
+  'Atomic work items. Tasks carry their own business value, retry state, lineage, and operational grouping.';
+comment on column public.tasks.business_value is
+  'Base execution value. Reservation adds computed aging after a grace period instead of mutating this value.';
+comment on column public.tasks.task_group_id is
+  'Default visual and operational chain grouping. Root tasks point at themselves; spawned and retry tasks inherit the root group.';
+comment on column public.tasks.ray_id is
+  'Optional request or trace identifier used for filtering and correlation.';
+comment on column public.tasks.plan_id is
+  'Optional assessment plan identifier used for filtering and customer context.';
 comment on column public.tasks.required_capabilities is
   'Capabilities required to reserve the task. This keeps task identity separate from any specific worker.';
 comment on column public.tasks.reasoning_effort is
   'Declared reasoning level for AI or human work planning: none, low, medium, high, or xhigh.';
 
 create index tasks_queue_idx
-  on public.tasks (status, priority desc, scheduled_for asc, created_at asc);
+  on public.tasks (status, business_value desc, scheduled_for asc, created_at asc);
 
-create index tasks_goal_idx
-  on public.tasks (goal_id, created_at asc);
+create index tasks_group_idx
+  on public.tasks (task_group_id, created_at asc);
 
 create index tasks_plan_idx
   on public.tasks (plan_id, created_at desc)
   where plan_id is not null;
+
+create index tasks_ray_idx
+  on public.tasks (ray_id, created_at desc)
+  where ray_id is not null;
 
 create index tasks_parent_idx
   on public.tasks (parent_task_id, created_at asc)
   where parent_task_id is not null;
 
 create index tasks_retry_lineage_idx
-  on public.tasks (goal_id, (coalesce(retry_root_task_id, id)), retry_attempt, created_at asc);
+  on public.tasks (task_group_id, (coalesce(retry_root_task_id, id)), retry_attempt, created_at asc);
 
 create index tasks_reserved_agent_idx
   on public.tasks (reserved_by_agent_id, lease_until)
@@ -1175,7 +808,7 @@ create index tasks_required_capabilities_gin_idx
   on public.tasks using gin (required_capabilities);
 
 create unique index tasks_active_idempotency_idx
-  on public.tasks (goal_id, idempotency_key)
+  on public.tasks (idempotency_scope_key, idempotency_key)
   where idempotency_key is not null
     and status not in ('completed', 'failed', 'cancelled', 'skipped');
 
@@ -1293,7 +926,6 @@ create index task_dependencies_waiting_idx
 create table public.task_comments (
   id uuid primary key,
   task_id uuid not null references public.tasks(id) on delete cascade,
-  goal_id uuid not null references public.goals(id) on delete cascade,
   agent_id uuid null references public.agents(id) on delete set null,
   author_type text not null default 'system' check (
     author_type in ('human', 'ai', 'deterministic', 'external', 'system', 'worker')
@@ -1312,7 +944,6 @@ create table public.task_comments (
 
 alter table public.task_comments
   add column if not exists task_id uuid references public.tasks(id) on delete cascade,
-  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists author_type text default 'system',
   add column if not exists author_name text null,
@@ -1353,7 +984,6 @@ where author_type is null
 
 alter table public.task_comments
   alter column task_id set not null,
-  alter column goal_id set not null,
   alter column author_type set default 'system',
   alter column author_type set not null,
   alter column visibility set default 'internal',
@@ -1408,9 +1038,6 @@ comment on table public.task_comments is
 create index task_comments_task_idx
   on public.task_comments (task_id, created_at asc);
 
-create index task_comments_goal_idx
-  on public.task_comments (goal_id, created_at asc);
-
 create index task_comments_agent_idx
   on public.task_comments (agent_id, created_at desc)
   where agent_id is not null;
@@ -1425,7 +1052,6 @@ end $$;
 create table public.task_events (
   id uuid primary key,
   task_id uuid null references public.tasks(id) on delete set null,
-  goal_id uuid not null references public.goals(id) on delete cascade,
   agent_id uuid null references public.agents(id) on delete set null,
   event_type text not null,
   event_status text not null default 'observed' check (
@@ -1441,7 +1067,6 @@ create table public.task_events (
 
 alter table public.task_events
   add column if not exists task_id uuid null references public.tasks(id) on delete set null,
-  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists event_type text,
   add column if not exists event_status text default 'observed',
@@ -1476,7 +1101,6 @@ where event_type is null
   or created_at is null;
 
 alter table public.task_events
-  alter column goal_id set not null,
   alter column event_type set not null,
   alter column event_status set default 'observed',
   alter column event_status set not null,
@@ -1533,9 +1157,6 @@ comment on table public.task_events is
 create index task_events_task_idx
   on public.task_events (task_id, occurred_at asc)
   where task_id is not null;
-
-create index task_events_goal_idx
-  on public.task_events (goal_id, occurred_at asc);
 
 create index task_events_agent_idx
   on public.task_events (agent_id, occurred_at desc)
@@ -1626,7 +1247,6 @@ create index task_reservations_lease_idx
 create table public.task_approvals (
   id uuid primary key,
   task_id uuid not null references public.tasks(id) on delete cascade,
-  goal_id uuid not null references public.goals(id) on delete cascade,
   requested_by_agent_id uuid null references public.agents(id) on delete set null,
   decided_by_agent_id uuid null references public.agents(id) on delete set null,
   approval_type text not null default 'four_eyes' check (
@@ -1646,7 +1266,6 @@ create table public.task_approvals (
 
 alter table public.task_approvals
   add column if not exists task_id uuid references public.tasks(id) on delete cascade,
-  add column if not exists goal_id uuid references public.goals(id) on delete cascade,
   add column if not exists requested_by_agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists decided_by_agent_id uuid null references public.agents(id) on delete set null,
   add column if not exists approval_type text default 'four_eyes',
@@ -1685,7 +1304,6 @@ where approval_type is null
 
 alter table public.task_approvals
   alter column task_id set not null,
-  alter column goal_id set not null,
   alter column approval_type set default 'four_eyes',
   alter column approval_type set not null,
   alter column status set default 'requested',
@@ -1726,9 +1344,6 @@ end $$;
 
 create index task_approvals_task_idx
   on public.task_approvals (task_id, requested_at desc);
-
-create index task_approvals_goal_idx
-  on public.task_approvals (goal_id, requested_at desc);
 
 create index task_approvals_status_idx
   on public.task_approvals (status, requested_at asc);
@@ -2292,8 +1907,6 @@ create index bpm_occurred_idx
 
 create index bpm_event_time_idx
   on public.bpm (event_type, event_name, occurred_at desc);
-
-drop index if exists public.bpm_goal_idx;
 
 create index bpm_ray_idx
   on public.bpm (ray, occurred_at desc);
@@ -3235,7 +2848,6 @@ create table public.safety_reviews (
   id uuid primary key,
   ray uuid null,
   plan_id uuid null references public.assessments(plan_id) on delete cascade,
-  goal_id uuid null references public.goals(id) on delete set null,
   task_id uuid null references public.tasks(id) on delete set null,
   bpm_event_id uuid null references public.bpm(id) on delete set null,
   formulation_version integer null,
@@ -3268,7 +2880,6 @@ create table public.safety_reviews (
 alter table public.safety_reviews
   add column if not exists ray uuid null,
   add column if not exists plan_id uuid null references public.assessments(plan_id) on delete cascade,
-  add column if not exists goal_id uuid null references public.goals(id) on delete set null,
   add column if not exists task_id uuid null references public.tasks(id) on delete set null,
   add column if not exists bpm_event_id uuid null references public.bpm(id) on delete set null,
   add column if not exists formulation_version integer null,
@@ -3492,8 +3103,6 @@ comment on table public.safety_reviews is
   'Operational human-review queue for supplement and dose safety flags raised during formulation checks.';
 comment on column public.safety_reviews.bpm_event_id is
   'Optional BPM event showing the business/safety dashboard event that opened this review.';
-comment on column public.safety_reviews.goal_id is
-  'Optional operational goal that groups the safety review with related work.';
 comment on column public.safety_reviews.task_id is
   'Optional task that represents the human or agent action required for this review.';
 comment on column public.safety_reviews.ai_suggestion is
@@ -3509,12 +3118,6 @@ create index safety_reviews_status_idx
 create index safety_reviews_plan_idx
   on public.safety_reviews (plan_id, opened_at desc)
   where plan_id is not null;
-
-drop index if exists public.safety_reviews_goal_idx;
-
-create index safety_reviews_goal_idx
-  on public.safety_reviews (goal_id, opened_at desc)
-  where goal_id is not null;
 
 create index safety_reviews_task_idx
   on public.safety_reviews (task_id, opened_at desc)
@@ -3730,7 +3333,6 @@ create table public.communication_messages (
   identity_id uuid null references public.communication_identities(id) on delete set null,
   channel_id uuid null references public.communication_channels(id) on delete set null,
   plan_id uuid null references public.assessments(plan_id) on delete set null,
-  goal_id uuid null references public.goals(id) on delete set null,
   task_id uuid null references public.tasks(id) on delete set null,
   direction text not null default 'outbound',
   message_type text not null default 'general',
@@ -3753,7 +3355,6 @@ alter table public.communication_messages
   add column if not exists identity_id uuid null references public.communication_identities(id) on delete set null,
   add column if not exists channel_id uuid null references public.communication_channels(id) on delete set null,
   add column if not exists plan_id uuid null references public.assessments(plan_id) on delete set null,
-  add column if not exists goal_id uuid null references public.goals(id) on delete set null,
   add column if not exists task_id uuid null references public.tasks(id) on delete set null,
   add column if not exists direction text default 'outbound',
   add column if not exists message_type text default 'general',
@@ -4612,12 +4213,6 @@ begin
   end;
 
   begin
-    execute 'alter table public.goals owner to mn';
-  exception when others then
-    raise notice 'Skipping goals owner change: %', sqlerrm;
-  end;
-
-  begin
     execute 'alter table public.tasks owner to mn';
   exception when others then
     raise notice 'Skipping tasks owner change: %', sqlerrm;
@@ -4789,7 +4384,6 @@ begin
          public.communication_channels,
          public.communication_messages,
          public.agents,
-         public.goals,
          public.tasks,
          public.task_dependencies,
          public.task_comments,

@@ -5,19 +5,47 @@ import {
   normalizeCapabilities,
   normalizeLeaseSeconds,
   normalizeTaskIdempotencyScope,
-  normalizeTaskPriority,
+  normalizeTaskBusinessValue,
   normalizeTaskRetryPolicy,
-  TASK_PRIORITY,
+  TASK_BUSINESS_VALUE,
+  taskEffectiveBusinessValue,
   taskRetryDelaySeconds,
   taskStatusMatchesIdempotencyScope
 } from "../lib/task-service-utils.ts";
 
 describe("task service utilities", () => {
-  it("normalizes priorities into the 1 to 5 operating bands", () => {
-    assert.equal(normalizeTaskPriority(undefined), TASK_PRIORITY.normal);
-    assert.equal(normalizeTaskPriority(0), TASK_PRIORITY.low);
-    assert.equal(normalizeTaskPriority(9), TASK_PRIORITY.critical);
-    assert.equal(normalizeTaskPriority("4.4"), TASK_PRIORITY.high);
+  it("normalizes business values and legacy 1-to-5 bands", () => {
+    assert.equal(normalizeTaskBusinessValue(undefined), TASK_BUSINESS_VALUE.normal);
+    assert.equal(normalizeTaskBusinessValue(0), 1);
+    assert.equal(normalizeTaskBusinessValue(9), 9);
+    assert.equal(normalizeTaskBusinessValue("4.4"), TASK_BUSINESS_VALUE.high);
+    assert.equal(normalizeTaskBusinessValue(12_000), 10_000);
+  });
+
+  it("adds bounded queue aging to effective business value", () => {
+    const scheduledFor = new Date("2026-05-14T00:00:00.000Z");
+
+    assert.equal(
+      taskEffectiveBusinessValue(
+        { businessValue: 200, scheduledFor },
+        new Date("2026-05-14T00:05:00.000Z")
+      ),
+      200
+    );
+    assert.equal(
+      taskEffectiveBusinessValue(
+        { businessValue: 200, scheduledFor },
+        new Date("2026-05-14T00:20:00.000Z")
+      ),
+      210
+    );
+    assert.equal(
+      taskEffectiveBusinessValue(
+        { businessValue: 200, scheduledFor },
+        new Date("2026-05-14T08:00:00.000Z")
+      ),
+      400
+    );
   });
 
   it("cleans, deduplicates and sorts capabilities", () => {

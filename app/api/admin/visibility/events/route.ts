@@ -2,6 +2,7 @@ import { adminDashboardTokenAllowed } from "@/lib/admin-auth";
 import { normalizeAdminDashboardRange } from "@/lib/admin-dashboard-data";
 import { getAdminTaskVisibilityData } from "@/lib/admin-execution";
 import { streamAdminSnapshots } from "@/lib/admin-sse";
+import { waitForTaskQueueChange } from "@/lib/task-wakeup";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
   return streamAdminSnapshots({
     eventName: "visibility",
     load: () => getAdminTaskVisibilityData(range),
-    request
+    request,
+    waitForSnapshotSignal: waitForTaskQueueChange
   });
 }

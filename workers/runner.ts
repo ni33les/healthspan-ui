@@ -24,6 +24,7 @@ const DEFAULT_LEASE_SECONDS = 900;
 const INITIAL_AGENT_RESTART_BACKOFF_MS = 1_000;
 const MAX_AGENT_RESTART_BACKOFF_MS = 30_000;
 const MAX_POLLING_BACKOFF_MS = 30_000;
+const MAX_WORKER_PROFILE_CONCURRENCY = 8;
 const WORKER_PROFILE_MODES: readonly WorkerProfileMode[] = [
   "communications",
   "content",
@@ -50,6 +51,14 @@ function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value);
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function boundedPositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  max: number
+) {
+  return Math.min(positiveInteger(value, fallback), max);
 }
 
 function sleep(ms: number) {
@@ -105,10 +114,11 @@ function workerVersion() {
   return envText("WORKER_VERSION", envText("npm_package_version", "dev"));
 }
 
-function instanceId(mode: WorkerProfileMode) {
+function instanceId(mode: WorkerProfileMode, slotIndex: number, slotCount: number) {
   const base = envText("WORKER_INSTANCE_ID", `${hostname()}:${process.pid}`);
+  const slotSuffix = slotCount > 1 ? `:${slotIndex + 1}` : "";
 
-  return `${base}:${mode}`;
+  return `${base}:${mode}${slotSuffix}`;
 }
 
 function agentProfile(
@@ -152,6 +162,21 @@ function profileForMode(mode: WorkerProfileMode) {
   return WORKER_PROFILES[mode];
 }
 
+function workerConcurrency(mode: WorkerProfileMode) {
+  const profileEnvName = `WORKER_${mode.toUpperCase()}_CONCURRENCY`;
+  const defaultConcurrency = boundedPositiveInteger(
+    process.env.WORKER_CONCURRENCY,
+    1,
+    MAX_WORKER_PROFILE_CONCURRENCY
+  );
+
+  return boundedPositiveInteger(
+    process.env[profileEnvName],
+    defaultConcurrency,
+    MAX_WORKER_PROFILE_CONCURRENCY
+  );
+}
+
 function requireConfig() {
   const baseUrl =
     envText("WORKER_API_BASE_URL") ||
@@ -174,7 +199,6 @@ async function executeWorkItem(
   if (workItem.taskType === "client_safety_followup") {
     const communication = await client.sendCommunication({
       body: workItem.body,
-      goalId: workItem.goalId,
       messageType: "safety_review_decision",
       metadata: workItem.metadata,
       planId: workItem.planId,
@@ -190,20 +214,22 @@ async function executeWorkItem(
 
 async function runAgentLoop(
   mode: WorkerProfileMode,
-  config: Readonly<{ baseUrl: string; token: string }>
+  config: Readonly<{ baseUrl: string; token: string }>,
+  slotIndex: number,
+  slotCount: number
 ) {
   const client = new WorkerApiClient(config);
   const agentConfig = profileForMode(mode);
-  const concurrency = positiveInteger(process.env.WORKER_CONCURRENCY, 1);
+  const slotLabel = slotCount > 1 ? ` slot ${slotIndex + 1}/${slotCount}` : "";
   let activeSessionKey: string | null = null;
   let activeSession: ActiveSession | null = null;
   const registration = await retryApiCall(
-    `${agentConfig.name} registration`,
+    `${agentConfig.name}${slotLabel} registration`,
     () =>
       client.register({
         agent: agentConfig,
-        concurrency,
-        instanceId: instanceId(mode),
+        concurrency: 1,
+        instanceId: instanceId(mode, slotIndex, slotCount),
         workerVersion: workerVersion()
       }),
     5
@@ -236,7 +262,7 @@ async function runAgentLoop(
     );
 
     console.log(
-      `[agent] ${agent.name} registered session ${workerSessionId} for ${agentConfig.taskTypes.join(", ")}`
+      `[agent] ${agent.name}${slotLabel} registered session ${workerSessionId} for ${agentConfig.taskTypes.join(", ")}`
     );
 
     let pollingBackoffMs = 1_000;
@@ -245,12 +271,6 @@ async function runAgentLoop(
       let reserved: Awaited<ReturnType<WorkerApiClient["reserve"]>>;
 
       try {
-        await client.heartbeat({
-          agentId: agent.id,
-          status: "polling",
-          workerSessionId
-        });
-
         reserved = await client.reserve({
           agent,
           leaseSeconds,
@@ -369,24 +389,27 @@ async function markSessionsOffline() {
 
 async function runSupervisedAgentLoop(
   mode: WorkerProfileMode,
-  config: Readonly<{ baseUrl: string; token: string }>
+  config: Readonly<{ baseUrl: string; token: string }>,
+  slotIndex = 0,
+  slotCount = 1
 ) {
   const agentName = profileForMode(mode).name;
+  const slotLabel = slotCount > 1 ? ` slot ${slotIndex + 1}/${slotCount}` : "";
   let restartBackoffMs = INITIAL_AGENT_RESTART_BACKOFF_MS;
 
   while (!shuttingDown) {
     try {
-      await runAgentLoop(mode, config);
+      await runAgentLoop(mode, config, slotIndex, slotCount);
       restartBackoffMs = INITIAL_AGENT_RESTART_BACKOFF_MS;
     } catch (error) {
       console.error(
-        `[agent] ${agentName} loop failed: ${errorMessage(error)}`
+        `[agent] ${agentName}${slotLabel} loop failed: ${errorMessage(error)}`
       );
     }
 
     if (!shuttingDown) {
       console.error(
-        `[agent] ${agentName} restarting in ${restartBackoffMs}ms`
+        `[agent] ${agentName}${slotLabel} restarting in ${restartBackoffMs}ms`
       );
       await sleep(jitter(restartBackoffMs));
       restartBackoffMs = nextBackoff(restartBackoffMs);
@@ -408,6 +431,13 @@ async function runWorker(mode: WorkerMode) {
   const config = requireConfig();
   const modes =
     mode === "all" ? WORKER_PROFILE_MODES : ([mode] as readonly WorkerProfileMode[]);
+  const loops = modes.flatMap((profileMode) => {
+    const concurrency = workerConcurrency(profileMode);
+
+    return Array.from({ length: concurrency }, (_, slotIndex) =>
+      runSupervisedAgentLoop(profileMode, config, slotIndex, concurrency)
+    );
+  });
 
   process.once("SIGTERM", () => {
     void shutdown();
@@ -416,9 +446,7 @@ async function runWorker(mode: WorkerMode) {
     void shutdown();
   });
 
-  await Promise.all(
-    modes.map((profileMode) => runSupervisedAgentLoop(profileMode, config))
-  );
+  await Promise.all(loops);
 }
 
 const mode = workerMode(process.argv[2] ?? process.env.WORKER_MODE);

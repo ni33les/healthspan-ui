@@ -62,7 +62,6 @@ export type ReassessmentEmailWorkItem = Readonly<{
 
 export type CommunicationFollowupWorkItem = Readonly<{
   body: string;
-  goalId: string;
   metadata: Record<string, unknown>;
   payload: Record<string, unknown>;
   planId: string | null;
@@ -455,7 +454,6 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
         reviewedItems,
         supplementName
       }),
-      goalId: task.goalId,
       metadata: {
         decision,
         reviewedItems,
