@@ -127,6 +127,16 @@ describe("external worker boundaries", () => {
       /leaseSeconds: 180/,
       "default worker leases should release crashed sessions quickly"
     );
+    assert.equal(
+      /ensureWorkerSessionSchema[\s\S]*alter table public\.worker_sessions/.test(source),
+      false,
+      "worker startup must not run owner-only worker_sessions schema migrations"
+    );
+    assert.equal(
+      /ensureWorkerSessionSchema[\s\S]*create table if not exists public\.worker_sessions/.test(source),
+      false,
+      "worker startup must not create worker_sessions at runtime"
+    );
   });
 
   it("keeps interactive worker pickup on a fast reserve poll", async () => {

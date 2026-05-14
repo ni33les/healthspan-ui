@@ -493,128 +493,54 @@ export async function ensureWorkerSessionSchema(sql?: postgres.Sql) {
   const configured = getRequiredSql(sql);
 
   globalTaskService.mattanutraWorkerSessionSchemaReady ??= (async () => {
-    await configured`
-      create table if not exists public.worker_sessions (
-        id uuid primary key,
-        agent_id uuid not null references public.agents(id) on delete cascade,
-        instance_id text not null,
-        status text not null default 'idle',
-        capabilities text[] not null default '{}',
-        task_types text[] not null default '{}',
-        concurrency integer not null default 1,
-        worker_version text null,
-        current_task_id uuid null,
-        metadata jsonb not null default '{}'::jsonb,
-        last_seen_at timestamptz not null default now(),
-        created_at timestamptz not null default now(),
-        updated_at timestamptz not null default now()
-      )
+    const requiredColumns = {
+      task_reservations: ["worker_session_id"],
+      worker_sessions: [
+        "id",
+        "agent_id",
+        "instance_id",
+        "status",
+        "capabilities",
+        "task_types",
+        "concurrency",
+        "worker_version",
+        "current_task_id",
+        "metadata",
+        "last_seen_at",
+        "created_at",
+        "updated_at"
+      ]
+    } satisfies Record<string, string[]>;
+    const rows = await configured<Array<{
+      column_name: string;
+      table_name: keyof typeof requiredColumns;
+    }>>`
+      select table_name, column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = any(${Object.keys(requiredColumns)}::text[])
     `;
-    await configured`
-      alter table public.worker_sessions
-        add column if not exists agent_id uuid references public.agents(id) on delete cascade,
-        add column if not exists instance_id text,
-        add column if not exists status text default 'idle',
-        add column if not exists capabilities text[] default '{}',
-        add column if not exists task_types text[] default '{}',
-        add column if not exists concurrency integer default 1,
-        add column if not exists worker_version text,
-        add column if not exists current_task_id uuid,
-        add column if not exists metadata jsonb default '{}'::jsonb,
-        add column if not exists last_seen_at timestamptz default now(),
-        add column if not exists created_at timestamptz default now(),
-        add column if not exists updated_at timestamptz default now()
-    `;
-    await configured`
-      update public.worker_sessions
-      set
-        instance_id = coalesce(nullif(instance_id, ''), id::text),
-        status = case
-          when status in ('idle', 'offline', 'polling', 'working') then status
-          else 'idle'
-        end,
-        capabilities = coalesce(capabilities, '{}'),
-        task_types = coalesce(task_types, '{}'),
-        concurrency = greatest(1, coalesce(concurrency, 1)),
-        metadata = coalesce(metadata, '{}'::jsonb),
-        last_seen_at = coalesce(last_seen_at, now()),
-        created_at = coalesce(created_at, now()),
-        updated_at = coalesce(updated_at, now())
-    `;
-    await configured`
-      alter table public.worker_sessions
-        alter column agent_id set not null,
-        alter column instance_id set not null,
-        alter column status set default 'idle',
-        alter column status set not null,
-        alter column capabilities set default '{}',
-        alter column capabilities set not null,
-        alter column task_types set default '{}',
-        alter column task_types set not null,
-        alter column concurrency set default 1,
-        alter column concurrency set not null,
-        alter column metadata set default '{}'::jsonb,
-        alter column metadata set not null,
-        alter column last_seen_at set default now(),
-        alter column last_seen_at set not null,
-        alter column created_at set default now(),
-        alter column created_at set not null,
-        alter column updated_at set default now(),
-        alter column updated_at set not null
-    `;
-    await configured`
-      do $$
-      begin
-        alter table public.worker_sessions
-          drop constraint if exists worker_sessions_status_check;
+    const available = new Map<string, Set<string>>();
 
-        alter table public.worker_sessions
-          add constraint worker_sessions_status_check
-          check (status in ('idle', 'offline', 'polling', 'working'));
-      end $$;
-    `;
-    await configured`
-      create unique index if not exists worker_sessions_agent_instance_idx
-        on public.worker_sessions (agent_id, instance_id)
-    `;
-    await configured`
-      create index if not exists worker_sessions_status_idx
-        on public.worker_sessions (status, last_seen_at desc)
-    `;
-    await configured`
-      create index if not exists worker_sessions_capabilities_gin_idx
-        on public.worker_sessions using gin (capabilities)
-    `;
-    await configured`
-      do $$
-      begin
-        if to_regclass('public.task_reservations') is not null then
-          alter table public.task_reservations
-            add column if not exists worker_session_id uuid null;
+    for (const row of rows) {
+      const columns = available.get(row.table_name) ?? new Set<string>();
+      columns.add(row.column_name);
+      available.set(row.table_name, columns);
+    }
 
-          if not exists (
-            select 1
-            from pg_constraint
-            where conname = 'task_reservations_worker_session_id_fkey'
-              and conrelid = 'public.task_reservations'::regclass
-          ) then
-            alter table public.task_reservations
-              add constraint task_reservations_worker_session_id_fkey
-              foreign key (worker_session_id)
-              references public.worker_sessions(id)
-              on delete set null;
-          end if;
-        end if;
-      end $$;
-    `;
-    await configured`
-      do $$
-      begin
-        if to_regclass('public.task_reservations') is not null then
-          execute 'create index if not exists task_reservations_worker_session_idx on public.task_reservations (worker_session_id, status, reserved_at desc) where worker_session_id is not null';
-        end if;
-      end $$;
-    `;
+    const missing = Object.entries(requiredColumns).flatMap(([table, columns]) => {
+      const availableColumns = available.get(table) ?? new Set<string>();
+
+      return columns
+        .filter((column) => !availableColumns.has(column))
+        .map((column) => `public.${table}.${column}`);
+    });
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Worker session schema is incomplete. Apply db-schema.sql with the database owner before starting workers. Missing: ${missing.join(", ")}`
+      );
+    }
   })().catch((error) => {
     globalTaskService.mattanutraWorkerSessionSchemaReady = undefined;
     throw error;
