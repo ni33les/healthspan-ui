@@ -16,6 +16,7 @@ import {
   type FoodGuidanceItem,
   type FormulationIngredient,
   type FormulationResult,
+  type MarketingPoint,
   type RecommendedProduct
 } from "@/lib/formulation-types";
 import { getSql } from "@/lib/db";
@@ -671,6 +672,9 @@ export async function getStoredFormulationResult(
   const supplementBreakdown = asArray<FormulationIngredient>(
     storedFormulation.supplementBreakdown ?? storedFormulation.formula
   );
+  const marketingPoints = asArray<MarketingPoint>(
+    storedFormulation.marketingPoints
+  );
   const foodGuidance = asArray<FoodGuidanceItem>(
     storedFoodGuidance.foodGuidance
   );
@@ -700,6 +704,7 @@ export async function getStoredFormulationResult(
     schemaVersion: 1,
     ...(safetySummary ? { safetySummary } : {}),
     ...(foodSafetySummary ? { foodSafetySummary } : {}),
+    ...(marketingPoints.length > 0 ? { marketingPoints } : {}),
     foodGuidance,
     supplementBreakdown
   } satisfies FormulationResult;

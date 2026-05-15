@@ -78,6 +78,12 @@ export type RecommendedProduct = {
   url: string;
 };
 
+export type MarketingPoint = {
+  body: LocalizedText;
+  id: string;
+  title: LocalizedText;
+};
+
 export type AssessmentSummary = {
   constraints: string[];
   goals: string[];
@@ -87,6 +93,7 @@ export type AssessmentSummary = {
 };
 
 export type FormulationBlueprint = {
+  marketingPoints?: MarketingPoint[];
   safetySummary?: {
     adjustedCount: number;
     hiddenCount: number;

@@ -4,6 +4,7 @@ import type {
   FormulationBlueprint,
   FormulationIngredient,
   LocalizedText,
+  MarketingPoint,
   FormulationStatus
 } from "@/lib/formulation-types";
 
@@ -84,6 +85,7 @@ function systemPrompt(promptVersion: string) {
     "You are generating a wellness-oriented nutritional formulation brief.",
     "This is not medical advice, a prescription, a diagnosis, or a treatment plan.",
     "Use the completed assessment to produce a concise supplement breakdown.",
+    "Also produce concise, personalized marketing points that explain why the user's full MattaNutra plan is worth opening.",
     "Do not include product recommendations, marketplace links, personal contact data, markdown, explanations outside JSON, or medical claims.",
     "The first character of your response must be { and the last character must be }.",
     "Every supplementBreakdown entry must be a JSON object, never a string.",
@@ -123,11 +125,29 @@ function userPrompt({
               th: "Thai supplement name"
             }
           }
+        ],
+        marketingPoints: [
+          {
+            body: {
+              en: "one English sentence explaining the personalized value of the plan without medical claims",
+              th: "one Thai sentence explaining the personalized value of the plan without medical claims"
+            },
+            id: "stable kebab-case identifier",
+            title: {
+              en: "short English title",
+              th: "short Thai title"
+            }
+          }
         ]
       },
       instructions: [
-        "Return a JSON object with exactly one top-level key: supplementBreakdown.",
+        "Return a JSON object with exactly two top-level keys: supplementBreakdown and marketingPoints.",
         "supplementBreakdown must contain 6 to 18 items.",
+        "marketingPoints must contain 3 concise points that are specific to this assessment, the HealthScore, and the plan.",
+        "Every marketingPoints array entry must be an object with id, title, and body.",
+        "marketingPoints title and body must each be localized objects with exactly en and th string values.",
+        "Marketing copy must be truthful, benefit-led, and calm. Do not invent discounts, urgency, guarantees, cures, diagnosis, treatment claims, or product availability.",
+        "Use marketingPoints to explain why the full bespoke plan is more useful than the free preview: for example prioritization, dose/safety checks, and food-plus-supplement fit.",
         "Every supplementBreakdown array entry must be an object. Do not put plain strings in the array.",
         "Every item must include id, category, supplement, dailyDose, effectivenessRank, status, and rationale.",
         "Set effectivenessRank as a unique integer from 1 to the number of items, where 1 is the most effective/highest-impact supplement suggestion for this person's assessment.",
@@ -156,6 +176,7 @@ function retryPrompt(errors: string[]) {
     "Return corrected JSON only, matching the required contract.",
     "Do not include markdown or prose.",
     "Every supplementBreakdown item must be a JSON object, not a string.",
+    "marketingPoints must contain 3 localized objects with id, title, and body.",
     "Every item must include a unique integer effectivenessRank where 1 is highest impact.",
     "If a field is uncertain, set status to review and still return valid JSON.",
     "Validation errors:",
@@ -262,24 +283,24 @@ function slugify(value: string, fallback: string) {
   return slug || fallback;
 }
 
-function readLocalizedText(
+function readLocalizedTextAt(
   record: Record<string, unknown>,
   key: string,
-  index: number,
+  path: string,
   errors: string[]
 ): LocalizedText {
   const value = record[key];
 
   if (typeof value === "string" && value.trim()) {
     errors.push(
-      `supplementBreakdown[${index}].${key} must be an object with en and th strings, not a plain string`
+      `${path}.${key} must be an object with en and th strings, not a plain string`
     );
     return { en: "", th: "" };
   }
 
   if (!isRecord(value)) {
     errors.push(
-      `supplementBreakdown[${index}].${key} must be an object with en and th strings`
+      `${path}.${key} must be an object with en and th strings`
     );
     return { en: "", th: "" };
   }
@@ -290,7 +311,7 @@ function readLocalizedText(
 
   if (unexpectedKeys.length > 0) {
     errors.push(
-      `supplementBreakdown[${index}].${key} must only include en and th, found: ${unexpectedKeys.join(", ")}`
+      `${path}.${key} must only include en and th, found: ${unexpectedKeys.join(", ")}`
     );
   }
 
@@ -298,14 +319,23 @@ function readLocalizedText(
   const th = readText(value, "th");
 
   if (!en) {
-    errors.push(`supplementBreakdown[${index}].${key}.en is required`);
+    errors.push(`${path}.${key}.en is required`);
   }
 
   if (!th) {
-    errors.push(`supplementBreakdown[${index}].${key}.th is required`);
+    errors.push(`${path}.${key}.th is required`);
   }
 
   return { en, th };
+}
+
+function readLocalizedText(
+  record: Record<string, unknown>,
+  key: string,
+  index: number,
+  errors: string[]
+): LocalizedText {
+  return readLocalizedTextAt(record, key, `supplementBreakdown[${index}]`, errors);
 }
 
 function textFromLocalizedCandidate(value: unknown) {
@@ -322,6 +352,7 @@ function textFromLocalizedCandidate(value: unknown) {
 
 function validateFormulation(value: unknown) {
   const errors: string[] = [];
+  const marketingPoints: MarketingPoint[] = [];
   const supplementBreakdown: FormulationIngredient[] = [];
 
   const response = Array.isArray(value)
@@ -333,19 +364,32 @@ function validateFormulation(value: unknown) {
   }
 
   const unexpectedTopLevelKeys = Object.keys(response).filter(
-    (key) => key !== "supplementBreakdown"
+    (key) => key !== "supplementBreakdown" && key !== "marketingPoints"
   );
 
   if (unexpectedTopLevelKeys.length > 0) {
     errors.push(
-      `Top-level response must only include supplementBreakdown, found: ${unexpectedTopLevelKeys.join(", ")}`
+      `Top-level response must only include supplementBreakdown and marketingPoints, found: ${unexpectedTopLevelKeys.join(", ")}`
     );
   }
 
   const rawItems = response.supplementBreakdown;
+  const rawMarketingPoints = response.marketingPoints;
 
   if (!Array.isArray(rawItems)) {
     return { errors: ["supplementBreakdown must be an array"] };
+  }
+
+  if (!Array.isArray(rawMarketingPoints)) {
+    errors.push("marketingPoints must be an array");
+  } else {
+    if (rawMarketingPoints.length < 2) {
+      errors.push("marketingPoints must contain at least 2 items");
+    }
+
+    if (rawMarketingPoints.length > 4) {
+      errors.push("marketingPoints must contain no more than 4 items");
+    }
   }
 
   if (rawItems.length < 1) {
@@ -357,6 +401,7 @@ function validateFormulation(value: unknown) {
   }
 
   const seenIds = new Set<string>();
+  const seenMarketingIds = new Set<string>();
   const seenRanks = new Set<number>();
 
   rawItems.forEach((item, index) => {
@@ -418,6 +463,44 @@ function validateFormulation(value: unknown) {
     });
   });
 
+  if (Array.isArray(rawMarketingPoints)) {
+    rawMarketingPoints.forEach((point, index) => {
+      if (!isRecord(point)) {
+        errors.push(`marketingPoints[${index}] must be an object`);
+        return;
+      }
+
+      const titleText = textFromLocalizedCandidate(point.title);
+      const id = readText(point, "id") || slugify(titleText, `point-${index + 1}`);
+      const title = readLocalizedTextAt(
+        point,
+        "title",
+        `marketingPoints[${index}]`,
+        errors
+      );
+      const body = readLocalizedTextAt(
+        point,
+        "body",
+        `marketingPoints[${index}]`,
+        errors
+      );
+
+      if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(id)) {
+        errors.push(`marketingPoints[${index}].id must be stable kebab-case`);
+      } else if (seenMarketingIds.has(id)) {
+        errors.push(`marketingPoints[${index}].id is duplicated`);
+      } else {
+        seenMarketingIds.add(id);
+      }
+
+      marketingPoints.push({
+        body,
+        id,
+        title
+      });
+    });
+  }
+
   if (errors.length > 0) {
     return { errors };
   }
@@ -425,6 +508,7 @@ function validateFormulation(value: unknown) {
   return {
     errors,
     formulation: {
+      marketingPoints: marketingPoints.slice(0, 3),
       supplementBreakdown: [...supplementBreakdown].sort(
         (a, b) => a.effectivenessRank - b.effectivenessRank
       )

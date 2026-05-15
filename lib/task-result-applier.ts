@@ -16,7 +16,10 @@ import type {
 } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { enqueueExampleEmailIfPreviewReady } from "@/lib/task-worker";
+import {
+  enqueueExampleEmailIfPreviewReady,
+  enqueueExampleEmailsForReadyFullPlan
+} from "@/lib/task-worker";
 import {
   addTaskEvent,
   addTaskEventToTransaction,
@@ -422,6 +425,11 @@ async function applyPaidFormulationResult(
       nutritionReady
     });
   });
+  if (nutritionReady) {
+    await eventually(afterCommit, async () => {
+      await enqueueExampleEmailsForReadyFullPlan(planId);
+    });
+  }
   await eventually(afterCommit, async () => {
     await writeBpmEvent({
       actorType: "worker",
@@ -530,6 +538,11 @@ async function applyPaidFoodGuidanceResult(
       responseId: analysis.responseId
     });
   });
+  if (nutritionReady) {
+    await eventually(afterCommit, async () => {
+      await enqueueExampleEmailsForReadyFullPlan(planId);
+    });
+  }
   await eventually(afterCommit, async () => {
     await writeBpmEvent({
       actorType: "worker",

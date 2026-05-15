@@ -359,7 +359,7 @@ export async function enqueueNutritionPlanTasks({
     reasoningEffort: "medium",
     source: "assessment",
     taskGroupId,
-    taskTitle: "Generate nutrition plan",
+    taskTitle: "Generate supplement plan",
     taskType: "generate_formulation"
   });
   const foodGuidanceTaskId = await createWorkTask({
@@ -378,7 +378,7 @@ export async function enqueueNutritionPlanTasks({
     reasoningEffort: "medium",
     source: "assessment",
     taskGroupId,
-    taskTitle: "Generate food guidance",
+    taskTitle: "Generate food plan",
     taskType: "generate_food_guidance"
   });
 
@@ -490,7 +490,7 @@ async function enqueueExampleFormulationTask(
     reasoningEffort: "medium",
     source: "free_example",
     taskGroupId,
-    taskTitle: "Generate Free nutrition plan",
+    taskTitle: "Generate free supplement preview",
     taskType: "generate_example_formulation"
   });
 
@@ -531,7 +531,7 @@ async function enqueueExampleFoodGuidanceTask(
     reasoningEffort: "medium",
     source: "free_example",
     taskGroupId,
-    taskTitle: "Generate Free food guidance",
+    taskTitle: "Generate free food preview",
     taskType: "generate_example_food_guidance"
   });
 
@@ -548,7 +548,123 @@ async function enqueueExampleFoodGuidanceTask(
   return taskId;
 }
 
-async function enqueueExamplePreviewTasks(planId: string, requestId: string) {
+type ExamplePreviewTaskIds = {
+  emailTaskId?: string | null;
+  foodGuidanceTaskId?: string | null;
+  formulationTaskId?: string | null;
+  waitingOnTaskId?: string | null;
+};
+
+function primaryExampleTaskId(taskIds: ExamplePreviewTaskIds) {
+  return (
+    taskIds.emailTaskId ??
+    taskIds.formulationTaskId ??
+    taskIds.foodGuidanceTaskId ??
+    taskIds.waitingOnTaskId ??
+    ""
+  );
+}
+
+async function fullNutritionOutputsReady(sql: postgres.Sql, planId: string) {
+  const rows = await sql<Array<{
+    food_guidance_ready: boolean;
+    formulation_ready: boolean;
+  }>>`
+    select
+      exists (
+        select 1
+        from public.formulations
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as formulation_ready,
+      exists (
+        select 1
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as food_guidance_ready
+  `;
+
+  return {
+    foodGuidanceReady: rows[0]?.food_guidance_ready === true,
+    formulationReady: rows[0]?.formulation_ready === true
+  };
+}
+
+async function activePaidNutritionTaskId(sql: postgres.Sql, planId: string) {
+  const rows = await sql<Array<{ id: string }>>`
+    select id::text
+    from public.tasks
+    where plan_id = ${planId}::uuid
+      and task_type in ('generate_formulation', 'generate_food_guidance')
+      and status not in ('completed', 'failed', 'cancelled', 'skipped')
+    order by business_value desc, scheduled_for asc, created_at asc
+    limit 1
+  `;
+
+  return rows[0]?.id ?? null;
+}
+
+async function markExamplePreviewReadyFromFullPlan(
+  sql: postgres.Sql,
+  requestId: string
+) {
+  await sql`
+    update public.assessment_example_requests set
+      status = 'formulation_ready',
+      formulation_status = 'ready',
+      food_guidance_status = 'ready',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+}
+
+async function markExamplePreviewWaitingOnFullPlan(
+  sql: postgres.Sql,
+  requestId: string
+) {
+  await sql`
+    update public.assessment_example_requests set
+      status = 'formulation_queued',
+      formulation_status = 'queued',
+      food_guidance_status = 'queued',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+}
+
+async function enqueueExamplePreviewTasks(
+  planId: string,
+  requestId: string
+): Promise<ExamplePreviewTaskIds> {
+  const sql = getSql();
+
+  if (!sql) {
+    return {};
+  }
+
+  const fullReady = await fullNutritionOutputsReady(sql, planId);
+
+  if (fullReady.formulationReady && fullReady.foodGuidanceReady) {
+    await markExamplePreviewReadyFromFullPlan(sql, requestId);
+    return {
+      emailTaskId: await enqueueExampleEmailIfPreviewReady(planId, requestId)
+    };
+  }
+
+  const waitingOnTaskId = await activePaidNutritionTaskId(sql, planId);
+
+  if (waitingOnTaskId) {
+    await markExamplePreviewWaitingOnFullPlan(sql, requestId);
+    return { waitingOnTaskId };
+  }
+
   const taskGroupId = deterministicUuid(
     `mattanutra:task-group:example-nutrition-plan:${requestId}`
   );
@@ -633,13 +749,11 @@ export async function enqueueExampleEmailIfPreviewReady(
         select 1
         from public.formulations
         where formulations.plan_id = assessment_example_requests.plan_id
-          and formulations.model_version like '%:example'
       ) as formulation_ready,
       exists (
         select 1
         from public.food_guidance
         where food_guidance.plan_id = assessment_example_requests.plan_id
-          and food_guidance.model_version like '%:example'
       ) as food_guidance_ready,
       (
         select tasks.id::text
@@ -676,6 +790,40 @@ export async function enqueueExampleEmailIfPreviewReady(
   `;
 
   return enqueueExampleEmailTask(planId, requestId);
+}
+
+export async function enqueueExampleEmailsForReadyFullPlan(planId: string) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return [];
+  }
+
+  const fullReady = await fullNutritionOutputsReady(sql, planId);
+
+  if (!fullReady.formulationReady || !fullReady.foodGuidanceReady) {
+    return [];
+  }
+
+  const rows = await sql<Array<{ id: string }>>`
+    select id::text
+    from public.assessment_example_requests
+    where plan_id = ${planId}::uuid
+      and status in ('requested', 'formulation_queued', 'formulation_ready')
+    order by requested_at asc
+  `;
+  const queuedTaskIds: string[] = [];
+
+  for (const row of rows) {
+    await markExamplePreviewReadyFromFullPlan(sql, row.id);
+    const taskId = await enqueueExampleEmailIfPreviewReady(planId, row.id);
+
+    if (taskId) {
+      queuedTaskIds.push(taskId);
+    }
+  }
+
+  return queuedTaskIds;
 }
 
 export async function requestExampleBrief({
@@ -776,11 +924,11 @@ export async function requestExampleBrief({
       existingRequest.status === "formulation_queued"
     )
   ) {
+    const taskIds = await enqueueExamplePreviewTasks(planId, existingRequest.id);
+
     return {
       requestId: existingRequest.id,
-      taskId:
-        (await enqueueExamplePreviewTasks(planId, existingRequest.id))
-          .formulationTaskId ?? ""
+      taskId: primaryExampleTaskId(taskIds)
     };
   }
 
@@ -812,7 +960,7 @@ export async function requestExampleBrief({
 
   const taskIds = await enqueueExamplePreviewTasks(planId, requestId);
 
-  return { requestId, taskId: taskIds.formulationTaskId ?? taskIds.foodGuidanceTaskId };
+  return { requestId, taskId: primaryExampleTaskId(taskIds) };
 }
 
 function mapExampleRequestStatus(status: unknown) {

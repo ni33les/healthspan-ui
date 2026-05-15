@@ -2,7 +2,8 @@ import type {
   FoodGuidanceBlueprint,
   FoodGuidanceItem,
   FormulationBlueprint,
-  LocalizedText
+  LocalizedText,
+  MarketingPoint
 } from "@/lib/formulation-types";
 import type {
   HealthScoreDomain,
@@ -77,6 +78,63 @@ function personalisedIntro({
     : `Your HealthScore is ${healthScore.score}/100. Below are the three highest-ranked items from your generated plan, so you can see how MattaNutra turns your result into a practical starting point.`;
 }
 
+function fallbackMarketingPoints(
+  healthScore: HealthScoreResult,
+  lowest?: HealthScoreDomain
+): MarketingPoint[] {
+  const focus = lowest?.label.toLowerCase() ?? "your wellness priorities";
+
+  return [
+    {
+      body: {
+        en: `Your full plan is ordered around your ${healthScore.score}/100 HealthScore, starting with the items most likely to matter for ${focus}.`,
+        th: `แผนฉบับเต็มจะเรียงลำดับจาก HealthScore ${healthScore.score}/100 ของคุณ โดยเริ่มจากรายการที่น่าจะเกี่ยวข้องกับจุดโฟกัสสำคัญที่สุด`
+      },
+      id: "personal-priority",
+      title: {
+        en: "Prioritized for you",
+        th: "จัดลำดับเพื่อคุณ"
+      }
+    },
+    {
+      body: {
+        en: "The full plan brings foods and supplements together so the suggestions feel practical, not like a disconnected shopping list.",
+        th: "แผนฉบับเต็มรวมทั้งอาหารและอาหารเสริมเข้าด้วยกัน เพื่อให้คำแนะนำใช้งานได้จริง ไม่ใช่แค่รายการแยกส่วน"
+      },
+      id: "food-supplement-fit",
+      title: {
+        en: "Foods plus supplements",
+        th: "อาหารร่วมกับอาหารเสริม"
+      }
+    },
+    {
+      body: {
+        en: "Safety checks help hide or flag items that need extra care before they appear in your full plan.",
+        th: "ระบบตรวจความปลอดภัยช่วยซ่อนหรือแจ้งเตือนรายการที่ควรระวังก่อนแสดงในแผนฉบับเต็ม"
+      },
+      id: "safety-screened",
+      title: {
+        en: "Safety checked",
+        th: "ผ่านการตรวจความปลอดภัย"
+      }
+    }
+  ];
+}
+
+function marketingPointsForEmail(
+  formulation: FormulationBlueprint,
+  healthScore: HealthScoreResult,
+  lowest?: HealthScoreDomain
+) {
+  const points = Array.isArray(formulation.marketingPoints)
+    ? formulation.marketingPoints
+    : [];
+
+  return (points.length > 0 ? points : fallbackMarketingPoints(healthScore, lowest))
+    .filter((point) => localize(point.title, "en") && localize(point.body, "en"))
+    .slice(0, 3);
+}
+
 export function buildExampleEmailHtml({
   formulation,
   healthScore,
@@ -118,12 +176,18 @@ export function buildExampleEmailHtml({
     locale,
     lowest: focusDomain
   });
+  const marketingPoints = marketingPointsForEmail(
+    formulation,
+    healthScore,
+    focusDomain
+  );
   const labels =
     locale === "th"
       ? {
           cta: "ดูแผนฉบับเต็ม",
           plan: "แผน",
           foodPreview: "3 อาหารเริ่มต้นจากแผนของคุณ",
+          marketingHeading: "เหตุผลที่ควรเปิดแผนฉบับเต็ม",
           preview: "3 รายการเริ่มต้นจากแผนของคุณ",
           previewUnavailable:
             "คำแนะนำอาหารเสริมต้องผ่านการตรวจสอบด้านความปลอดภัยก่อนแสดง ทีมงานได้รับรายการแล้ว",
@@ -135,6 +199,7 @@ export function buildExampleEmailHtml({
           cta: "View the full plan",
           plan: "Plan",
           foodPreview: "3 food starting points from your plan",
+          marketingHeading: "Why open the full plan",
           preview: "3 starting points from your plan",
           previewUnavailable:
             "Your supplement suggestions need a safety review before we show them. The review queue has been notified.",
@@ -188,6 +253,19 @@ export function buildExampleEmailHtml({
           })
           .join("")
       : "";
+  const marketingHtml = marketingPoints
+    .map((point) => {
+      const title = escapeHtml(localize(point.title, locale));
+      const body = escapeHtml(localize(point.body, locale));
+
+      return `
+        <li style="margin:0 0 10px;padding:13px 14px;border:1px solid #d9e8f7;border-radius:10px;background:#fbfdff;">
+          <strong style="display:block;color:#20343A;font-size:14px;">${title}</strong>
+          <span style="display:block;margin-top:6px;color:#5c6670;font-size:13px;line-height:1.5;">${body}</span>
+        </li>
+      `;
+    })
+    .join("");
 
   return `<!doctype html>
 <html lang="${locale}">
@@ -210,6 +288,11 @@ export function buildExampleEmailHtml({
           <p style="margin:10px 0 0;color:#5c6670;line-height:1.5;font-size:13px;">${escapeHtml(overview)}</p>
         </div>
 
+        ${
+          marketingHtml
+            ? `<h2 style="margin:0 0 12px;color:#20343A;font-size:18px;">${escapeHtml(labels.marketingHeading)}</h2><ul style="list-style:none;margin:0 0 22px;padding:0;">${marketingHtml}</ul>`
+            : ""
+        }
         <h2 style="margin:0 0 12px;color:#20343A;font-size:18px;">${escapeHtml(labels.preview)}</h2>
         <ul style="list-style:none;margin:0;padding:0;">${itemHtml}</ul>
         ${
