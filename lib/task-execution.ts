@@ -4,6 +4,10 @@ import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
 import { fetchDigitalOceanInvoicePreview } from "@/lib/finance-ledger";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { analyzeHealthScoreAdviceWithUsage } from "@/lib/health-score-analysis";
+import {
+  analyzeNutritionPlanChatWithGrok,
+  analyzeNutritionReportWithGrok
+} from "@/lib/nutrition-plan-advisor-analysis";
 import { sendTransactionalEmail } from "@/lib/smtp-email";
 import type { TaskWorkItem } from "@/lib/task-work-items";
 import type { SendTransactionalEmailResult } from "@/lib/smtp-email";
@@ -166,6 +170,39 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
 
   if (workItem.taskType === "client_safety_followup") {
     return { accepted: true };
+  }
+
+  if (workItem.taskType === "nutrition_plan_chat_reply") {
+    const analysis = await analyzeNutritionPlanChatWithGrok({
+      answers: workItem.answers,
+      chatMessages: workItem.chatMessages,
+      foodGuidance: workItem.foodGuidance,
+      formulation: workItem.formulation,
+      guidanceAdjustments: workItem.guidanceAdjustments,
+      locale: workItem.locale,
+      plan: workItem.plan,
+      planId: workItem.planId,
+      taskId: workItem.taskId,
+      userMessage: workItem.userMessage
+    });
+
+    return { analysis };
+  }
+
+  if (workItem.taskType === "generate_nutrition_report") {
+    const analysis = await analyzeNutritionReportWithGrok({
+      answers: workItem.answers,
+      chatMessages: workItem.chatMessages,
+      foodGuidance: workItem.foodGuidance,
+      formulation: workItem.formulation,
+      guidanceAdjustments: workItem.guidanceAdjustments,
+      locale: workItem.locale,
+      plan: workItem.plan,
+      planId: workItem.planId,
+      taskId: workItem.taskId
+    });
+
+    return { analysis };
   }
 
   if (workItem.taskType === "content_status_change") {

@@ -21,6 +21,8 @@ export const AGENT_CAPABILITIES = {
   hostingCostSync: "hosting_cost_sync",
   humanReview: "human_review",
   lineSend: "line_send",
+  nutritionPlanChat: "nutrition_plan_chat",
+  nutritionReportGeneration: "nutrition_report_generation",
   reassessmentEmailSend: "reassessment_email_send",
   safetyReview: "safety_review",
   salesCopy: "sales_copy",
@@ -42,6 +44,7 @@ export type SystemAgentKey =
   | "formulationWorker"
   | "healthScoreEngine"
   | "humanReviewer"
+  | "nutritionPlanAdvisor"
   | "safetyScanner"
   | "scheduler";
 
@@ -172,6 +175,20 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     name: "Human Reviewer",
     type: "human"
   },
+  nutritionPlanAdvisor: {
+    capabilities: [
+      AGENT_CAPABILITIES.nutritionPlanChat,
+      AGENT_CAPABILITIES.nutritionReportGeneration
+    ],
+    id: "b955a43d-2506-4f31-8955-ec7dd599a5f5",
+    metadata: {
+      seeded: true,
+      usesModel: true
+    },
+    model: "grok:nutrition-advisor",
+    name: "Nutrition Plan Advisor",
+    type: "ai"
+  },
   safetyScanner: {
     capabilities: [
       AGENT_CAPABILITIES.doseNormalization,
@@ -211,6 +228,8 @@ export const WORK_TASK_AGENT_KEYS: Readonly<Record<string, SystemAgentKey>> = {
   generate_example_supplement_guidance: "formulationWorker",
   generate_food_guidance: "foodGuidanceWorker",
   generate_supplement_guidance: "formulationWorker",
+  generate_nutrition_report: "nutritionPlanAdvisor",
+  nutrition_plan_chat_reply: "nutritionPlanAdvisor",
   content_status_change: "contentPublisher",
   send_example_email: "emailDispatcher",
   send_reassessment_email: "emailDispatcher",
@@ -237,6 +256,10 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
     ],
     generate_food_guidance: [AGENT_CAPABILITIES.foodGuidanceGeneration],
     generate_supplement_guidance: [AGENT_CAPABILITIES.formulationGeneration],
+    generate_nutrition_report: [
+      AGENT_CAPABILITIES.nutritionReportGeneration
+    ],
+    nutrition_plan_chat_reply: [AGENT_CAPABILITIES.nutritionPlanChat],
     content_status_change: [AGENT_CAPABILITIES.contentPublish],
     send_example_email: [AGENT_CAPABILITIES.freeEmailSend],
     send_reassessment_email: [AGENT_CAPABILITIES.reassessmentEmailSend],

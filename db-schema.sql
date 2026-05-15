@@ -36,6 +36,9 @@ drop table if exists
   public.foods,
   public.formulations,
   public.goals,
+  public.nutrition_reports,
+  public.plan_chat_messages,
+  public.plan_guidance_adjustments,
   public.plan_communication_identities,
   public.rays,
   public.recommendations,
@@ -629,6 +632,21 @@ values
       'free_example_food_guidance'
     ]::text[],
     'grok:food-guidance',
+    '{"seeded": true, "usesModel": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
+    'b955a43d-2506-4f31-8955-ec7dd599a5f5'::uuid,
+    'Nutrition Plan Advisor',
+    'ai',
+    'active',
+    array[
+      'nutrition_plan_chat',
+      'nutrition_report_generation'
+    ]::text[],
+    'grok:nutrition-advisor',
     '{"seeded": true, "usesModel": true}'::jsonb,
     null,
     now(),
@@ -1309,6 +1327,94 @@ create index task_reservations_worker_session_idx
 create index task_reservations_lease_idx
   on public.task_reservations (status, lease_until asc)
   where status = 'active';
+
+create table public.plan_chat_messages (
+  id uuid primary key,
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  task_id uuid null references public.tasks(id) on delete set null,
+  reply_to_message_id uuid null references public.plan_chat_messages(id) on delete set null,
+  role text not null check (role in ('user', 'assistant')),
+  body text not null,
+  status text not null default 'ready' check (
+    status in ('queued', 'ready', 'failed')
+  ),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.plan_chat_messages is
+  'Plan-native chat messages used to refine the food and supplement guidance before final report generation.';
+
+create index plan_chat_messages_plan_idx
+  on public.plan_chat_messages (plan_id, created_at asc);
+
+create index plan_chat_messages_task_idx
+  on public.plan_chat_messages (task_id)
+  where task_id is not null;
+
+create unique index plan_chat_assistant_reply_idx
+  on public.plan_chat_messages (reply_to_message_id)
+  where role = 'assistant'
+    and reply_to_message_id is not null;
+
+create table public.plan_guidance_adjustments (
+  id uuid primary key,
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  source_message_id uuid null references public.plan_chat_messages(id) on delete set null,
+  source_task_id uuid null references public.tasks(id) on delete set null,
+  action text not null default 'remove' check (action in ('remove')),
+  item_type text not null check (item_type in ('food', 'supplement')),
+  item_id text null,
+  item_name text not null,
+  normalized_item_name text not null,
+  reason text null,
+  status text not null default 'active' check (status in ('active', 'revoked')),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.plan_guidance_adjustments is
+  'Durable client-requested plan refinements from chat, such as removing a visible food or supplement from the plan.';
+
+create index plan_guidance_adjustments_plan_idx
+  on public.plan_guidance_adjustments (plan_id, status, created_at asc);
+
+create index plan_guidance_adjustments_source_message_idx
+  on public.plan_guidance_adjustments (source_message_id)
+  where source_message_id is not null;
+
+create unique index plan_guidance_adjustments_active_unique_idx
+  on public.plan_guidance_adjustments (
+    plan_id,
+    item_type,
+    action,
+    coalesce(item_id, ''),
+    normalized_item_name
+  )
+  where status = 'active';
+
+create table public.nutrition_reports (
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  version integer not null default 1,
+  task_id uuid null references public.tasks(id) on delete set null,
+  report jsonb not null,
+  model_version text null,
+  generated_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (plan_id, version)
+);
+
+comment on table public.nutrition_reports is
+  'Versioned final nutrition plans generated from food guidance, supplement guidance, and plan refinement chat history.';
+
+create unique index nutrition_reports_task_idx
+  on public.nutrition_reports (task_id)
+  where task_id is not null;
+
+create index nutrition_reports_latest_idx
+  on public.nutrition_reports (plan_id, version desc, generated_at desc);
 
 create table public.task_approvals (
   id uuid primary key,
@@ -4908,6 +5014,24 @@ begin
   end;
 
   begin
+    execute 'alter table public.plan_chat_messages owner to mn';
+  exception when others then
+    raise notice 'Skipping plan_chat_messages owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.plan_guidance_adjustments owner to mn';
+  exception when others then
+    raise notice 'Skipping plan_guidance_adjustments owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.nutrition_reports owner to mn';
+  exception when others then
+    raise notice 'Skipping nutrition_reports owner change: %', sqlerrm;
+  end;
+
+  begin
     execute 'alter table public.task_approvals owner to mn';
   exception when others then
     raise notice 'Skipping task_approvals owner change: %', sqlerrm;
@@ -5085,6 +5209,9 @@ begin
          public.plan_communication_identities,
          public.communication_channels,
          public.communication_messages,
+         public.plan_chat_messages,
+         public.plan_guidance_adjustments,
+         public.nutrition_reports,
          public.agents,
          public.tasks,
          public.task_dependencies,

@@ -93,6 +93,19 @@ export type PlanChatMessage = {
   status: "failed" | "queued" | "ready";
 };
 
+export type PlanGuidanceAdjustment = {
+  action: "remove";
+  createdAt?: string;
+  id?: string;
+  itemId?: string | null;
+  itemName: string;
+  itemType: "food" | "supplement";
+  reason?: string | null;
+  sourceMessageId?: string | null;
+  sourceTaskId?: string | null;
+  status?: "active" | "revoked";
+};
+
 export type NutritionReportSection = {
   body: LocalizedText;
   id: string;

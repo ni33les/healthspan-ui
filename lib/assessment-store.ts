@@ -17,8 +17,14 @@ import {
   type FormulationIngredient,
   type FormulationResult,
   type MarketingPoint,
+  type NutritionReport,
   type RecommendedProduct
 } from "@/lib/formulation-types";
+import {
+  applyPlanGuidanceAdjustmentsToFoodGuidance,
+  applyPlanGuidanceAdjustmentsToFormulation,
+  loadActivePlanGuidanceAdjustments
+} from "@/lib/plan-guidance-adjustments";
 import { getSql } from "@/lib/db";
 
 export type StoredAssessmentStatus =
@@ -534,6 +540,10 @@ export async function getStoredFormulationResult(
       food_guidance.guidance as food_guidance,
       food_guidance.generated_at as food_guidance_generated_at,
       food_guidance.model_version as food_guidance_model_version,
+      nutrition_reports.report as nutrition_report,
+      nutrition_reports.version as nutrition_report_version,
+      nutrition_reports.generated_at as nutrition_report_generated_at,
+      report_task.status as report_task_status,
       recommendations.recommendations
     from assessments
     left join lateral (
@@ -552,6 +562,21 @@ export async function getStoredFormulationResult(
       order by version desc, generated_at desc
       limit 1
     ) food_guidance on true
+    left join lateral (
+      select report, version, generated_at
+      from nutrition_reports
+      where nutrition_reports.plan_id = assessments.plan_id
+      order by version desc, generated_at desc
+      limit 1
+    ) nutrition_reports on true
+    left join lateral (
+      select status
+      from tasks
+      where tasks.plan_id = assessments.plan_id
+        and task_type = 'generate_nutrition_report'
+      order by created_at desc
+      limit 1
+    ) report_task on true
     left join lateral (
       select recommendations
       from recommendations
@@ -577,21 +602,64 @@ export async function getStoredFormulationResult(
   const plan = fromStoredPlan(row.selected_plan);
   const storedFormulation = asRecord(row.formulation);
   const storedFoodGuidance = asRecord(row.food_guidance);
+  const guidanceAdjustments =
+    mode === "preview"
+      ? []
+      : await loadActivePlanGuidanceAdjustments(sql, planId);
+  const adjustedFormulation = applyPlanGuidanceAdjustmentsToFormulation(
+    {
+      marketingPoints: asArray<MarketingPoint>(
+        storedFormulation.marketingPoints
+      ),
+      safetySummary: safetySummaryFromRecord(storedFormulation.safetySummary),
+      supplementBreakdown: asArray<FormulationIngredient>(
+        storedFormulation.supplementBreakdown ?? storedFormulation.formula
+      )
+    },
+    guidanceAdjustments
+  );
+  const adjustedFoodGuidance = applyPlanGuidanceAdjustmentsToFoodGuidance(
+    {
+      foodGuidance: asArray<FoodGuidanceItem>(
+        storedFoodGuidance.foodGuidance
+      ),
+      foodSafetySummary: safetySummaryFromRecord(
+        storedFoodGuidance.foodSafetySummary
+      )
+    },
+    guidanceAdjustments
+  );
   const supplementBreakdown = asArray<FormulationIngredient>(
-    storedFormulation.supplementBreakdown ?? storedFormulation.formula
+    adjustedFormulation.supplementBreakdown
   );
   const marketingPoints = asArray<MarketingPoint>(
-    storedFormulation.marketingPoints
+    adjustedFormulation.marketingPoints
   );
   const foodGuidance = asArray<FoodGuidanceItem>(
-    storedFoodGuidance.foodGuidance
+    adjustedFoodGuidance.foodGuidance
   );
-  const safetySummary = safetySummaryFromRecord(storedFormulation.safetySummary);
-  const foodSafetySummary = safetySummaryFromRecord(
-    storedFoodGuidance.foodSafetySummary
-  );
+  const safetySummary = adjustedFormulation.safetySummary;
+  const foodSafetySummary = adjustedFoodGuidance.foodSafetySummary;
 
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
+  const nutritionReportRecord = asRecord(row.nutrition_report);
+  const nutritionReport =
+    Object.keys(nutritionReportRecord).length > 0
+      ? ({
+          ...nutritionReportRecord,
+          generatedAt:
+            row.nutrition_report_generated_at instanceof Date
+              ? row.nutrition_report_generated_at.toISOString()
+              : row.nutrition_report_generated_at
+                ? new Date(row.nutrition_report_generated_at).toISOString()
+                : undefined,
+          planId,
+          version:
+            typeof row.nutrition_report_version === "number"
+              ? row.nutrition_report_version
+              : undefined
+        } as NutritionReport)
+      : null;
   const generatedDates = [row.generated_at, row.food_guidance_generated_at]
     .filter(Boolean)
     .map((value) => (value instanceof Date ? value : new Date(value)))
@@ -605,6 +673,22 @@ export async function getStoredFormulationResult(
   ).toISOString();
   const supplementsReady = Boolean(row.formulation);
   const foodsReady = Boolean(row.food_guidance);
+  const reportTaskStatus =
+    typeof row.report_task_status === "string" ? row.report_task_status : "";
+  const reportStatus =
+    nutritionReport
+      ? "ready"
+      : [
+          "queued",
+          "reserved",
+          "running",
+          "needs_review",
+          "waiting_approval"
+        ].includes(reportTaskStatus)
+        ? "pending"
+        : reportTaskStatus === "failed"
+          ? "failed"
+          : undefined;
 
   const result = {
     access:
@@ -618,10 +702,12 @@ export async function getStoredFormulationResult(
     }),
     generatedAt,
     planId,
+    nutritionReport,
     recommendations,
     schemaVersion: 1,
     sectionStatuses: {
       foods: foodsReady ? "ready" : "pending",
+      ...(reportStatus ? { report: reportStatus } : {}),
       supplements: supplementsReady ? "ready" : "pending"
     },
     ...(safetySummary ? { safetySummary } : {}),

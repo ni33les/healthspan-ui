@@ -10,6 +10,7 @@ import { WorkerApiClient, type WorkerAgentConfig } from "./api-client.ts";
 nextEnv.loadEnvConfig(process.cwd());
 
 type WorkerMode =
+  | "advisor"
   | "all"
   | "communications"
   | "content"
@@ -28,6 +29,7 @@ const MAX_AGENT_RESTART_BACKOFF_MS = 30_000;
 const MAX_POLLING_BACKOFF_MS = 30_000;
 const MAX_WORKER_PROFILE_CONCURRENCY = 8;
 const WORKER_PROFILE_MODES: readonly WorkerProfileMode[] = [
+  "advisor",
   "communications",
   "content",
   "email",
@@ -113,7 +115,8 @@ function workerMode(value: string | undefined): WorkerMode {
     value === "food" ||
     value === "formulation" ||
     value === "healthscore" ||
-    value === "hosting"
+    value === "hosting" ||
+    value === "advisor"
     ? value
     : "all";
 }
@@ -150,6 +153,10 @@ function agentProfile(
 }
 
 const WORKER_PROFILES: Record<WorkerProfileMode, WorkerAgentConfig> = {
+  advisor: agentProfile("nutritionPlanAdvisor", [
+    "nutrition_plan_chat_reply",
+    "generate_nutrition_report"
+  ]),
   communications: agentProfile("communicationsCoordinator", [
     "client_safety_followup"
   ]),

@@ -10,9 +10,15 @@ import {
 } from "@/lib/finance-ledger";
 import { applyFoodGuidanceSafety } from "@/lib/food-guidance-safety";
 import { applyFormulationSafety } from "@/lib/formulation-safety";
+import {
+  inferGuidanceRemovalAdjustments,
+  normalizeGuidanceAdjustments,
+  savePlanGuidanceAdjustments
+} from "@/lib/plan-guidance-adjustments";
 import type {
   FoodGuidanceBlueprint,
-  FormulationBlueprint
+  FormulationBlueprint,
+  NutritionReport
 } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { isLocale, type Locale } from "@/lib/i18n";
@@ -90,6 +96,38 @@ function foodGuidanceAnalysisPayload(resultPayload: unknown) {
   return analysis as Record<string, unknown> & {
     foodGuidance: FoodGuidanceBlueprint;
   };
+}
+
+function nutritionChatAnalysisPayload(resultPayload: unknown) {
+  const analysis = objectValue(objectValue(resultPayload).analysis);
+  const reply = textValue(analysis.reply).trim();
+
+  if (!reply) {
+    throw new Error("Task completion result is missing chat reply analysis");
+  }
+
+  return {
+    ...analysis,
+    adjustments: normalizeGuidanceAdjustments(analysis.adjustments),
+    reply
+  } as Record<string, unknown> & {
+    adjustments: ReturnType<typeof normalizeGuidanceAdjustments>;
+    reply: string;
+  };
+}
+
+function nutritionReportAnalysisPayload(resultPayload: unknown) {
+  const analysis = objectValue(objectValue(resultPayload).analysis);
+  const report = objectValue(analysis.report) as NutritionReport;
+
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    throw new Error("Task completion result is missing nutrition report analysis");
+  }
+
+  return {
+    ...analysis,
+    report
+  } as Record<string, unknown> & { report: NutritionReport };
 }
 
 async function updateAssessmentReadyIfNutritionReady(
@@ -1217,6 +1255,201 @@ async function applyDigitalOceanBillingSyncResult(
   return resultPayload;
 }
 
+async function applyNutritionPlanChatResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const analysis = nutritionChatAnalysisPayload(resultPayload);
+  const messageId = payloadText(task.payload, "messageId");
+
+  if (!sql || !task.planId || !isUuid(messageId)) {
+    throw new Error("Nutrition plan chat result is missing identifiers");
+  }
+
+  const contextRows = await sql<Array<{
+    food_guidance: FoodGuidanceBlueprint | null;
+    formulation: FormulationBlueprint | null;
+    user_message: string | null;
+  }>>`
+    select
+      user_message.body as user_message,
+      formulations.formulation,
+      food_guidance.guidance as food_guidance
+    from public.plan_chat_messages user_message
+    left join lateral (
+      select formulation
+      from public.formulations
+      where formulations.plan_id = user_message.plan_id
+        and (
+          model_version is null
+          or model_version not like '%:example'
+        )
+      order by version desc, generated_at desc
+      limit 1
+    ) formulations on true
+    left join lateral (
+      select guidance
+      from public.food_guidance
+      where food_guidance.plan_id = user_message.plan_id
+        and (
+          model_version is null
+          or model_version not like '%:example'
+        )
+      order by version desc, generated_at desc
+      limit 1
+    ) food_guidance on true
+    where user_message.id = ${messageId}::uuid
+      and user_message.plan_id = ${task.planId}::uuid
+    limit 1
+  `;
+  const context = contextRows[0];
+  const userMessage = textValue(context?.user_message);
+  const guidanceAdjustments = [
+    ...analysis.adjustments,
+    ...inferGuidanceRemovalAdjustments({
+      foodGuidance: context?.food_guidance ?? null,
+      formulation: context?.formulation ?? null,
+      userMessage
+    })
+  ];
+  const adjustmentCount = await savePlanGuidanceAdjustments(sql, {
+    adjustments: guidanceAdjustments,
+    messageId,
+    planId: task.planId,
+    taskId: task.id,
+    userMessage
+  });
+
+  await sql`
+    update public.plan_chat_messages set
+      status = 'ready',
+      task_id = ${task.id}::uuid,
+      updated_at = now()
+    where id = ${messageId}::uuid
+      and plan_id = ${task.planId}::uuid
+  `;
+
+  await sql`
+    insert into public.plan_chat_messages (
+      id,
+      plan_id,
+      task_id,
+      reply_to_message_id,
+      role,
+      body,
+      status,
+      metadata,
+      created_at,
+      updated_at
+    )
+    values (
+      gen_random_uuid(),
+      ${task.planId}::uuid,
+      ${task.id}::uuid,
+      ${messageId}::uuid,
+      'assistant',
+      ${analysis.reply},
+      'ready',
+      ${sql.json(toJsonValue({
+        guidanceAdjustments,
+        model: textValue(analysis.model),
+        promptVersion: textValue(analysis.promptVersion),
+        responseId: textValue(analysis.responseId),
+        taskId: task.id
+      }))}::jsonb,
+      now(),
+      now()
+    )
+    on conflict (reply_to_message_id)
+    where role = 'assistant'
+      and reply_to_message_id is not null
+    do update set
+      body = excluded.body,
+      status = excluded.status,
+      metadata = excluded.metadata,
+      task_id = excluded.task_id,
+      updated_at = now()
+  `;
+
+  await recordTaskXaiUsageCost({
+    analysis,
+    purpose: "nutrition_plan_chat_reply",
+    sql,
+    task
+  });
+
+  await eventually(afterCommit, async () => {
+    await addWorkEvent(task, "nutrition_plan_chat_reply_completed", "low", {
+      adjustmentCount,
+      messageId
+    });
+  });
+
+  return resultPayload;
+}
+
+async function applyNutritionReportResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const analysis = nutritionReportAnalysisPayload(resultPayload);
+
+  if (!sql || !task.planId) {
+    throw new Error("Nutrition report result is missing plan");
+  }
+
+  await sql`
+    insert into public.nutrition_reports (
+      plan_id,
+      version,
+      task_id,
+      report,
+      model_version,
+      generated_at,
+      updated_at
+    )
+    values (
+      ${task.planId}::uuid,
+      coalesce((
+        select max(version) + 1
+        from public.nutrition_reports
+        where plan_id = ${task.planId}::uuid
+      ), 1),
+      ${task.id}::uuid,
+      ${sql.json(toJsonValue(analysis.report))}::jsonb,
+      ${modelVersion(analysis)},
+      now(),
+      now()
+    )
+    on conflict (task_id)
+    do update set
+      report = excluded.report,
+      model_version = excluded.model_version,
+      updated_at = now()
+  `;
+
+  await recordTaskXaiUsageCost({
+    analysis,
+    purpose: "nutrition_report",
+    sql,
+    task
+  });
+
+  await eventually(afterCommit, async () => {
+    await addWorkEvent(task, "nutrition_report_completed", "medium", {
+      planId: task.planId
+    });
+  });
+
+  return resultPayload;
+}
+
 export async function applyTaskCompletionResult({
   afterCommit,
   resultPayload,
@@ -1279,6 +1512,14 @@ export async function applyTaskCompletionResult({
     return applyDigitalOceanBillingSyncResult(task, resultPayload, sql, afterCommit);
   }
 
+  if (task.taskType === "nutrition_plan_chat_reply") {
+    return applyNutritionPlanChatResult(task, resultPayload, sql, afterCommit);
+  }
+
+  if (task.taskType === "generate_nutrition_report") {
+    return applyNutritionReportResult(task, resultPayload, sql, afterCommit);
+  }
+
   return resultPayload;
 }
 
@@ -1320,6 +1561,21 @@ export async function applyTaskFailureResult({
         updated_at = now()
       where plan_id = ${task.planId}::uuid
     `;
+  }
+
+  if (task.taskType === "nutrition_plan_chat_reply") {
+    const messageId = payloadText(task.payload, "messageId");
+
+    if (task.planId && isUuid(messageId)) {
+      await sql`
+        update public.plan_chat_messages set
+          status = ${retryWillBeScheduled ? "queued" : "failed"},
+          metadata = metadata || ${sql.json(toJsonValue({ errorMessage }))}::jsonb,
+          updated_at = now()
+        where id = ${messageId}::uuid
+          and plan_id = ${task.planId}::uuid
+      `;
+    }
   }
 
   if (

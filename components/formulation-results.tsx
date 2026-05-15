@@ -1,21 +1,25 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   ArrowPathIcon,
   BeakerIcon,
+  CheckCircleIcon,
+  ChatBubbleLeftRightIcon,
+  DocumentTextIcon,
   ExclamationTriangleIcon,
   HeartIcon,
   InformationCircleIcon,
+  PaperAirplaneIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
 import type {
   FoodGuidanceItem,
   FormulationIngredient,
   FormulationResult,
-  LocalizedText
+  LocalizedText,
+  PlanChatMessage
 } from "@/lib/formulation-types";
-import { ChatChannelCards } from "@/components/chat-channel-cards";
 import { foodTagLabel } from "@/lib/food-tags";
 import type { Locale } from "@/lib/i18n";
 
@@ -103,6 +107,16 @@ type CopyLabels = Record<
   | "foodsEmptyTitle"
   | "foodsHint"
   | "foodServing"
+  | "finalizeError"
+  | "finalizePlan"
+  | "finalizeReady"
+  | "finalizeWaiting"
+  | "finalizingPlan"
+  | "finalReportDailyFocus"
+  | "finalReportNextSteps"
+  | "finalReportSafetyNotes"
+  | "finalReportSynergies"
+  | "finalReportTitle"
   | "generated"
   | "goals"
   | "heroSubtitle"
@@ -114,6 +128,14 @@ type CopyLabels = Record<
   | "nutritionProgressReady"
   | "nutritionProgressSupplements"
   | "nutritionProgressTitle"
+  | "planChatAssistantName"
+  | "planChatBody"
+  | "planChatEmpty"
+  | "planChatEyebrow"
+  | "planChatPlaceholder"
+  | "planChatSend"
+  | "planChatSending"
+  | "planChatTitle"
   | "dailyDose"
   | "plan"
   | "previewBadge"
@@ -183,6 +205,16 @@ const copy = {
     foodsHint:
       "Practical foods and ingredients to build into meals, routines, and future concierge conversations.",
     foodServing: "Serving",
+    finalizeError: "We could not start finalization. Please try again.",
+    finalizePlan: "Finalize plan",
+    finalizeReady: "Final plan ready",
+    finalizeWaiting: "Food and supplement guidance must finish before finalization.",
+    finalizingPlan: "Finalizing plan",
+    finalReportDailyFocus: "Daily focus",
+    finalReportNextSteps: "Next steps",
+    finalReportSafetyNotes: "Safety notes",
+    finalReportSynergies: "Food + supplement fit",
+    finalReportTitle: "Final recommendation pack",
     generated: "Generated",
     goals: "Goals",
     heroSubtitle:
@@ -196,6 +228,15 @@ const copy = {
     nutritionProgressReady: "Ready",
     nutritionProgressSupplements: "Supplement guidance",
     nutritionProgressTitle: "Preparing your nutrition plan",
+    planChatAssistantName: "MattaNutra AI",
+    planChatBody:
+      "Tell us what you would like to remove, swap, simplify, or adjust. The final plan will use this conversation as context.",
+    planChatEmpty: "No refinement notes yet.",
+    planChatEyebrow: "Plan refinement",
+    planChatPlaceholder: "Anything you'd like to change?",
+    planChatSend: "Send",
+    planChatSending: "Sending",
+    planChatTitle: "Anything you'd like to change?",
     dailyDose: "Dose",
     plan: "Plan",
     previewBadge: "Free preview",
@@ -270,6 +311,17 @@ const copy = {
     foodsHint:
       "อาหารและวัตถุดิบที่นำไปใช้กับมื้ออาหาร กิจวัตร และบทสนทนากับ concierge ต่อไปได้",
     foodServing: "ปริมาณ",
+    finalizeError: "ไม่สามารถเริ่มสรุปแผนได้ กรุณาลองอีกครั้ง",
+    finalizePlan: "สรุปแผนสุดท้าย",
+    finalizeReady: "แผนสุดท้ายพร้อมแล้ว",
+    finalizeWaiting:
+      "ต้องรอคำแนะนำอาหารและอาหารเสริมให้เสร็จก่อนสรุปแผนสุดท้าย",
+    finalizingPlan: "กำลังสรุปแผนสุดท้าย",
+    finalReportDailyFocus: "สิ่งที่ควรโฟกัสในแต่ละวัน",
+    finalReportNextSteps: "ขั้นตอนถัดไป",
+    finalReportSafetyNotes: "หมายเหตุด้านความปลอดภัย",
+    finalReportSynergies: "การใช้ร่วมกันของอาหารและอาหารเสริม",
+    finalReportTitle: "แพ็กคำแนะนำสุดท้าย",
     generated: "สร้างเมื่อ",
     goals: "เป้าหมาย",
     heroSubtitle:
@@ -283,6 +335,15 @@ const copy = {
     nutritionProgressReady: "พร้อมแล้ว",
     nutritionProgressSupplements: "คำแนะนำอาหารเสริม",
     nutritionProgressTitle: "กำลังเตรียมแผนโภชนาการของคุณ",
+    planChatAssistantName: "MattaNutra AI",
+    planChatBody:
+      "บอกเราได้ว่าต้องการเอาอะไรออก เปลี่ยนอะไร ทำให้ง่ายขึ้น หรือปรับให้เข้ากับชีวิตประจำวันอย่างไร แผนสุดท้ายจะใช้บทสนทนานี้เป็นบริบท",
+    planChatEmpty: "ยังไม่มีโน้ตสำหรับปรับแผน",
+    planChatEyebrow: "ปรับแผน",
+    planChatPlaceholder: "มีอะไรที่อยากเปลี่ยนไหม?",
+    planChatSend: "ส่ง",
+    planChatSending: "กำลังส่ง",
+    planChatTitle: "มีอะไรที่อยากเปลี่ยนไหม?",
     dailyDose: "ขนาด",
     plan: "แผน",
     previewBadge: "ตัวอย่างฟรี",
@@ -385,7 +446,9 @@ function resultHasPendingSections(result: FormulationResult) {
 
   return Boolean(
     statuses &&
-      (statuses.foods === "pending" || statuses.supplements === "pending")
+      (statuses.foods === "pending" ||
+        statuses.supplements === "pending" ||
+        statuses.report === "pending")
   );
 }
 
@@ -393,6 +456,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
   const labels = copy[locale];
   const effectivePlanId = planId;
   const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [result, setResult] = useState<FormulationResult | null>(null);
 
   useEffect(() => {
@@ -441,7 +505,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
         window.clearTimeout(retryTimer);
       }
     };
-  }, [effectivePlanId, locale]);
+  }, [effectivePlanId, locale, refreshNonce]);
 
   if (loadState === "loading") {
     return (
@@ -626,10 +690,16 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
       </div>
 
       {isPreview ? null : (
-        <ChatConnectPanel
+        <PlanChatPanel
+          canFinalize={!nutritionPending}
           labels={labels}
           locale={locale}
+          onFinalizationQueued={() => {
+            setRefreshNonce((value) => value + 1);
+          }}
           planId={effectiveResultPlanId}
+          report={result.nutritionReport ?? null}
+          reportStatus={sectionStatuses.report}
         />
       )}
 
@@ -1094,34 +1164,205 @@ function PreviewPaywallPanel({
   );
 }
 
-function ChatConnectPanel({
+function PlanChatPanel({
+  canFinalize,
   labels,
   locale,
-  planId
-}: Readonly<{ labels: PanelLabels; locale: Locale; planId: string }>) {
+  onFinalizationQueued,
+  planId,
+  report,
+  reportStatus
+}: Readonly<{
+  canFinalize: boolean;
+  labels: PanelLabels;
+  locale: Locale;
+  onFinalizationQueued: () => void;
+  planId: string;
+  report: FormulationResult["nutritionReport"];
+  reportStatus?: "failed" | "pending" | "ready";
+}>) {
+  const [messages, setMessages] = useState<PlanChatMessage[]>([]);
+  const [message, setMessage] = useState("");
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">(
+    "loading"
+  );
+  const [sendState, setSendState] = useState<"idle" | "sending" | "error">(
+    "idle"
+  );
+  const [finalizeState, setFinalizeState] = useState<
+    "idle" | "queued" | "submitting" | "error"
+  >("idle");
+  const lastReadyMessageSignature = useRef("");
+  const onPlanUpdatedRef = useRef(onFinalizationQueued);
+  const pendingChat = messages.some((item) => item.status === "queued");
+  const finalizing =
+    reportStatus === "pending" ||
+    (finalizeState === "queued" && reportStatus !== "failed");
+  const finalizeDisabled =
+    !canFinalize ||
+    pendingChat ||
+    finalizeState === "submitting" ||
+    finalizing ||
+    Boolean(report);
+
+  useEffect(() => {
+    onPlanUpdatedRef.current = onFinalizationQueued;
+  }, [onFinalizationQueued]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function loadMessages() {
+      try {
+        const response = await fetch(
+          `/api/assessment/${encodeURIComponent(planId)}/chat`,
+          { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+          throw new Error("Unable to load chat");
+        }
+
+        const payload = (await response.json()) as {
+          messages?: PlanChatMessage[];
+        };
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextMessages = Array.isArray(payload.messages)
+          ? payload.messages
+          : [];
+
+        setMessages(nextMessages);
+        setLoadState("idle");
+
+        const hasQueuedMessages = nextMessages.some(
+          (item) => item.status === "queued"
+        );
+        const readySignature = nextMessages
+          .filter((item) => item.status === "ready")
+          .map((item) => item.id)
+          .join("|");
+
+        if (
+          !hasQueuedMessages &&
+          readySignature &&
+          readySignature !== lastReadyMessageSignature.current
+        ) {
+          lastReadyMessageSignature.current = readySignature;
+          onPlanUpdatedRef.current();
+        }
+
+        if (hasQueuedMessages) {
+          timer = window.setTimeout(loadMessages, 1500);
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadState("error");
+        }
+      }
+    }
+
+    loadMessages();
+
+    return () => {
+      cancelled = true;
+
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [planId, sendState]);
+
+  async function handleSend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmed = message.trim();
+
+    if (!trimmed || sendState === "sending") {
+      return;
+    }
+
+    setSendState("sending");
+
+    try {
+      const response = await fetch(
+        `/api/assessment/${encodeURIComponent(planId)}/chat`,
+        {
+          body: JSON.stringify({ message: trimmed }),
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          method: "POST"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Unable to send chat message");
+      }
+
+      const payload = (await response.json()) as {
+        messages?: PlanChatMessage[];
+      };
+
+      setMessages(Array.isArray(payload.messages) ? payload.messages : []);
+      setMessage("");
+      setSendState("idle");
+    } catch {
+      setSendState("error");
+    }
+  }
+
+  async function handleFinalize() {
+    if (finalizeDisabled) {
+      return;
+    }
+
+    setFinalizeState("submitting");
+
+    try {
+      const response = await fetch(
+        `/api/assessment/${encodeURIComponent(planId)}/finalize`,
+        {
+          cache: "no-store",
+          method: "POST"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Unable to finalize plan");
+      }
+
+      setFinalizeState("queued");
+      onFinalizationQueued();
+    } catch {
+      setFinalizeState("error");
+    }
+  }
+
   return (
     <section className="mt-8 overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
-      <div className="p-6 sm:p-8">
-        <div className="inline-flex w-fit items-center gap-3 rounded-md bg-[#06C755]/10 px-3 py-2">
-          <span className="flex size-9 items-center justify-center rounded-md bg-[#06C755] text-xs font-black tracking-tight text-white">
-            AI
-          </span>
-          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#058B3F]">
-            {labels.connectChatEyebrow}
-          </span>
-        </div>
-        <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-start">
+      <div className="p-5 sm:p-6 lg:p-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
-              {labels.connectChatTitle}
+            <div className="inline-flex w-fit items-center gap-2 rounded-md bg-[#F3F8FF] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
+              <ChatBubbleLeftRightIcon aria-hidden={true} className="size-4" />
+              {labels.planChatEyebrow}
+            </div>
+            <h2 className="mt-4 max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
+              {labels.planChatTitle}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-              {labels.connectChatBody}
+              {labels.planChatBody}
             </p>
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2 text-xs lg:justify-end">
             <span className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {labels.connectChatPlanId}
+              {labels.plan}
             </span>
             <a
               className="max-w-full truncate rounded-md bg-background px-2.5 py-1.5 font-mono text-[11px] font-medium text-[#3A7BD5] ring-1 ring-foreground/10 hover:text-[#2F67B8]"
@@ -1132,14 +1373,218 @@ function ChatConnectPanel({
           </div>
         </div>
 
-        <ChatChannelCards
-          buttonLabel={labels.connectChatButton}
-          className="mt-7"
-          planId={planId}
-          qrAlt={labels.connectChatQrAlt}
-        />
+        <div className="mt-6 space-y-3 rounded-lg bg-background/60 p-3 ring-1 ring-foreground/10">
+          {loadState === "loading" ? (
+            <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+              <ArrowPathIcon aria-hidden={true} className="size-4 animate-spin" />
+              {labels.nutritionProgressPending}
+            </div>
+          ) : messages.length < 1 ? (
+            <p className="p-3 text-sm text-muted-foreground">
+              {labels.planChatEmpty}
+            </p>
+          ) : (
+            messages.map((item) => {
+              const isAssistant = item.role === "assistant";
+
+              return (
+                <div
+                  className={
+                    isAssistant
+                      ? "max-w-[92%] rounded-lg bg-white p-3 text-sm leading-6 text-[#20343A] ring-1 ring-foreground/10"
+                      : "ml-auto max-w-[92%] rounded-lg bg-[#3A7BD5] p-3 text-sm leading-6 text-white"
+                  }
+                  key={item.id}
+                >
+                  {isAssistant ? (
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
+                      {labels.planChatAssistantName}
+                    </p>
+                  ) : null}
+                  <p>{item.body}</p>
+                  {item.status === "queued" ? (
+                    <p className={isAssistant ? "mt-1 text-xs text-muted-foreground" : "mt-1 text-xs text-white/75"}>
+                      {labels.nutritionProgressPending}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+          {pendingChat ? (
+            <div className="flex items-center gap-2 rounded-lg bg-white p-3 text-sm text-muted-foreground ring-1 ring-foreground/10">
+              <ArrowPathIcon aria-hidden={true} className="size-4 animate-spin text-[#3A7BD5]" />
+              {labels.planChatAssistantName}
+            </div>
+          ) : null}
+          {loadState === "error" ? (
+            <p className="p-3 text-sm font-medium text-red-700">
+              {labels.error}
+            </p>
+          ) : null}
+        </div>
+
+        <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleSend}>
+          <label className="sr-only" htmlFor="plan-chat-message">
+            {labels.planChatPlaceholder}
+          </label>
+          <input
+            className="h-11 rounded-md border border-foreground/10 bg-white px-3 text-sm text-[#20343A] outline-none transition placeholder:text-muted-foreground/60 focus:border-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5]/15"
+            disabled={sendState === "sending"}
+            id="plan-chat-message"
+            maxLength={1200}
+            onChange={(event) => {
+              setMessage(event.target.value);
+              setSendState("idle");
+            }}
+            placeholder={labels.planChatPlaceholder}
+            value={message}
+          />
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#3A7BD5] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2f67b4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3A7BD5] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!message.trim() || sendState === "sending"}
+            type="submit"
+          >
+            <PaperAirplaneIcon aria-hidden={true} className="size-4" />
+            {sendState === "sending" ? labels.planChatSending : labels.planChatSend}
+          </button>
+        </form>
+        {sendState === "error" ? (
+          <p className="mt-2 text-sm font-medium text-red-700">
+            {labels.finalizeError}
+          </p>
+        ) : null}
+
+        <div className="mt-6 flex flex-col gap-3 rounded-lg bg-[#F8FAFC] p-4 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            {report ? (
+              <CheckCircleIcon aria-hidden={true} className="mt-0.5 size-5 flex-none text-[#126B4F]" />
+            ) : finalizing ? (
+              <ArrowPathIcon aria-hidden={true} className="mt-0.5 size-5 flex-none animate-spin text-[#3A7BD5]" />
+            ) : (
+              <DocumentTextIcon aria-hidden={true} className="mt-0.5 size-5 flex-none text-[#3A7BD5]" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-[#20343A]">
+                {report
+                  ? labels.finalizeReady
+                  : finalizing
+                    ? labels.finalizingPlan
+                    : labels.finalizePlan}
+              </p>
+              {!canFinalize ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {labels.finalizeWaiting}
+                </p>
+              ) : null}
+              {finalizeState === "error" ? (
+                <p className="mt-1 text-sm font-medium text-red-700">
+                  {labels.finalizeError}
+                </p>
+              ) : null}
+              {reportStatus === "failed" ? (
+                <p className="mt-1 text-sm font-medium text-red-700">
+                  {labels.finalizeError}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <button
+            className="inline-flex h-10 items-center justify-center rounded-md bg-[#20343A] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#17282d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#20343A] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={finalizeDisabled}
+            onClick={handleFinalize}
+            type="button"
+          >
+            {report
+              ? labels.finalizeReady
+              : finalizeState === "submitting" || finalizing
+                ? labels.finalizingPlan
+                : labels.finalizePlan}
+          </button>
+        </div>
+
+        {report ? (
+          <FinalReportPanel labels={labels} locale={locale} report={report} />
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function FinalReportPanel({
+  labels,
+  locale,
+  report
+}: Readonly<{
+  labels: PanelLabels;
+  locale: Locale;
+  report: NonNullable<FormulationResult["nutritionReport"]>;
+}>) {
+  const sections = [
+    {
+      items: report.dailyFocus ?? [],
+      title: labels.finalReportDailyFocus
+    },
+    {
+      items: report.synergies ?? [],
+      title: labels.finalReportSynergies
+    },
+    {
+      items: report.nextSteps ?? [],
+      title: labels.finalReportNextSteps
+    }
+  ];
+
+  return (
+    <div className="mt-6 rounded-lg border border-[#3A7BD5]/15 bg-[#F3F8FF] p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
+        {labels.finalReportTitle}
+      </p>
+      <h3 className="mt-2 text-2xl font-semibold tracking-normal text-[#20343A] text-balance">
+        {getLocalizedText(report.title, locale)}
+      </h3>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        {getLocalizedText(report.summary, locale)}
+      </p>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        {sections.map((section) => (
+          <div
+            className="rounded-lg bg-white p-4 ring-1 ring-foreground/10"
+            key={section.title}
+          >
+            <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+              {section.title}
+            </h4>
+            <div className="mt-3 space-y-3">
+              {section.items.map((item) => (
+                <div key={item.id}>
+                  <p className="text-sm font-semibold text-[#20343A]">
+                    {getLocalizedText(item.title, locale)}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {getLocalizedText(item.body, locale)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {report.safetyNotes.length > 0 ? (
+        <div className="mt-4 rounded-lg bg-white p-4 ring-1 ring-foreground/10">
+          <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#20343A]">
+            {labels.finalReportSafetyNotes}
+          </h4>
+          <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+            {report.safetyNotes.map((note, index) => (
+              <li key={index}>{getLocalizedText(note, locale)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

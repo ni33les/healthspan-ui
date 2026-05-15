@@ -13,6 +13,7 @@
     "test": "node --test --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "worker:all": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts all",
+    "worker:advisor": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts advisor",
     "worker:communications": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts communications",
     "worker:content": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts content",
     "worker:email": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts email",

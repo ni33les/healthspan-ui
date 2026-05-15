@@ -21,7 +21,9 @@ type WorkTaskType =
   | "generate_example_food_guidance"
   | "generate_example_supplement_guidance"
   | "generate_food_guidance"
+  | "generate_nutrition_report"
   | "generate_supplement_guidance"
+  | "nutrition_plan_chat_reply"
   | "send_example_email"
   | "send_reassessment_email"
   | "sync_digitalocean_billing";
@@ -37,6 +39,8 @@ const TASK_BUSINESS_VALUES = {
   exampleFormulation: 150,
   foodGuidance: 450,
   healthScoreAnalysis: 500,
+  nutritionPlanChatReply: 430,
+  nutritionReport: 500,
   precision: 450,
   pro: 450,
   reassessment: 200
@@ -211,6 +215,24 @@ async function createWorkTask(input: Readonly<{
   });
 
   return task.id;
+}
+
+async function latestNutritionTaskGroupId(sql: postgres.Sql, planId: string) {
+  const rows = await sql<Array<{ task_group_id: string | null }>>`
+    select task_group_id::text
+    from public.tasks
+    where plan_id = ${planId}::uuid
+      and task_type in (
+        'generate_supplement_guidance',
+        'generate_food_guidance',
+        'nutrition_plan_chat_reply',
+        'generate_nutrition_report'
+      )
+    order by created_at desc
+    limit 1
+  `;
+
+  return rows[0]?.task_group_id ?? null;
 }
 
 export async function enqueueDigitalOceanBillingSyncTask(date = new Date()) {
@@ -464,6 +486,167 @@ export async function enqueueFormulationTask(input: Parameters<typeof enqueueNut
   const taskIds = await enqueueNutritionPlanTasks(input);
 
   return taskIds?.formulationTaskId ?? null;
+}
+
+export async function enqueueNutritionPlanChatReplyTask({
+  messageId,
+  planId
+}: Readonly<{
+  messageId: string;
+  planId: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId) || !isUuid(messageId)) {
+    return null;
+  }
+
+  const messageRows = await sql<Array<{ id: string }>>`
+    select id::text
+    from public.plan_chat_messages
+    where id = ${messageId}::uuid
+      and plan_id = ${planId}::uuid
+      and role = 'user'
+    limit 1
+  `;
+
+  if (!messageRows[0]) {
+    return null;
+  }
+
+  const taskGroupId =
+    (await latestNutritionTaskGroupId(sql, planId)) ??
+    deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
+  const taskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.nutritionPlanChatReply,
+    groupLabel: "Refine nutrition plan",
+    id: deterministicUuid(`mattanutra:task:nutrition-chat:${messageId}`),
+    idempotencyKey: `nutrition-chat:${messageId}`,
+    idempotencyScope: "active",
+    idempotencyScopeKey: `nutrition-chat:${planId}`,
+    payload: { messageId },
+    planId,
+    reasoningEffort: "low",
+    source: "plan_chat",
+    taskGroupId,
+    taskTitle: "Reply to nutrition plan chat",
+    taskType: "nutrition_plan_chat_reply"
+  });
+
+  if (taskId) {
+    await sql`
+      update public.plan_chat_messages set
+        status = 'queued',
+        task_id = ${taskId}::uuid,
+        updated_at = now()
+      where id = ${messageId}::uuid
+    `;
+  }
+
+  return taskId;
+}
+
+export async function enqueueNutritionReportTask({
+  planId
+}: Readonly<{
+  planId: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return {
+      reason: "Plan not found",
+      taskId: null
+    };
+  }
+
+  const outputsReady = await fullNutritionOutputsReady(sql, planId);
+
+  if (!outputsReady.formulationReady || !outputsReady.foodGuidanceReady) {
+    return {
+      reason: "Food and supplement guidance must be ready before finalization.",
+      taskId: null
+    };
+  }
+
+  const rows = await sql<Array<{
+    chat_count: number;
+    chat_updated_at: Date | null;
+    food_version: number;
+    formulation_version: number;
+  }>>`
+    select
+      (
+        select version
+        from public.formulations
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+        order by version desc, generated_at desc
+        limit 1
+      ) as formulation_version,
+      (
+        select version
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+        order by version desc, generated_at desc
+        limit 1
+      ) as food_version,
+      (
+        select count(*)::int
+        from public.plan_chat_messages
+        where plan_id = ${planId}::uuid
+          and status = 'ready'
+      ) as chat_count,
+      (
+        select max(updated_at)
+        from public.plan_chat_messages
+        where plan_id = ${planId}::uuid
+          and status = 'ready'
+      ) as chat_updated_at
+  `;
+  const row = rows[0];
+  const revisionHash = stableHash({
+    chatCount: Number(row?.chat_count ?? 0),
+    chatUpdatedAt: row?.chat_updated_at?.toISOString() ?? null,
+    foodVersion: Number(row?.food_version ?? 0),
+    formulationVersion: Number(row?.formulation_version ?? 0)
+  });
+  const taskGroupId =
+    (await latestNutritionTaskGroupId(sql, planId)) ??
+    deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
+  const taskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.nutritionReport,
+    groupLabel: "Finalize nutrition plan",
+    id: deterministicUuid(
+      `mattanutra:task:nutrition-report:${planId}:${revisionHash}`
+    ),
+    idempotencyKey: `nutrition-report:${planId}:${revisionHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `nutrition-report:${planId}`,
+    payload: {
+      revisionHash
+    },
+    planId,
+    reasoningEffort: "medium",
+    source: "plan_finalization",
+    taskGroupId,
+    taskTitle: "Finalize nutrition plan",
+    taskType: "generate_nutrition_report"
+  });
+
+  return {
+    reason: taskId ? null : "Unable to queue final plan.",
+    taskId
+  };
 }
 
 async function enqueueExampleFormulationTask(

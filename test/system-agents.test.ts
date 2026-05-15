@@ -23,6 +23,7 @@ describe("system agents", () => {
         "Food Guidance Engine",
         "HealthScore Engine",
         "Human Reviewer",
+        "Nutrition Plan Advisor",
         "Nutrition Plan Formulator",
         "Safety Scanner",
         "Scheduler"
@@ -38,7 +39,9 @@ describe("system agents", () => {
       "generate_example_food_guidance",
       "generate_example_supplement_guidance",
       "generate_food_guidance",
+      "generate_nutrition_report",
       "generate_supplement_guidance",
+      "nutrition_plan_chat_reply",
       "send_example_email",
       "send_reassessment_email",
       "sync_digitalocean_billing"
