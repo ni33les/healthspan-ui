@@ -10,6 +10,7 @@ import {
   normalizeSupplementSafetyFlags,
   type SupplementSafetyFlag
 } from "@/lib/supplement-safety-flags";
+import { safetyReviewItemColumnsAvailable } from "@/lib/safety-review-schema";
 import { notifyTaskQueueChanged } from "@/lib/task-wakeup";
 
 export type AdminReviewTaskRow = Readonly<{
@@ -22,6 +23,7 @@ export type AdminReviewTaskRow = Readonly<{
   taskGroupId: string | null;
   groupLabel: string | null;
   id: string;
+  itemType: "food" | "supplement";
   limitAmount: number | null;
   limitUnit: string | null;
   maxAmount: number | null;
@@ -35,6 +37,14 @@ export type AdminReviewTaskRow = Readonly<{
   reviewKind: string;
   status: string;
   supplementName: string;
+  foodFrequency: AdminReviewLocalizedText | null;
+  foodRationale: AdminReviewLocalizedText | null;
+  foodServing: AdminReviewLocalizedText | null;
+}>;
+
+export type AdminReviewLocalizedText = Readonly<{
+  en: string;
+  th: string;
 }>;
 
 export type AdminReviewQueueData = Readonly<{
@@ -67,6 +77,8 @@ type ReviewTaskDbRow = Readonly<{
   plan_id: string | null;
   queued_at: Date | string;
   review_id: string | null;
+  item_name: string | null;
+  item_type: "food" | "supplement" | null;
   status: string;
   suggested_dose_unit: string | null;
   suggested_dose_value: number | string | null;
@@ -85,10 +97,18 @@ type FormulationRow = Readonly<{
   version: number;
 }>;
 
+type FoodGuidanceRow = Readonly<{
+  guidance: Record<string, unknown>;
+  model_version: string | null;
+  version: number;
+}>;
+
 type SafetyReviewDecisionRow = Readonly<{
   ai_suggestion: Record<string, unknown> | null;
   client_notification_status: string;
   id: string;
+  item_name: string | null;
+  item_type: "food" | "supplement" | null;
   supplement_name: string;
   task_id: string | null;
 }>;
@@ -100,7 +120,9 @@ type SafetyFollowupReviewRow = Readonly<{
 }>;
 
 const REVIEW_TASK_TYPES = [
+  "classify_food",
   "classify_supplement",
+  "review_food_for_plan",
   "review_supplement_for_plan",
   "dose_reduction_notice"
 ] as const;
@@ -124,6 +146,9 @@ export type DecideAdminPlanReviewTaskInput = Readonly<{
   clientDoseAmount: number | null;
   clientDoseUnit: string | null;
   decision: "approve" | "disapprove";
+  foodFrequency?: AdminReviewLocalizedText | null;
+  foodRationale?: AdminReviewLocalizedText | null;
+  foodServing?: AdminReviewLocalizedText | null;
   id: string;
   reviewerNote?: string | null;
 }>;
@@ -162,6 +187,26 @@ function localizedText(value: unknown) {
   }
 
   return textOrNull(record.en) ?? textOrNull(record.th);
+}
+
+function localizedReviewText(value: unknown): AdminReviewLocalizedText | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    return trimmed ? { en: trimmed, th: trimmed } : null;
+  }
+
+  const record = recordOrNull(value);
+
+  if (!record) {
+    return null;
+  }
+
+  const en = textOrNull(record.en);
+  const th = textOrNull(record.th);
+  const fallback = en ?? th;
+
+  return fallback ? { en: en ?? fallback, th: th ?? fallback } : null;
 }
 
 function formatReviewDose(amount: number | null, unit: string | null) {
@@ -238,6 +283,7 @@ function emptyAdminReviewQueueData(): AdminReviewQueueData {
 function rowFromDb(row: ReviewTaskDbRow): AdminReviewTaskRow {
   const payload = row.payload ?? {};
   const aiSuggestion = row.ai_suggestion ?? {};
+  const itemType = row.item_type === "food" ? "food" : "supplement";
   const clientDoseAmount =
     numberOrNull(row.suggested_dose_value) ??
     numberOrNull(payload.suggestedDoseAmount) ??
@@ -262,6 +308,7 @@ function rowFromDb(row: ReviewTaskDbRow): AdminReviewTaskRow {
     taskGroupId: row.task_group_id,
     groupLabel: row.group_label,
     id: row.id,
+    itemType,
     limitAmount: numberOrNull(row.limit_value),
     limitUnit: row.limit_unit,
     maxAmount: numberOrNull(payload.maxAmount),
@@ -275,9 +322,15 @@ function rowFromDb(row: ReviewTaskDbRow): AdminReviewTaskRow {
     reviewKind: textOrNull(payload.reviewKind) ?? "review_required",
     status: row.status,
     supplementName:
+      textOrNull(row.item_name) ??
+      textOrNull(payload.foodName) ??
+      textOrNull(payload.normalizedFoodName) ??
       textOrNull(payload.supplementName) ??
       textOrNull(payload.normalizedSupplementName) ??
-      "Unknown supplement"
+      (itemType === "food" ? "Unknown food" : "Unknown supplement"),
+    foodFrequency: localizedReviewText(aiSuggestion.frequency),
+    foodRationale: localizedReviewText(aiSuggestion.rationale),
+    foodServing: localizedReviewText(aiSuggestion.serving)
   };
 }
 
@@ -288,7 +341,10 @@ function buildSummary(rows: AdminReviewTaskRow[]) {
 
       if (row.reviewKind === "dose_reduced") {
         summary.doseReduced += 1;
-      } else if (row.reviewKind === "unknown_supplement") {
+      } else if (
+        row.reviewKind === "unknown_supplement" ||
+        row.reviewKind === "unknown_food"
+      ) {
         summary.unknown += 1;
       } else {
         summary.reviewRequired += 1;
@@ -306,11 +362,55 @@ function buildSummary(rows: AdminReviewTaskRow[]) {
 }
 
 async function loadReviewTaskRows(sql: postgres.Sql) {
+  const itemColumnsAvailable = await safetyReviewItemColumnsAvailable(sql);
+
+  if (!itemColumnsAvailable) {
+    return sql<ReviewTaskDbRow[]>`
+      select
+        tasks.id::text,
+        tasks.id::text as task_id,
+        coalesce(tasks.plan_id, safety_reviews.plan_id)::text as plan_id,
+        tasks.status,
+        tasks.business_value,
+        tasks.task_group_id::text,
+        tasks.group_label,
+        tasks.payload,
+        tasks.created_at as queued_at,
+        safety_reviews.id::text as review_id,
+        safety_reviews.flag_reason,
+        safety_reviews.suggested_dose_value,
+        safety_reviews.suggested_dose_unit,
+        safety_reviews.limit_value,
+        safety_reviews.limit_unit,
+        safety_reviews.supplement_name as item_name,
+        case
+          when tasks.task_type in ('classify_food', 'review_food_for_plan')
+            then 'food'
+          else 'supplement'
+        end as item_type,
+        safety_reviews.ai_suggestion
+      from public.tasks tasks
+      left join lateral (
+        select *
+        from public.safety_reviews safety_reviews
+        where safety_reviews.task_id = tasks.id
+        order by safety_reviews.opened_at asc
+        limit 1
+      ) safety_reviews on true
+      where tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+        and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
+      order by
+        tasks.business_value desc,
+        tasks.created_at asc
+      limit 200
+    `;
+  }
+
   return sql<ReviewTaskDbRow[]>`
     select
       tasks.id::text,
       tasks.id::text as task_id,
-      tasks.plan_id::text,
+      coalesce(tasks.plan_id, safety_reviews.plan_id)::text as plan_id,
       tasks.status,
       tasks.business_value,
       tasks.task_group_id::text,
@@ -323,6 +423,15 @@ async function loadReviewTaskRows(sql: postgres.Sql) {
       safety_reviews.suggested_dose_unit,
       safety_reviews.limit_value,
       safety_reviews.limit_unit,
+      coalesce(safety_reviews.item_name, safety_reviews.supplement_name) as item_name,
+      coalesce(
+        safety_reviews.item_type,
+        case
+          when tasks.task_type in ('classify_food', 'review_food_for_plan')
+            then 'food'
+          else 'supplement'
+        end
+      ) as item_type,
       safety_reviews.ai_suggestion
     from public.tasks tasks
     left join lateral (
@@ -500,6 +609,48 @@ async function appendReviewedFormulationVersion(
       ${input.planId}::uuid,
       ${version},
       ${transaction.json(toJsonValue(input.formulation))},
+      ${modelVersion},
+      now(),
+      now()
+    )
+  `;
+
+  return version;
+}
+
+async function appendReviewedFoodGuidanceVersion(
+  transaction: Db,
+  input: Readonly<{
+    foodGuidance: Record<string, unknown>;
+    previousModelVersion: string | null;
+    planId: string;
+    reviewEvent: string;
+  }>
+) {
+  const versionRows = await transaction<{ version: number }[]>`
+    select coalesce(max(version), 0) + 1 as version
+    from public.food_guidance
+    where plan_id = ${input.planId}::uuid
+  `;
+  const version = Number(versionRows[0]?.version ?? 1);
+  const modelVersion = [
+    input.previousModelVersion ?? "manual",
+    input.reviewEvent
+  ].join(":");
+
+  await transaction`
+    insert into public.food_guidance (
+      plan_id,
+      version,
+      guidance,
+      model_version,
+      generated_at,
+      updated_at
+    )
+    values (
+      ${input.planId}::uuid,
+      ${version},
+      ${transaction.json(toJsonValue(input.foodGuidance))},
       ${modelVersion},
       now(),
       now()
@@ -817,13 +968,14 @@ export async function resolveAdminReviewTask(
         id: string;
         payload: Record<string, unknown>;
         plan_id: string | null;
+        task_type: string;
       }>
     >`
-      select id::text, plan_id::text, payload
+      select id::text, plan_id::text, payload, task_type
       from public.tasks
-      where id = ${input.id}::uuid
-        and task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
-        and status not in ('completed', 'failed', 'cancelled', 'skipped')
+      where tasks.id = ${input.id}::uuid
+        and tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+        and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
     `;
     const task = tasks[0];
 
@@ -1156,6 +1308,64 @@ function approvedIngredientFromSuggestion(input: {
   };
 }
 
+function foodItemMatchesReview(
+  item: Record<string, unknown>,
+  input: {
+    foodName: string;
+    reviewId: string | null;
+    reviewTaskId: string;
+  }
+) {
+  const safety = recordOrNull(item.safety);
+  const foodName = localizedText(item.food);
+
+  return (
+    safety?.reviewTaskId === input.reviewTaskId ||
+    safety?.reviewId === input.reviewId ||
+    (foodName !== null &&
+      normalizeName(foodName) === normalizeName(input.foodName))
+  );
+}
+
+function approvedFoodFromSuggestion(input: {
+  aiSuggestion: Record<string, unknown> | null;
+  foodFrequency?: AdminReviewLocalizedText | null;
+  foodName: string;
+  foodRationale?: AdminReviewLocalizedText | null;
+  foodServing?: AdminReviewLocalizedText | null;
+  reviewId: string | null;
+  reviewTaskId: string;
+}) {
+  const suggestion = input.aiSuggestion;
+
+  if (!suggestion) {
+    return null;
+  }
+
+  const suggestedStatus = textOrNull(suggestion.status);
+  const suggestionFoodText = localizedText(suggestion.food);
+  const suggestedFood =
+    recordOrNull(suggestion.food) ??
+    localized(suggestionFoodText ?? input.foodName);
+
+  return {
+    ...suggestion,
+    ...(input.foodFrequency ? { frequency: input.foodFrequency } : {}),
+    ...(input.foodRationale ? { rationale: input.foodRationale } : {}),
+    ...(input.foodServing ? { serving: input.foodServing } : {}),
+    food: suggestedFood,
+    safety: {
+      ...(recordOrNull(suggestion.safety) ?? {}),
+      action: "human_review",
+      message: localized("Approved by MattaNutra human review."),
+      reviewId: input.reviewId ?? undefined,
+      reviewTaskId: input.reviewTaskId,
+      visibility: "visible"
+    },
+    status: suggestedStatus === "review" ? "add" : suggestedStatus ?? "add"
+  };
+}
+
 function applyReviewDecisionToFormulation(
   formulation: Record<string, unknown>,
   input: {
@@ -1236,6 +1446,89 @@ function applyReviewDecisionToFormulation(
   };
 }
 
+function applyReviewDecisionToFoodGuidance(
+  foodGuidance: Record<string, unknown>,
+  input: {
+    aiSuggestion: Record<string, unknown> | null;
+    decision: "approve" | "disapprove";
+    foodFrequency?: AdminReviewLocalizedText | null;
+    foodName: string;
+    foodRationale?: AdminReviewLocalizedText | null;
+    foodServing?: AdminReviewLocalizedText | null;
+    reviewId: string | null;
+    reviewTaskId: string;
+  }
+) {
+  const guidanceItems = Array.isArray(foodGuidance.foodGuidance)
+    ? foodGuidance.foodGuidance
+    : [];
+  let changedCount = 0;
+  let nextGuidance = guidanceItems.flatMap((item) => {
+    const foodItem = recordOrNull(item);
+
+    if (!foodItem || !foodItemMatchesReview(foodItem, input)) {
+      return [item];
+    }
+
+    changedCount += 1;
+
+    if (input.decision === "disapprove") {
+      return [];
+    }
+
+    return [
+      {
+        ...foodItem,
+        ...(input.foodFrequency ? { frequency: input.foodFrequency } : {}),
+        ...(input.foodRationale ? { rationale: input.foodRationale } : {}),
+        ...(input.foodServing ? { serving: input.foodServing } : {}),
+        safety: {
+          ...(recordOrNull(foodItem.safety) ?? {}),
+          action: "human_review",
+          message: localized("Approved by MattaNutra human review."),
+          reviewId: input.reviewId ?? undefined,
+          reviewTaskId: input.reviewTaskId,
+          visibility: "visible"
+        },
+        status: foodItem.status === "review" ? "add" : foodItem.status
+      }
+    ];
+  });
+
+  if (changedCount < 1) {
+    if (input.decision === "approve") {
+      const approvedFood = approvedFoodFromSuggestion(input);
+
+      if (!approvedFood) {
+        throw new Error("Reviewed food was not found in food guidance");
+      }
+
+      nextGuidance = [...nextGuidance, approvedFood];
+    }
+
+    changedCount = 1;
+  }
+
+  const summary = recordOrNull(foodGuidance.foodSafetySummary);
+  const nextSummary = summary
+    ? {
+        ...summary,
+        hiddenCount: Math.max(0, Number(summary.hiddenCount ?? 0) - changedCount),
+        removedCount:
+          input.decision === "disapprove"
+            ? Number(summary.removedCount ?? 0) + changedCount
+            : Number(summary.removedCount ?? 0),
+        reviewCount: Math.max(0, Number(summary.reviewCount ?? 0) - changedCount)
+      }
+    : summary;
+
+  return {
+    ...foodGuidance,
+    foodGuidance: nextGuidance,
+    foodSafetySummary: nextSummary
+  };
+}
+
 export async function decideAdminPlanReviewTask(
   input: DecideAdminPlanReviewTaskInput
 ): Promise<AdminReviewMutationResult> {
@@ -1243,15 +1536,6 @@ export async function decideAdminPlanReviewTask(
 
   if (!sql) {
     throw new Error("Database is not configured");
-  }
-
-  if (
-    input.decision === "approve" &&
-    (!input.clientDoseAmount ||
-      input.clientDoseAmount <= 0 ||
-      !input.clientDoseUnit?.trim())
-  ) {
-    throw new Error("Client dose is required to approve a review");
   }
 
   let followupTaskId: string | null = null;
@@ -1263,13 +1547,25 @@ export async function decideAdminPlanReviewTask(
         id: string;
         payload: Record<string, unknown>;
         plan_id: string | null;
+        task_type: string;
       }>
     >`
-      select id::text, plan_id::text, payload
+      select
+        tasks.id::text,
+        coalesce(tasks.plan_id, safety_reviews.plan_id)::text as plan_id,
+        tasks.payload,
+        tasks.task_type
       from public.tasks
-      where id = ${input.id}::uuid
-        and task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
-        and status not in ('completed', 'failed', 'cancelled', 'skipped')
+      left join lateral (
+        select plan_id
+        from public.safety_reviews
+        where safety_reviews.task_id = tasks.id
+        order by safety_reviews.opened_at asc
+        limit 1
+      ) safety_reviews on true
+      where tasks.id = ${input.id}::uuid
+        and tasks.task_type = any(${[...REVIEW_TASK_TYPES]}::text[])
+        and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
     `;
     const task = tasks[0];
 
@@ -1277,24 +1573,162 @@ export async function decideAdminPlanReviewTask(
       throw new Error("Plan-specific review task not found");
     }
 
-    const safetyReviews = await transaction<SafetyReviewDecisionRow[]>`
-      select
-        client_notification_status,
-        id::text,
-        ai_suggestion,
-        supplement_name,
-        task_id::text
-      from public.safety_reviews
-      where task_id = ${input.id}::uuid
-        and plan_id = ${task.plan_id}::uuid
-        and status in ('open', 'in_review', 'escalated')
-      order by opened_at asc
-      limit 1
-    `;
+    const itemColumnsAvailable = await safetyReviewItemColumnsAvailable(transaction);
+    const safetyReviews = itemColumnsAvailable
+      ? await transaction<SafetyReviewDecisionRow[]>`
+          select
+            client_notification_status,
+            id::text,
+            ai_suggestion,
+            item_name,
+            item_type,
+            supplement_name,
+            task_id::text
+          from public.safety_reviews
+          where task_id = ${input.id}::uuid
+            and plan_id = ${task.plan_id}::uuid
+            and status in ('open', 'in_review', 'escalated')
+          order by opened_at asc
+          limit 1
+        `
+      : await transaction<SafetyReviewDecisionRow[]>`
+          select
+            client_notification_status,
+            id::text,
+            ai_suggestion,
+            null::text as item_name,
+            case
+              when ${task.task_type} in ('classify_food', 'review_food_for_plan')
+                then 'food'
+              else 'supplement'
+            end as item_type,
+            supplement_name,
+            task_id::text
+          from public.safety_reviews
+          where task_id = ${input.id}::uuid
+            and plan_id = ${task.plan_id}::uuid
+            and status in ('open', 'in_review', 'escalated')
+          order by opened_at asc
+          limit 1
+        `;
     const review = safetyReviews[0];
 
     if (!review) {
       throw new Error("Safety review not found");
+    }
+
+    const itemType = review.item_type === "food" ? "food" : "supplement";
+    const reviewedItemName = review.item_name ?? review.supplement_name;
+
+    if (itemType === "food") {
+      const foodGuidanceRows = await transaction<FoodGuidanceRow[]>`
+        select guidance, model_version, version
+        from public.food_guidance
+        where plan_id = ${task.plan_id}::uuid
+        order by version desc, generated_at desc
+        limit 1
+      `;
+      const foodGuidance = foodGuidanceRows[0];
+
+      if (!foodGuidance) {
+        throw new Error("Food guidance not found");
+      }
+
+      const nextFoodGuidance = applyReviewDecisionToFoodGuidance(
+        foodGuidance.guidance,
+        {
+          decision: input.decision,
+          foodFrequency: input.foodFrequency,
+          aiSuggestion: review.ai_suggestion,
+          foodRationale: input.foodRationale,
+          foodServing: input.foodServing,
+          foodName: reviewedItemName,
+          reviewId: review.id,
+          reviewTaskId: input.id
+        }
+      );
+      const nextVersion = await appendReviewedFoodGuidanceVersion(transaction, {
+        foodGuidance: nextFoodGuidance,
+        planId: task.plan_id,
+        previousModelVersion: foodGuidance.model_version,
+        reviewEvent:
+          input.decision === "approve"
+            ? "human_review_approved"
+            : "human_review_disapproved"
+      });
+
+      await transaction`
+        update public.safety_reviews
+        set
+          status = ${input.decision === "approve" ? "accepted" : "rejected"},
+          reviewed_at = now(),
+          closed_at = now(),
+          reviewer_id = ${input.actor ?? "admin_dashboard"},
+          reviewer_note = ${input.reviewerNote ?? null},
+          client_message = ${transaction.json(
+            toJsonValue({
+              decision: input.decision,
+              frequency: input.foodFrequency,
+              rationale: input.foodRationale,
+              serving: input.foodServing
+            })
+          )},
+          client_notification_status = case
+            when client_notification_status = 'not_required' then 'not_required'
+            else 'queued'
+          end,
+          safety_context = safety_context || ${transaction.json(
+            toJsonValue({
+              reviewedFoodGuidanceVersion: nextVersion
+            })
+          )}::jsonb,
+          updated_at = now()
+        where id = ${review.id}::uuid
+      `;
+
+      await completeSupplementReviewTasks(transaction, {
+        actor: input.actor,
+        commentBody:
+          input.decision === "approve"
+            ? "Approved for the client food guidance."
+            : "Disapproved and removed from the client food guidance.",
+        eventPayload: {
+          decision: input.decision,
+          foodGuidanceVersion: nextVersion,
+          foodName: reviewedItemName,
+          safetyReviewId: review.id
+        },
+        eventType:
+          input.decision === "approve"
+            ? "food_review_approved"
+            : "food_review_disapproved",
+        taskIds: [input.id]
+      });
+
+      followupTaskId =
+        review.client_notification_status === "not_required"
+          ? null
+          : await queueClientSafetyFollowupTask(transaction, {
+              actor: input.actor,
+              parentTaskId: review.task_id,
+              planId: task.plan_id
+            });
+
+      notifyTaskQueueChanged();
+
+      return {
+        followupTaskId,
+        removedTaskIds: [input.id]
+      };
+    }
+
+    if (
+      input.decision === "approve" &&
+      (!input.clientDoseAmount ||
+        input.clientDoseAmount <= 0 ||
+        !input.clientDoseUnit?.trim())
+    ) {
+      throw new Error("Client dose is required to approve a review");
     }
 
     const formulations = await transaction<FormulationRow[]>`

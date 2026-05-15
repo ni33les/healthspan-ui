@@ -93,6 +93,12 @@ type Copy = Readonly<{
     coffeeOptions: Option[];
     diet: string;
     dietOptions: Option[];
+    foodAllergens: string;
+    foodAllergenOptions: Option[];
+    foodAvoidances: string;
+    foodAvoidancesPlaceholder: string;
+    foodSafetyBody: string;
+    foodSafetyCheckbox: string;
     fish: string;
     fishOptions: Option[];
     lifestage: string;
@@ -179,6 +185,9 @@ type Answers = {
   family: string[];
   fish: string;
   feelGreat: boolean;
+  foodAllergens: string[];
+  foodAvoidances: string;
+  foodSafetyAcknowledged: boolean;
   form: string;
   goals: string[];
   gut: string;
@@ -222,6 +231,7 @@ const requiredGroups = [
   "symptoms",
   "sleepHours",
   "diet",
+  "foodSafetyAcknowledged",
   "fish",
   "smoke",
   "alcohol",
@@ -244,6 +254,9 @@ const initialAnswers: Answers = {
   family: [],
   fish: "",
   feelGreat: false,
+  foodAllergens: ["none"],
+  foodAvoidances: "",
+  foodSafetyAcknowledged: false,
   form: "",
   goals: [],
   gut: "",
@@ -294,6 +307,9 @@ function buildInitialAnswers(prefillAnswers?: unknown) {
     family: Array.isArray(prefill.family)
       ? prefill.family
       : initialAnswers.family,
+    foodAllergens: Array.isArray(prefill.foodAllergens)
+      ? prefill.foodAllergens
+      : initialAnswers.foodAllergens,
     goals: Array.isArray(prefill.goals)
       ? prefill.goals
       : initialAnswers.goals,
@@ -342,6 +358,9 @@ function buildRandomDevAnswers(): Answers {
     fish: randomItem(["rarely", "weekly", "2-3pw", "daily"]),
     feelGreat: false,
     form: randomItem(["capsules", "powder", "mixed"]),
+    foodAllergens: ["none"],
+    foodAvoidances: "",
+    foodSafetyAcknowledged: true,
     goals: randomSubset(
       ["energy", "sleep", "focus", "longevity", "fitness", "mood"],
       3
@@ -519,6 +538,25 @@ const en: Copy = {
       { label: "Vegan", value: "vegan" },
       { label: "Carnivore", value: "keto" }
     ],
+    foodAllergens: "Food allergies",
+    foodAllergenOptions: [
+      { label: "None", value: "none" },
+      { label: "Milk", value: "milk" },
+      { label: "Eggs", value: "eggs" },
+      { label: "Fish", value: "fish" },
+      { label: "Shellfish", value: "shellfish" },
+      { label: "Tree nuts", value: "tree_nuts" },
+      { label: "Peanuts", value: "peanuts" },
+      { label: "Wheat", value: "wheat" },
+      { label: "Soy", value: "soy" },
+      { label: "Sesame", value: "sesame" }
+    ],
+    foodAvoidances: "Foods to avoid or dislike",
+    foodAvoidancesPlaceholder: "e.g. tofu, green tea, spicy fermented foods",
+    foodSafetyBody:
+      "MattaNutra food guidance is for general wellness support only and does not replace medical advice. Tell us about allergies, medical conditions, medications, and dietary restrictions before receiving recommendations.",
+    foodSafetyCheckbox:
+      "I confirm I have disclosed relevant allergies, medical conditions, medications, and dietary restrictions.",
     fish: "Fatty fish / week",
     fishOptions: [
       { label: "Never", value: "never" },
@@ -893,6 +931,25 @@ const th: Copy = {
       { label: "วีแกน", value: "vegan" },
       { label: "คาร์นิวอร์", value: "keto" }
     ],
+    foodAllergens: "แพ้อาหาร",
+    foodAllergenOptions: [
+      { label: "ไม่มี", value: "none" },
+      { label: "นม", value: "milk" },
+      { label: "ไข่", value: "eggs" },
+      { label: "ปลา", value: "fish" },
+      { label: "หอยและกุ้งปู", value: "shellfish" },
+      { label: "ถั่วเปลือกแข็ง", value: "tree_nuts" },
+      { label: "ถั่วลิสง", value: "peanuts" },
+      { label: "ข้าวสาลี", value: "wheat" },
+      { label: "ถั่วเหลือง", value: "soy" },
+      { label: "งา", value: "sesame" }
+    ],
+    foodAvoidances: "อาหารที่ไม่ต้องการหรือไม่ชอบ",
+    foodAvoidancesPlaceholder: "เช่น เต้าหู้ ชาเขียว อาหารหมักรสจัด",
+    foodSafetyBody:
+      "คำแนะนำอาหารของ MattaNutra เป็นข้อมูลเพื่อสุขภาพทั่วไป ไม่ใช่คำแนะนำทางการแพทย์ กรุณาแจ้งการแพ้อาหาร โรค ยา และข้อจำกัดด้านอาหารก่อนรับคำแนะนำ",
+    foodSafetyCheckbox:
+      "ฉันยืนยันว่าได้แจ้งข้อมูลการแพ้อาหาร โรค ยา และข้อจำกัดด้านอาหารที่เกี่ยวข้องแล้ว",
     fish: "ปลามัน / สัปดาห์",
     fishOptions: [
       { label: "ไม่เคย", value: "never" },
@@ -2014,7 +2071,13 @@ export function AssessmentFlow({
   }
 
   function toggleMulti(
-    key: "conditions" | "family" | "goals" | "medTypes" | "symptoms",
+    key:
+      | "conditions"
+      | "family"
+      | "foodAllergens"
+      | "goals"
+      | "medTypes"
+      | "symptoms",
     value: string,
     max = 99
   ) {
@@ -2026,7 +2089,7 @@ export function AssessmentFlow({
         return current;
       }
 
-      if (key === "conditions" || key === "family") {
+      if (key === "conditions" || key === "family" || key === "foodAllergens") {
         if (value === "none") {
           return {
             ...current,
@@ -2328,6 +2391,56 @@ export function AssessmentFlow({
           id: "diet",
           isAnswered: Boolean(answers.diet),
           label: copy.lifestyle.diet,
+          required: true
+        },
+        {
+          content: (
+            <div className="space-y-4">
+              <PillGroup
+                multi={true}
+                options={copy.lifestyle.foodAllergenOptions}
+                selected={answers.foodAllergens}
+                onToggle={(value) => toggleMulti("foodAllergens", value)}
+              />
+              <label className="block">
+                <span className="text-sm font-semibold text-[#20343A]">
+                  {copy.lifestyle.foodAvoidances}
+                </span>
+                <textarea
+                  className="mt-2 min-h-24 w-full rounded-lg border border-foreground/10 bg-white px-4 py-3 text-sm text-[#20343A] outline-none transition placeholder:text-muted-foreground/70 focus:border-[#1FA77A] focus:ring-2 focus:ring-[#1FA77A]/20"
+                  placeholder={copy.lifestyle.foodAvoidancesPlaceholder}
+                  value={answers.foodAvoidances}
+                  onChange={(event) =>
+                    setSingle("foodAvoidances", event.target.value)
+                  }
+                />
+              </label>
+              <label className="flex gap-3 rounded-lg border border-[#1FA77A]/20 bg-[#1FA77A]/5 p-4 text-sm leading-6 text-muted-foreground">
+                <input
+                  checked={answers.foodSafetyAcknowledged}
+                  className="mt-1 size-4 rounded border-foreground/20 text-[#1FA77A] focus:ring-[#1FA77A]"
+                  type="checkbox"
+                  onChange={(event) =>
+                    setAnswers((current) => ({
+                      ...current,
+                      foodSafetyAcknowledged: event.target.checked
+                    }))
+                  }
+                />
+                <span>
+                  <span className="block font-medium text-[#20343A]">
+                    {copy.lifestyle.foodSafetyCheckbox}
+                  </span>
+                  <span className="mt-1 block">
+                    {copy.lifestyle.foodSafetyBody}
+                  </span>
+                </span>
+              </label>
+            </div>
+          ),
+          id: "food-safety",
+          isAnswered: answers.foodSafetyAcknowledged,
+          label: copy.lifestyle.foodAllergens,
           required: true
         },
         {

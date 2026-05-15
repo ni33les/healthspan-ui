@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin-execution";
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { getAdminFinancialsData } from "@/lib/admin-financials";
+import { getAdminFoodsData } from "@/lib/admin-foods";
 import {
   getAdminCampaignsData,
   getAdminContentData,
@@ -47,6 +48,7 @@ export default async function AdminDashboardPage({
     rawView === "content" ||
     rawView === "communications" ||
     rawView === "financials" ||
+    rawView === "foods" ||
     rawView === "flow" ||
     rawView === "glance" ||
     rawView === "leads" ||
@@ -72,6 +74,7 @@ export default async function AdminDashboardPage({
     communicationsData,
     data,
     financialsData,
+    foodsData,
     flowData,
     leadsData,
     reviewQueueData,
@@ -85,6 +88,7 @@ export default async function AdminDashboardPage({
     getAdminCommunicationsData(range),
     getAdminDashboardData(range, filters),
     getAdminFinancialsData(range),
+    getAdminFoodsData(),
     getAdminFlowData(range, filters),
     getAdminLeadsData(range, filters),
     getAdminReviewQueueData(),
@@ -102,6 +106,7 @@ export default async function AdminDashboardPage({
       communicationsData={communicationsData}
       data={data}
       financialsData={financialsData}
+      foodsData={foodsData}
       filters={filters}
       flowData={flowData}
       leadsData={leadsData}

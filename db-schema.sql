@@ -27,11 +27,19 @@ drop table if exists
   public.cron,
   public.finance_accounts,
   public.finance_transactions,
+  public.food_admin_audit,
+  public.food_aliases,
+  public.food_guidance,
+  public.food_nutrient_profiles,
+  public.food_safety_rules,
+  public.food_serving_sizes,
+  public.foods,
   public.formulations,
   public.goals,
   public.plan_communication_identities,
   public.rays,
   public.recommendations,
+  public.nutrients,
   public.safety_reviews,
   public.supplement_admin_audit,
   public.supplement_aliases,
@@ -338,6 +346,19 @@ create index formulations_latest_idx
 create index recommendations_latest_idx
   on public.recommendations (plan_id, version desc, generated_at desc);
 
+create table public.food_guidance (
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  version integer not null default 1,
+  guidance jsonb not null,
+  model_version text null,
+  generated_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (plan_id, version)
+);
+
+create index food_guidance_latest_idx
+  on public.food_guidance (plan_id, version desc, generated_at desc);
+
 create table public.agents (
   id uuid primary key,
   name text not null,
@@ -582,6 +603,21 @@ values
     now()
   ),
   (
+    '6b58c999-ec78-471e-b179-17bdb42538a7'::uuid,
+    'Food Guidance Engine',
+    'ai',
+    'active',
+    array[
+      'food_guidance_generation',
+      'free_example_food_guidance'
+    ]::text[],
+    'grok:food-guidance',
+    '{"seeded": true, "usesModel": true}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
     '1fa305ca-e68c-40f1-bd6e-a7cbc632d210'::uuid,
     'Safety Scanner',
     'deterministic',
@@ -667,6 +703,8 @@ values
     'human',
     'active',
     array[
+      'food_guidance_review',
+      'food_review',
       'formulation_review',
       'human_review',
       'safety_review',
@@ -1368,6 +1406,12 @@ create table public.assessment_example_requests (
     )
   ),
   health_score jsonb not null default '{}'::jsonb,
+  formulation_status text not null default 'not_started' check (
+    formulation_status in ('not_started', 'queued', 'ready', 'failed')
+  ),
+  food_guidance_status text not null default 'not_started' check (
+    food_guidance_status in ('not_started', 'queued', 'ready', 'failed')
+  ),
   email_html text null,
   error_message text null,
   requested_at timestamptz not null default now(),
@@ -1380,6 +1424,8 @@ alter table public.assessment_example_requests
   add column if not exists locale text default 'en',
   add column if not exists status text default 'requested',
   add column if not exists health_score jsonb default '{}'::jsonb,
+  add column if not exists formulation_status text default 'not_started',
+  add column if not exists food_guidance_status text default 'not_started',
   add column if not exists email_html text null,
   add column if not exists error_message text null,
   add column if not exists requested_at timestamptz default now(),
@@ -1401,6 +1447,22 @@ set
     else 'requested'
   end,
   health_score = coalesce(health_score, '{}'::jsonb),
+  formulation_status = case
+    when formulation_status in ('not_started', 'queued', 'ready', 'failed')
+      then formulation_status
+    when status in ('formulation_queued', 'email_queued') then 'queued'
+    when status in ('formulation_ready', 'email_rendered', 'email_sent') then 'ready'
+    when status = 'failed' then 'failed'
+    else 'not_started'
+  end,
+  food_guidance_status = case
+    when food_guidance_status in ('not_started', 'queued', 'ready', 'failed')
+      then food_guidance_status
+    when status in ('formulation_queued', 'email_queued') then 'queued'
+    when status in ('formulation_ready', 'email_rendered', 'email_sent') then 'ready'
+    when status = 'failed' then 'failed'
+    else 'not_started'
+  end,
   requested_at = coalesce(requested_at, now()),
   updated_at = coalesce(updated_at, now())
 where locale is null
@@ -1415,6 +1477,10 @@ where locale is null
     'failed'
   )
   or health_score is null
+  or formulation_status is null
+  or formulation_status not in ('not_started', 'queued', 'ready', 'failed')
+  or food_guidance_status is null
+  or food_guidance_status not in ('not_started', 'queued', 'ready', 'failed')
   or requested_at is null
   or updated_at is null;
 
@@ -1427,6 +1493,10 @@ alter table public.assessment_example_requests
   alter column status set not null,
   alter column health_score set default '{}'::jsonb,
   alter column health_score set not null,
+  alter column formulation_status set default 'not_started',
+  alter column formulation_status set not null,
+  alter column food_guidance_status set default 'not_started',
+  alter column food_guidance_status set not null,
   alter column requested_at set default now(),
   alter column requested_at set not null,
   alter column updated_at set default now(),
@@ -1461,6 +1531,20 @@ begin
         'failed'
       )
     );
+
+  alter table public.assessment_example_requests
+    drop constraint if exists assessment_example_requests_formulation_status_check;
+
+  alter table public.assessment_example_requests
+    add constraint assessment_example_requests_formulation_status_check
+    check (formulation_status in ('not_started', 'queued', 'ready', 'failed'));
+
+  alter table public.assessment_example_requests
+    drop constraint if exists assessment_example_requests_food_guidance_status_check;
+
+  alter table public.assessment_example_requests
+    add constraint assessment_example_requests_food_guidance_status_check
+    check (food_guidance_status in ('not_started', 'queued', 'ready', 'failed'));
 end $$;
 
 create index assessment_example_requests_plan_idx
@@ -2275,7 +2359,519 @@ begin
 end $$;
 
 
--- Supplement whitelist/blacklist governance.
+-- Food whitelist/blacklist governance.
+create table public.nutrients (
+  id text primary key,
+  label text not null,
+  unit text not null,
+  category text not null,
+  display_order integer not null default 100,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.foods (
+  id uuid primary key,
+  name text not null,
+  normalized_name text not null unique,
+  category text not null default 'Other',
+  primary_use_case text null,
+  benefit_tags text[] not null default '{}'::text[],
+  nutrient_tags text[] not null default '{}'::text[],
+  notes text null,
+  list_status text not null default 'whitelisted' check (
+    list_status in ('whitelisted', 'review_required', 'blacklisted', 'inactive')
+  ),
+  is_active boolean not null default true,
+  source text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.food_aliases (
+  id uuid primary key,
+  food_id uuid not null references public.foods(id) on delete cascade,
+  alias text not null,
+  normalized_alias text not null unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.food_safety_rules (
+  id uuid primary key,
+  food_id uuid not null references public.foods(id) on delete cascade,
+  version integer not null default 1,
+  allergen_flags text[] not null default '{}'::text[],
+  condition_flags text[] not null default '{}'::text[],
+  confidence text not null default 'moderate' check (
+    confidence in ('low', 'moderate', 'high')
+  ),
+  safety_notes text null,
+  source_url text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (food_id, version)
+);
+
+create table public.food_serving_sizes (
+  food_id uuid not null references public.foods(id) on delete cascade,
+  label text not null,
+  grams numeric(10, 2) not null check (grams > 0),
+  is_default boolean not null default false,
+  source text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (food_id, label)
+);
+
+create table public.food_nutrient_profiles (
+  food_id uuid not null references public.foods(id) on delete cascade,
+  nutrient_id text not null references public.nutrients(id) on delete restrict,
+  amount_per_100g numeric(14, 4) not null check (amount_per_100g >= 0),
+  source text null,
+  source_url text null,
+  confidence text not null default 'moderate' check (
+    confidence in ('low', 'moderate', 'high')
+  ),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (food_id, nutrient_id)
+);
+
+create table public.food_admin_audit (
+  id uuid primary key,
+  food_id uuid null references public.foods(id) on delete set null,
+  actor_id text null,
+  action text not null,
+  before_state jsonb null,
+  after_state jsonb null,
+  created_at timestamptz not null default now()
+);
+
+create index foods_status_idx
+  on public.foods (list_status, is_active, name);
+
+create index foods_benefit_tags_gin_idx
+  on public.foods using gin (benefit_tags);
+
+create index foods_nutrient_tags_gin_idx
+  on public.foods using gin (nutrient_tags);
+
+create index food_aliases_food_idx
+  on public.food_aliases (food_id);
+
+create index food_safety_rules_food_idx
+  on public.food_safety_rules (food_id, version desc);
+
+create index food_serving_sizes_food_idx
+  on public.food_serving_sizes (food_id, is_default desc);
+
+create index food_nutrient_profiles_nutrient_idx
+  on public.food_nutrient_profiles (nutrient_id, amount_per_100g desc);
+
+create index food_safety_rules_allergen_gin_idx
+  on public.food_safety_rules using gin (allergen_flags);
+
+create index food_safety_rules_condition_gin_idx
+  on public.food_safety_rules using gin (condition_flags);
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_nutrient_seed$[
+    {"id":"energy_kcal","label":"Energy","unit":"kcal","category":"Energy","display_order":10},
+    {"id":"protein_g","label":"Protein","unit":"g","category":"Macronutrients","display_order":20},
+    {"id":"carbohydrate_g","label":"Carbohydrate","unit":"g","category":"Macronutrients","display_order":30},
+    {"id":"fiber_g","label":"Fiber","unit":"g","category":"Macronutrients","display_order":40},
+    {"id":"sugar_g","label":"Sugar","unit":"g","category":"Macronutrients","display_order":50},
+    {"id":"total_fat_g","label":"Total fat","unit":"g","category":"Macronutrients","display_order":60},
+    {"id":"saturated_fat_g","label":"Saturated fat","unit":"g","category":"Macronutrients","display_order":70},
+    {"id":"omega_3_g","label":"Omega-3","unit":"g","category":"Macronutrients","display_order":80},
+    {"id":"omega_6_g","label":"Omega-6","unit":"g","category":"Macronutrients","display_order":90},
+    {"id":"calcium_mg","label":"Calcium","unit":"mg","category":"Minerals","display_order":110},
+    {"id":"iron_mg","label":"Iron","unit":"mg","category":"Minerals","display_order":120},
+    {"id":"magnesium_mg","label":"Magnesium","unit":"mg","category":"Minerals","display_order":130},
+    {"id":"phosphorus_mg","label":"Phosphorus","unit":"mg","category":"Minerals","display_order":140},
+    {"id":"potassium_mg","label":"Potassium","unit":"mg","category":"Minerals","display_order":150},
+    {"id":"sodium_mg","label":"Sodium","unit":"mg","category":"Minerals","display_order":160},
+    {"id":"zinc_mg","label":"Zinc","unit":"mg","category":"Minerals","display_order":170},
+    {"id":"selenium_mcg","label":"Selenium","unit":"mcg","category":"Minerals","display_order":180},
+    {"id":"copper_mg","label":"Copper","unit":"mg","category":"Minerals","display_order":190},
+    {"id":"manganese_mg","label":"Manganese","unit":"mg","category":"Minerals","display_order":200},
+    {"id":"vitamin_a_mcg_rae","label":"Vitamin A","unit":"mcg RAE","category":"Vitamins","display_order":220},
+    {"id":"vitamin_c_mg","label":"Vitamin C","unit":"mg","category":"Vitamins","display_order":230},
+    {"id":"vitamin_d_mcg","label":"Vitamin D","unit":"mcg","category":"Vitamins","display_order":240},
+    {"id":"vitamin_e_mg","label":"Vitamin E","unit":"mg","category":"Vitamins","display_order":250},
+    {"id":"vitamin_k_mcg","label":"Vitamin K","unit":"mcg","category":"Vitamins","display_order":260},
+    {"id":"thiamin_mg","label":"Thiamin","unit":"mg","category":"Vitamins","display_order":270},
+    {"id":"riboflavin_mg","label":"Riboflavin","unit":"mg","category":"Vitamins","display_order":280},
+    {"id":"niacin_mg","label":"Niacin","unit":"mg","category":"Vitamins","display_order":290},
+    {"id":"vitamin_b6_mg","label":"Vitamin B6","unit":"mg","category":"Vitamins","display_order":300},
+    {"id":"folate_mcg_dfe","label":"Folate","unit":"mcg DFE","category":"Vitamins","display_order":310},
+    {"id":"vitamin_b12_mcg","label":"Vitamin B12","unit":"mcg","category":"Vitamins","display_order":320},
+    {"id":"choline_mg","label":"Choline","unit":"mg","category":"Other","display_order":340},
+    {"id":"caffeine_mg","label":"Caffeine","unit":"mg","category":"Other","display_order":350},
+    {"id":"polyphenols_mg","label":"Polyphenols","unit":"mg","category":"Other","display_order":360},
+    {"id":"probiotics_cfu","label":"Probiotics","unit":"CFU","category":"Other","display_order":370}
+  ]$mattanutra_nutrient_seed$::jsonb) as x(
+    id text,
+    label text,
+    unit text,
+    category text,
+    display_order integer
+  )
+)
+insert into public.nutrients (
+  id,
+  label,
+  unit,
+  category,
+  display_order,
+  created_at,
+  updated_at
+)
+select
+  id,
+  label,
+  unit,
+  category,
+  display_order,
+  now(),
+  now()
+from seed
+on conflict (id) do update
+set
+  label = excluded.label,
+  unit = excluded.unit,
+  category = excluded.category,
+  display_order = excluded.display_order,
+  updated_at = now();
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_food_seed$[
+    {"id":"20000000-0000-4000-8000-000000000001","alias_id":"21000000-0000-4000-8000-000000000001","rule_id":"22000000-0000-4000-8000-000000000001","name":"Chia seeds","normalized_name":"chia_seeds","alias":"Chia","normalized_alias":"chia","category":"Seeds","primary_use_case":"Fiber and omega-3 rich seed","benefit_tags":["gut_health","heart_health","metabolic_health"],"nutrient_tags":["fiber","omega_3","magnesium","calcium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Increase gradually for digestive sensitivity.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000002","alias_id":"21000000-0000-4000-8000-000000000002","rule_id":"22000000-0000-4000-8000-000000000002","name":"Flaxseed","normalized_name":"flaxseed","alias":"Ground flaxseed","normalized_alias":"ground_flaxseed","category":"Seeds","primary_use_case":"Fiber and lignans","benefit_tags":["gut_health","heart_health","metabolic_health"],"nutrient_tags":["fiber","omega_3","polyphenols"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Use ground flaxseed and increase gradually.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000003","alias_id":"21000000-0000-4000-8000-000000000003","rule_id":"22000000-0000-4000-8000-000000000003","name":"Pumpkin seeds","normalized_name":"pumpkin_seeds","alias":"Pepitas","normalized_alias":"pepitas","category":"Seeds","primary_use_case":"Magnesium and zinc rich seed","benefit_tags":["energy_support","immune_support","recovery_support"],"nutrient_tags":["magnesium","zinc","protein","iron"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":[],"confidence":"moderate","safety_notes":"Consider portion size for calorie-dense seeds.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000004","alias_id":"21000000-0000-4000-8000-000000000004","rule_id":"22000000-0000-4000-8000-000000000004","name":"Lentils","normalized_name":"lentils","alias":"Red lentils","normalized_alias":"red_lentils","category":"Pulses","primary_use_case":"Fiber and plant protein","benefit_tags":["gut_health","metabolic_health","heart_health"],"nutrient_tags":["fiber","protein","iron","folate","potassium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000005","alias_id":"21000000-0000-4000-8000-000000000005","rule_id":"22000000-0000-4000-8000-000000000005","name":"Chickpeas","normalized_name":"chickpeas","alias":"Garbanzo beans","normalized_alias":"garbanzo_beans","category":"Pulses","primary_use_case":"Fiber and plant protein","benefit_tags":["gut_health","metabolic_health","heart_health"],"nutrient_tags":["fiber","protein","folate","iron","magnesium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000006","alias_id":"21000000-0000-4000-8000-000000000006","rule_id":"22000000-0000-4000-8000-000000000006","name":"Mung beans","normalized_name":"mung_beans","alias":"Green gram","normalized_alias":"green_gram","category":"Pulses","primary_use_case":"Thai-friendly pulse option","benefit_tags":["gut_health","metabolic_health","energy_support"],"nutrient_tags":["fiber","protein","folate","magnesium","potassium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000007","alias_id":"21000000-0000-4000-8000-000000000007","rule_id":"22000000-0000-4000-8000-000000000007","name":"Green tea","normalized_name":"green_tea","alias":"Sencha","normalized_alias":"sencha","category":"Teas","primary_use_case":"Polyphenol-rich drink","benefit_tags":["anti_inflammatory","heart_health","metabolic_health"],"nutrient_tags":["polyphenols"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"moderate","safety_notes":"Caffeine may need review for pregnancy, anxiety, insomnia, or medication sensitivity.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000008","alias_id":"21000000-0000-4000-8000-000000000008","rule_id":"22000000-0000-4000-8000-000000000008","name":"Ginger tea","normalized_name":"ginger_tea","alias":"Ginger infusion","normalized_alias":"ginger_infusion","category":"Teas","primary_use_case":"Digestive comfort","benefit_tags":["gut_health","anti_inflammatory","immune_support"],"nutrient_tags":["polyphenols"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction","digestive"],"confidence":"moderate","safety_notes":"Review high intake with pregnancy, reflux, gallbladder issues, or anticoagulants.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000009","alias_id":"21000000-0000-4000-8000-000000000009","rule_id":"22000000-0000-4000-8000-000000000009","name":"Unsweetened yogurt","normalized_name":"unsweetened_yogurt","alias":"Plain yogurt","normalized_alias":"plain_yogurt","category":"Fermented foods","primary_use_case":"Protein and live culture food","benefit_tags":["gut_health","immune_support","recovery_support"],"nutrient_tags":["protein","calcium","probiotics"],"list_status":"whitelisted","allergen_flags":["milk"],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Do not recommend for milk allergy; choose lactose-free if needed.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000010","alias_id":"21000000-0000-4000-8000-000000000010","rule_id":"22000000-0000-4000-8000-000000000010","name":"Kimchi","normalized_name":"kimchi","alias":"Fermented cabbage","normalized_alias":"fermented_cabbage","category":"Fermented foods","primary_use_case":"Fermented vegetable","benefit_tags":["gut_health","immune_support"],"nutrient_tags":["fiber","probiotics","vitamin_c"],"list_status":"review_required","allergen_flags":[],"condition_flags":["sodium_heart","digestive"],"confidence":"moderate","safety_notes":"Often high sodium and spicy; review for blood pressure, reflux, or active GI conditions.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000011","alias_id":"21000000-0000-4000-8000-000000000011","rule_id":"22000000-0000-4000-8000-000000000011","name":"Salmon","normalized_name":"salmon","alias":"Fatty fish","normalized_alias":"fatty_fish","category":"Fish","primary_use_case":"Omega-3 rich fish","benefit_tags":["heart_health","anti_inflammatory","recovery_support"],"nutrient_tags":["omega_3","protein","vitamin_d"],"list_status":"whitelisted","allergen_flags":["fish"],"condition_flags":["pregnancy"],"confidence":"high","safety_notes":"Do not recommend for fish allergy; pregnancy guidance should avoid high-mercury fish and raw preparations.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000012","alias_id":"21000000-0000-4000-8000-000000000012","rule_id":"22000000-0000-4000-8000-000000000012","name":"Sardines","normalized_name":"sardines","alias":"Small oily fish","normalized_alias":"small_oily_fish","category":"Fish","primary_use_case":"Omega-3 and calcium rich fish","benefit_tags":["heart_health","anti_inflammatory","recovery_support"],"nutrient_tags":["omega_3","protein","calcium","vitamin_d"],"list_status":"whitelisted","allergen_flags":["fish"],"condition_flags":["sodium_heart","pregnancy"],"confidence":"high","safety_notes":"Do not recommend for fish allergy; canned versions may be high sodium.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000013","alias_id":"21000000-0000-4000-8000-000000000013","rule_id":"22000000-0000-4000-8000-000000000013","name":"Oats","normalized_name":"oats","alias":"Rolled oats","normalized_alias":"rolled_oats","category":"Whole grains","primary_use_case":"Beta-glucan fiber","benefit_tags":["gut_health","heart_health","metabolic_health"],"nutrient_tags":["fiber","protein","magnesium","iron"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["blood_sugar","celiac"],"confidence":"moderate","safety_notes":"Use gluten-free oats for celiac disease; portion-aware guidance for blood sugar concerns.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000014","alias_id":"21000000-0000-4000-8000-000000000014","rule_id":"22000000-0000-4000-8000-000000000014","name":"Brown rice","normalized_name":"brown_rice","alias":"Wholegrain rice","normalized_alias":"wholegrain_rice","category":"Whole grains","primary_use_case":"Whole-grain staple","benefit_tags":["energy_support","metabolic_health","gut_health"],"nutrient_tags":["fiber","magnesium","potassium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["blood_sugar","kidney"],"confidence":"moderate","safety_notes":"Portion-aware guidance for blood sugar or kidney disease.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000015","alias_id":"21000000-0000-4000-8000-000000000015","rule_id":"22000000-0000-4000-8000-000000000015","name":"Papaya","normalized_name":"papaya","alias":"Malako","normalized_alias":"malako","category":"Fruit and vegetables","primary_use_case":"Thai fruit rich in carotenoids","benefit_tags":["gut_health","skin_health","immune_support"],"nutrient_tags":["fiber","vitamin_a","vitamin_c","potassium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["blood_sugar","pregnancy"],"confidence":"moderate","safety_notes":"Portion-aware guidance for blood sugar; avoid unripe papaya in pregnancy guidance unless clinician-approved.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000016","alias_id":"21000000-0000-4000-8000-000000000016","rule_id":"22000000-0000-4000-8000-000000000016","name":"Moringa leaves","normalized_name":"moringa_leaves","alias":"Drumstick leaves","normalized_alias":"drumstick_leaves","category":"Thai staples","primary_use_case":"Leafy green Thai ingredient","benefit_tags":["immune_support","energy_support","anti_inflammatory"],"nutrient_tags":["vitamin_a","vitamin_c","calcium","iron","potassium"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"low","safety_notes":"Review concentrated use in pregnancy or medication-heavy contexts.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000017","alias_id":"21000000-0000-4000-8000-000000000017","rule_id":"22000000-0000-4000-8000-000000000017","name":"Turmeric","normalized_name":"turmeric","alias":"Curcuma","normalized_alias":"curcuma","category":"Herbs and spices","primary_use_case":"Culinary spice","benefit_tags":["anti_inflammatory","gut_health","immune_support"],"nutrient_tags":["polyphenols"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["medication_interaction","digestive","pregnancy"],"confidence":"moderate","safety_notes":"Culinary use is preferred; review high intake with anticoagulants, gallbladder disease, or pregnancy.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000018","alias_id":"21000000-0000-4000-8000-000000000018","rule_id":"22000000-0000-4000-8000-000000000018","name":"Holy basil","normalized_name":"holy_basil","alias":"Krapao","normalized_alias":"krapao","category":"Thai staples","primary_use_case":"Thai herb","benefit_tags":["anti_inflammatory","immune_support","metabolic_health"],"nutrient_tags":["polyphenols"],"list_status":"whitelisted","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"low","safety_notes":"Culinary use is preferred; concentrated herb guidance needs review.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000019","alias_id":"21000000-0000-4000-8000-000000000019","rule_id":"22000000-0000-4000-8000-000000000019","name":"Tofu","normalized_name":"tofu","alias":"Bean curd","normalized_alias":"bean_curd","category":"Protein foods","primary_use_case":"Soy-based protein","benefit_tags":["metabolic_health","heart_health","recovery_support"],"nutrient_tags":["protein","calcium","iron"],"list_status":"whitelisted","allergen_flags":["soy"],"condition_flags":["kidney"],"confidence":"moderate","safety_notes":"Do not recommend for soy allergy; review portions for kidney disease.","source":"MattaNutra starter foods"},
+    {"id":"20000000-0000-4000-8000-000000000020","alias_id":"21000000-0000-4000-8000-000000000020","rule_id":"22000000-0000-4000-8000-000000000020","name":"Sesame seeds","normalized_name":"sesame_seeds","alias":"Nga","normalized_alias":"nga","category":"Seeds","primary_use_case":"Mineral-rich seed","benefit_tags":["heart_health","energy_support","recovery_support"],"nutrient_tags":["calcium","iron","magnesium","zinc"],"list_status":"whitelisted","allergen_flags":["sesame"],"condition_flags":[],"confidence":"high","safety_notes":"Do not recommend for sesame allergy.","source":"MattaNutra starter foods"}
+  ]$mattanutra_food_seed$::jsonb) as x(
+    id uuid,
+    alias_id uuid,
+    rule_id uuid,
+    name text,
+    normalized_name text,
+    alias text,
+    normalized_alias text,
+    category text,
+    primary_use_case text,
+    benefit_tags text[],
+    nutrient_tags text[],
+    list_status text,
+    allergen_flags text[],
+    condition_flags text[],
+    confidence text,
+    safety_notes text,
+    source text
+  )
+)
+insert into public.foods (
+  id,
+  name,
+  normalized_name,
+  category,
+  primary_use_case,
+  benefit_tags,
+  nutrient_tags,
+  list_status,
+  is_active,
+  source,
+  created_at,
+  updated_at
+)
+select
+  id,
+  name,
+  normalized_name,
+  category,
+  primary_use_case,
+  coalesce(benefit_tags, '{}'::text[]),
+  coalesce(nutrient_tags, '{}'::text[]),
+  list_status,
+  true,
+  source,
+  now(),
+  now()
+from seed
+on conflict (normalized_name) do update
+set
+  name = excluded.name,
+  category = excluded.category,
+  primary_use_case = excluded.primary_use_case,
+  benefit_tags = excluded.benefit_tags,
+  nutrient_tags = excluded.nutrient_tags,
+  list_status = excluded.list_status,
+  is_active = excluded.is_active,
+  source = excluded.source,
+  updated_at = now();
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_food_serving_seed$[
+    {"normalized_name":"chia_seeds","label":"1 tbsp","grams":12,"source":"MattaNutra starter serving"},
+    {"normalized_name":"flaxseed","label":"1 tbsp ground","grams":7,"source":"MattaNutra starter serving"},
+    {"normalized_name":"pumpkin_seeds","label":"1 oz","grams":28,"source":"MattaNutra starter serving"},
+    {"normalized_name":"lentils","label":"1/2 cup cooked","grams":99,"source":"MattaNutra starter serving"},
+    {"normalized_name":"chickpeas","label":"1/2 cup cooked","grams":82,"source":"MattaNutra starter serving"},
+    {"normalized_name":"mung_beans","label":"1/2 cup cooked","grams":101,"source":"MattaNutra starter serving"},
+    {"normalized_name":"green_tea","label":"1 cup brewed","grams":240,"source":"MattaNutra starter serving"},
+    {"normalized_name":"ginger_tea","label":"1 cup brewed","grams":240,"source":"MattaNutra starter serving"},
+    {"normalized_name":"unsweetened_yogurt","label":"1 small bowl","grams":170,"source":"MattaNutra starter serving"},
+    {"normalized_name":"kimchi","label":"small side","grams":50,"source":"MattaNutra starter serving"},
+    {"normalized_name":"salmon","label":"1 fillet portion","grams":100,"source":"MattaNutra starter serving"},
+    {"normalized_name":"sardines","label":"1 small tin drained","grams":90,"source":"MattaNutra starter serving"},
+    {"normalized_name":"oats","label":"1/2 cup dry","grams":40,"source":"MattaNutra starter serving"},
+    {"normalized_name":"brown_rice","label":"1/2 cup cooked","grams":100,"source":"MattaNutra starter serving"},
+    {"normalized_name":"papaya","label":"1 cup cubed","grams":140,"source":"MattaNutra starter serving"},
+    {"normalized_name":"moringa_leaves","label":"1 cup chopped","grams":21,"source":"MattaNutra starter serving"},
+    {"normalized_name":"turmeric","label":"1 tsp ground","grams":3,"source":"MattaNutra starter serving"},
+    {"normalized_name":"holy_basil","label":"small handful","grams":5,"source":"MattaNutra starter serving"},
+    {"normalized_name":"tofu","label":"100 g portion","grams":100,"source":"MattaNutra starter serving"},
+    {"normalized_name":"sesame_seeds","label":"1 tbsp","grams":9,"source":"MattaNutra starter serving"}
+  ]$mattanutra_food_serving_seed$::jsonb) as x(
+    normalized_name text,
+    label text,
+    grams numeric,
+    source text
+  )
+),
+matched as (
+  select foods.id as food_id, seed.label, seed.grams, seed.source
+  from seed
+  join public.foods foods
+    on foods.normalized_name = seed.normalized_name
+)
+insert into public.food_serving_sizes (
+  food_id,
+  label,
+  grams,
+  is_default,
+  source,
+  created_at,
+  updated_at
+)
+select
+  food_id,
+  label,
+  grams,
+  true,
+  source,
+  now(),
+  now()
+from matched
+on conflict (food_id, label) do update
+set
+  grams = excluded.grams,
+  is_default = true,
+  source = excluded.source,
+  updated_at = now();
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_food_nutrient_seed$[
+    {"normalized_name":"chia_seeds","nutrients":{"energy_kcal":486,"protein_g":16.5,"carbohydrate_g":42.1,"fiber_g":34.4,"total_fat_g":30.7,"omega_3_g":17.8,"omega_6_g":5.8,"calcium_mg":631,"iron_mg":7.7,"magnesium_mg":335,"potassium_mg":407,"zinc_mg":4.6}},
+    {"normalized_name":"flaxseed","nutrients":{"energy_kcal":534,"protein_g":18.3,"carbohydrate_g":28.9,"fiber_g":27.3,"total_fat_g":42.2,"omega_3_g":22.8,"omega_6_g":5.9,"calcium_mg":255,"iron_mg":5.7,"magnesium_mg":392,"potassium_mg":813,"zinc_mg":4.3}},
+    {"normalized_name":"pumpkin_seeds","nutrients":{"energy_kcal":559,"protein_g":30.2,"carbohydrate_g":10.7,"fiber_g":6,"total_fat_g":49.1,"iron_mg":8.8,"magnesium_mg":592,"potassium_mg":809,"zinc_mg":7.6}},
+    {"normalized_name":"lentils","nutrients":{"energy_kcal":116,"protein_g":9,"carbohydrate_g":20.1,"fiber_g":7.9,"sugar_g":1.8,"total_fat_g":0.4,"iron_mg":3.3,"magnesium_mg":36,"phosphorus_mg":180,"potassium_mg":369,"folate_mcg_dfe":181}},
+    {"normalized_name":"chickpeas","nutrients":{"energy_kcal":164,"protein_g":8.9,"carbohydrate_g":27.4,"fiber_g":7.6,"sugar_g":4.8,"total_fat_g":2.6,"calcium_mg":49,"iron_mg":2.9,"magnesium_mg":48,"potassium_mg":291,"folate_mcg_dfe":172}},
+    {"normalized_name":"mung_beans","nutrients":{"energy_kcal":105,"protein_g":7,"carbohydrate_g":19.2,"fiber_g":7.6,"sugar_g":2,"total_fat_g":0.4,"iron_mg":1.4,"magnesium_mg":48,"potassium_mg":266,"folate_mcg_dfe":159}},
+    {"normalized_name":"green_tea","nutrients":{"energy_kcal":1,"caffeine_mg":12,"polyphenols_mg":89}},
+    {"normalized_name":"ginger_tea","nutrients":{"energy_kcal":2,"polyphenols_mg":20}},
+    {"normalized_name":"unsweetened_yogurt","nutrients":{"energy_kcal":63,"protein_g":5.3,"carbohydrate_g":7,"sugar_g":7,"total_fat_g":1.6,"calcium_mg":183,"potassium_mg":234,"vitamin_b12_mcg":0.6}},
+    {"normalized_name":"kimchi","nutrients":{"energy_kcal":15,"protein_g":1.1,"carbohydrate_g":2.4,"fiber_g":1.6,"sugar_g":1.1,"total_fat_g":0.5,"sodium_mg":498,"potassium_mg":151,"vitamin_c_mg":15}},
+    {"normalized_name":"salmon","nutrients":{"energy_kcal":206,"protein_g":22.1,"total_fat_g":12.4,"saturated_fat_g":2.4,"omega_3_g":2.5,"potassium_mg":384,"selenium_mcg":36.5,"vitamin_d_mcg":13.7,"vitamin_b12_mcg":3.2}},
+    {"normalized_name":"sardines","nutrients":{"energy_kcal":208,"protein_g":24.6,"total_fat_g":11.5,"saturated_fat_g":1.5,"omega_3_g":1.5,"calcium_mg":382,"sodium_mg":505,"selenium_mcg":52.7,"vitamin_d_mcg":4.8,"vitamin_b12_mcg":8.9}},
+    {"normalized_name":"oats","nutrients":{"energy_kcal":389,"protein_g":16.9,"carbohydrate_g":66.3,"fiber_g":10.6,"sugar_g":1,"total_fat_g":6.9,"iron_mg":4.7,"magnesium_mg":177,"potassium_mg":429,"zinc_mg":4,"thiamin_mg":0.76}},
+    {"normalized_name":"brown_rice","nutrients":{"energy_kcal":123,"protein_g":2.7,"carbohydrate_g":25.6,"fiber_g":1.6,"sugar_g":0.2,"total_fat_g":1,"magnesium_mg":39,"potassium_mg":86,"manganese_mg":0.97}},
+    {"normalized_name":"papaya","nutrients":{"energy_kcal":43,"protein_g":0.5,"carbohydrate_g":10.8,"fiber_g":1.7,"sugar_g":7.8,"total_fat_g":0.3,"potassium_mg":182,"vitamin_a_mcg_rae":47,"vitamin_c_mg":60.9,"folate_mcg_dfe":37}},
+    {"normalized_name":"moringa_leaves","nutrients":{"energy_kcal":64,"protein_g":9.4,"carbohydrate_g":8.3,"fiber_g":2,"total_fat_g":1.4,"calcium_mg":185,"iron_mg":4,"magnesium_mg":147,"potassium_mg":337,"vitamin_a_mcg_rae":378,"vitamin_c_mg":51.7}},
+    {"normalized_name":"turmeric","nutrients":{"energy_kcal":312,"protein_g":9.7,"carbohydrate_g":67.1,"fiber_g":22.7,"sugar_g":3.2,"total_fat_g":3.3,"iron_mg":55,"potassium_mg":2080,"manganese_mg":19.8,"polyphenols_mg":230}},
+    {"normalized_name":"holy_basil","nutrients":{"energy_kcal":23,"protein_g":3.2,"carbohydrate_g":2.7,"fiber_g":1.6,"total_fat_g":0.6,"calcium_mg":177,"iron_mg":3.2,"magnesium_mg":64,"potassium_mg":295,"vitamin_a_mcg_rae":264,"vitamin_k_mcg":414,"polyphenols_mg":75}},
+    {"normalized_name":"tofu","nutrients":{"energy_kcal":144,"protein_g":17.3,"carbohydrate_g":2.8,"fiber_g":2.3,"total_fat_g":8.7,"calcium_mg":683,"iron_mg":2.7,"magnesium_mg":58,"potassium_mg":237}},
+    {"normalized_name":"sesame_seeds","nutrients":{"energy_kcal":573,"protein_g":17.7,"carbohydrate_g":23.4,"fiber_g":11.8,"sugar_g":0.3,"total_fat_g":49.7,"calcium_mg":975,"iron_mg":14.6,"magnesium_mg":351,"zinc_mg":7.8}}
+  ]$mattanutra_food_nutrient_seed$::jsonb) as x(
+    normalized_name text,
+    nutrients jsonb
+  )
+),
+expanded as (
+  select
+    foods.id as food_id,
+    nutrient.key as nutrient_id,
+    (nutrient.value #>> '{}')::numeric as amount_per_100g
+  from seed
+  join public.foods foods
+    on foods.normalized_name = seed.normalized_name
+  cross join lateral jsonb_each(seed.nutrients) nutrient
+  join public.nutrients
+    on nutrients.id = nutrient.key
+)
+insert into public.food_nutrient_profiles (
+  food_id,
+  nutrient_id,
+  amount_per_100g,
+  source,
+  source_url,
+  confidence,
+  created_at,
+  updated_at
+)
+select
+  food_id,
+  nutrient_id,
+  amount_per_100g,
+  'USDA FoodData Central starter estimate',
+  'https://fdc.nal.usda.gov/',
+  'moderate',
+  now(),
+  now()
+from expanded
+on conflict (food_id, nutrient_id) do update
+set
+  amount_per_100g = excluded.amount_per_100g,
+  source = excluded.source,
+  source_url = excluded.source_url,
+  confidence = excluded.confidence,
+  updated_at = now();
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_food_seed$[
+    {"alias_id":"21000000-0000-4000-8000-000000000001","normalized_name":"chia_seeds","alias":"Chia","normalized_alias":"chia"},
+    {"alias_id":"21000000-0000-4000-8000-000000000002","normalized_name":"flaxseed","alias":"Ground flaxseed","normalized_alias":"ground_flaxseed"},
+    {"alias_id":"21000000-0000-4000-8000-000000000003","normalized_name":"pumpkin_seeds","alias":"Pepitas","normalized_alias":"pepitas"},
+    {"alias_id":"21000000-0000-4000-8000-000000000004","normalized_name":"lentils","alias":"Red lentils","normalized_alias":"red_lentils"},
+    {"alias_id":"21000000-0000-4000-8000-000000000005","normalized_name":"chickpeas","alias":"Garbanzo beans","normalized_alias":"garbanzo_beans"},
+    {"alias_id":"21000000-0000-4000-8000-000000000006","normalized_name":"mung_beans","alias":"Green gram","normalized_alias":"green_gram"},
+    {"alias_id":"21000000-0000-4000-8000-000000000007","normalized_name":"green_tea","alias":"Sencha","normalized_alias":"sencha"},
+    {"alias_id":"21000000-0000-4000-8000-000000000008","normalized_name":"ginger_tea","alias":"Ginger infusion","normalized_alias":"ginger_infusion"},
+    {"alias_id":"21000000-0000-4000-8000-000000000009","normalized_name":"unsweetened_yogurt","alias":"Plain yogurt","normalized_alias":"plain_yogurt"},
+    {"alias_id":"21000000-0000-4000-8000-000000000010","normalized_name":"kimchi","alias":"Fermented cabbage","normalized_alias":"fermented_cabbage"},
+    {"alias_id":"21000000-0000-4000-8000-000000000011","normalized_name":"salmon","alias":"Fatty fish","normalized_alias":"fatty_fish"},
+    {"alias_id":"21000000-0000-4000-8000-000000000012","normalized_name":"sardines","alias":"Small oily fish","normalized_alias":"small_oily_fish"},
+    {"alias_id":"21000000-0000-4000-8000-000000000013","normalized_name":"oats","alias":"Rolled oats","normalized_alias":"rolled_oats"},
+    {"alias_id":"21000000-0000-4000-8000-000000000014","normalized_name":"brown_rice","alias":"Wholegrain rice","normalized_alias":"wholegrain_rice"},
+    {"alias_id":"21000000-0000-4000-8000-000000000015","normalized_name":"papaya","alias":"Malako","normalized_alias":"malako"},
+    {"alias_id":"21000000-0000-4000-8000-000000000016","normalized_name":"moringa_leaves","alias":"Drumstick leaves","normalized_alias":"drumstick_leaves"},
+    {"alias_id":"21000000-0000-4000-8000-000000000017","normalized_name":"turmeric","alias":"Curcuma","normalized_alias":"curcuma"},
+    {"alias_id":"21000000-0000-4000-8000-000000000018","normalized_name":"holy_basil","alias":"Krapao","normalized_alias":"krapao"},
+    {"alias_id":"21000000-0000-4000-8000-000000000019","normalized_name":"tofu","alias":"Bean curd","normalized_alias":"bean_curd"},
+    {"alias_id":"21000000-0000-4000-8000-000000000020","normalized_name":"sesame_seeds","alias":"Nga","normalized_alias":"nga"}
+  ]$mattanutra_food_seed$::jsonb) as x(
+    alias_id uuid,
+    normalized_name text,
+    alias text,
+    normalized_alias text
+  )
+)
+insert into public.food_aliases (
+  id,
+  food_id,
+  alias,
+  normalized_alias
+)
+select
+  seed.alias_id,
+  foods.id,
+  seed.alias,
+  seed.normalized_alias
+from seed
+join public.foods foods on foods.normalized_name = seed.normalized_name
+on conflict (normalized_alias) do update
+set
+  food_id = excluded.food_id,
+  alias = excluded.alias,
+  updated_at = now();
+
+with seed as (
+  select *
+  from jsonb_to_recordset($mattanutra_food_seed$[
+    {"rule_id":"22000000-0000-4000-8000-000000000001","normalized_name":"chia_seeds","allergen_flags":[],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Increase gradually for digestive sensitivity."},
+    {"rule_id":"22000000-0000-4000-8000-000000000002","normalized_name":"flaxseed","allergen_flags":[],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Use ground flaxseed and increase gradually."},
+    {"rule_id":"22000000-0000-4000-8000-000000000003","normalized_name":"pumpkin_seeds","allergen_flags":[],"condition_flags":[],"confidence":"moderate","safety_notes":"Consider portion size for calorie-dense seeds."},
+    {"rule_id":"22000000-0000-4000-8000-000000000004","normalized_name":"lentils","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity."},
+    {"rule_id":"22000000-0000-4000-8000-000000000005","normalized_name":"chickpeas","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity."},
+    {"rule_id":"22000000-0000-4000-8000-000000000006","normalized_name":"mung_beans","allergen_flags":[],"condition_flags":["digestive","kidney"],"confidence":"moderate","safety_notes":"Review portions for kidney disease or active digestive sensitivity."},
+    {"rule_id":"22000000-0000-4000-8000-000000000007","normalized_name":"green_tea","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"moderate","safety_notes":"Caffeine may need review for pregnancy, anxiety, insomnia, or medication sensitivity."},
+    {"rule_id":"22000000-0000-4000-8000-000000000008","normalized_name":"ginger_tea","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction","digestive"],"confidence":"moderate","safety_notes":"Review high intake with pregnancy, reflux, gallbladder issues, or anticoagulants."},
+    {"rule_id":"22000000-0000-4000-8000-000000000009","normalized_name":"unsweetened_yogurt","allergen_flags":["milk"],"condition_flags":["digestive"],"confidence":"moderate","safety_notes":"Do not recommend for milk allergy; choose lactose-free if needed."},
+    {"rule_id":"22000000-0000-4000-8000-000000000010","normalized_name":"kimchi","allergen_flags":[],"condition_flags":["sodium_heart","digestive"],"confidence":"moderate","safety_notes":"Often high sodium and spicy; review for blood pressure, reflux, or active GI conditions."},
+    {"rule_id":"22000000-0000-4000-8000-000000000011","normalized_name":"salmon","allergen_flags":["fish"],"condition_flags":["pregnancy"],"confidence":"high","safety_notes":"Do not recommend for fish allergy; pregnancy guidance should avoid high-mercury fish and raw preparations."},
+    {"rule_id":"22000000-0000-4000-8000-000000000012","normalized_name":"sardines","allergen_flags":["fish"],"condition_flags":["sodium_heart","pregnancy"],"confidence":"high","safety_notes":"Do not recommend for fish allergy; canned versions may be high sodium."},
+    {"rule_id":"22000000-0000-4000-8000-000000000013","normalized_name":"oats","allergen_flags":[],"condition_flags":["blood_sugar","celiac"],"confidence":"moderate","safety_notes":"Use gluten-free oats for celiac disease; portion-aware guidance for blood sugar concerns."},
+    {"rule_id":"22000000-0000-4000-8000-000000000014","normalized_name":"brown_rice","allergen_flags":[],"condition_flags":["blood_sugar","kidney"],"confidence":"moderate","safety_notes":"Portion-aware guidance for blood sugar or kidney disease."},
+    {"rule_id":"22000000-0000-4000-8000-000000000015","normalized_name":"papaya","allergen_flags":[],"condition_flags":["blood_sugar","pregnancy"],"confidence":"moderate","safety_notes":"Portion-aware guidance for blood sugar; avoid unripe papaya in pregnancy guidance unless clinician-approved."},
+    {"rule_id":"22000000-0000-4000-8000-000000000016","normalized_name":"moringa_leaves","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"low","safety_notes":"Review concentrated use in pregnancy or medication-heavy contexts."},
+    {"rule_id":"22000000-0000-4000-8000-000000000017","normalized_name":"turmeric","allergen_flags":[],"condition_flags":["medication_interaction","digestive","pregnancy"],"confidence":"moderate","safety_notes":"Culinary use is preferred; review high intake with anticoagulants, gallbladder disease, or pregnancy."},
+    {"rule_id":"22000000-0000-4000-8000-000000000018","normalized_name":"holy_basil","allergen_flags":[],"condition_flags":["pregnancy","medication_interaction"],"confidence":"low","safety_notes":"Culinary use is preferred; concentrated herb guidance needs review."},
+    {"rule_id":"22000000-0000-4000-8000-000000000019","normalized_name":"tofu","allergen_flags":["soy"],"condition_flags":["kidney"],"confidence":"moderate","safety_notes":"Do not recommend for soy allergy; review portions for kidney disease."},
+    {"rule_id":"22000000-0000-4000-8000-000000000020","normalized_name":"sesame_seeds","allergen_flags":["sesame"],"condition_flags":[],"confidence":"high","safety_notes":"Do not recommend for sesame allergy."}
+  ]$mattanutra_food_seed$::jsonb) as x(
+    rule_id uuid,
+    normalized_name text,
+    allergen_flags text[],
+    condition_flags text[],
+    confidence text,
+    safety_notes text
+  )
+)
+insert into public.food_safety_rules (
+  id,
+  food_id,
+  version,
+  allergen_flags,
+  condition_flags,
+  confidence,
+  safety_notes,
+  source_url,
+  created_at,
+  updated_at
+)
+select
+  seed.rule_id,
+  foods.id,
+  1,
+  seed.allergen_flags,
+  seed.condition_flags,
+  seed.confidence,
+  seed.safety_notes,
+  null,
+  now(),
+  now()
+from seed
+join public.foods foods on foods.normalized_name = seed.normalized_name
+on conflict (food_id, version) do update
+set
+  allergen_flags = excluded.allergen_flags,
+  condition_flags = excluded.condition_flags,
+  confidence = excluded.confidence,
+  safety_notes = excluded.safety_notes,
+  updated_at = now();
+
 create table public.supplements (
   id uuid primary key,
   source_row_id integer null,
@@ -2854,6 +3450,8 @@ create table public.safety_reviews (
   review_type text not null default 'ingredient_safety',
   status text not null default 'open',
   severity text not null default 'medium',
+  item_type text not null default 'supplement',
+  item_name text null,
   supplement_name text not null,
   suggested_dose_value numeric(14, 4) null,
   suggested_dose_unit text null,
@@ -2886,6 +3484,8 @@ alter table public.safety_reviews
   add column if not exists review_type text default 'ingredient_safety',
   add column if not exists status text default 'open',
   add column if not exists severity text default 'medium',
+  add column if not exists item_type text default 'supplement',
+  add column if not exists item_name text null,
   add column if not exists supplement_name text,
   add column if not exists suggested_dose_value numeric(14, 4) null,
   add column if not exists suggested_dose_unit text null,
@@ -2941,6 +3541,11 @@ set
     when severity in ('low', 'medium', 'high', 'critical') then severity
     else 'medium'
   end,
+  item_type = case
+    when item_type in ('supplement', 'food') then item_type
+    else 'supplement'
+  end,
+  item_name = coalesce(item_name, supplement_name),
   supplement_name = coalesce(supplement_name, 'Unknown supplement'),
   flag_reason = coalesce(flag_reason, 'Safety review required.'),
   ai_suggestion = coalesce(ai_suggestion, '{}'::jsonb),
@@ -2983,6 +3588,8 @@ where review_type is null
   )
   or severity is null
   or severity not in ('low', 'medium', 'high', 'critical')
+  or item_type is null
+  or item_type not in ('supplement', 'food')
   or supplement_name is null
   or flag_reason is null
   or ai_suggestion is null
@@ -3006,6 +3613,8 @@ alter table public.safety_reviews
   alter column status set not null,
   alter column severity set default 'medium',
   alter column severity set not null,
+  alter column item_type set default 'supplement',
+  alter column item_type set not null,
   alter column supplement_name set not null,
   alter column flag_reason set not null,
   alter column ai_suggestion set default '{}'::jsonb,
@@ -3097,6 +3706,13 @@ begin
         )
       );
   end if;
+
+  alter table public.safety_reviews
+    drop constraint if exists safety_reviews_item_type_check;
+
+  alter table public.safety_reviews
+    add constraint safety_reviews_item_type_check
+    check (item_type in ('supplement', 'food'));
 end $$;
 
 comment on table public.safety_reviews is
@@ -3129,6 +3745,9 @@ create index safety_reviews_ray_idx
 
 create index safety_reviews_supplement_idx
   on public.safety_reviews (lower(supplement_name), opened_at desc);
+
+create index safety_reviews_item_idx
+  on public.safety_reviews (item_type, lower(coalesce(item_name, supplement_name)), opened_at desc);
 
 create index safety_reviews_notification_idx
   on public.safety_reviews (client_notification_status, opened_at asc);
@@ -4207,6 +4826,12 @@ begin
   end;
 
   begin
+    execute 'alter table public.food_guidance owner to mn';
+  exception when others then
+    raise notice 'Skipping food_guidance owner change: %', sqlerrm;
+  end;
+
+  begin
     execute 'alter table public.agents owner to mn';
   exception when others then
     raise notice 'Skipping agents owner change: %', sqlerrm;
@@ -4288,6 +4913,48 @@ begin
     execute 'alter table public.supplements owner to mn';
   exception when others then
     raise notice 'Skipping supplements owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.nutrients owner to mn';
+  exception when others then
+    raise notice 'Skipping nutrients owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.foods owner to mn';
+  exception when others then
+    raise notice 'Skipping foods owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.food_aliases owner to mn';
+  exception when others then
+    raise notice 'Skipping food_aliases owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.food_safety_rules owner to mn';
+  exception when others then
+    raise notice 'Skipping food_safety_rules owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.food_serving_sizes owner to mn';
+  exception when others then
+    raise notice 'Skipping food_serving_sizes owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.food_nutrient_profiles owner to mn';
+  exception when others then
+    raise notice 'Skipping food_nutrient_profiles owner change: %', sqlerrm;
+  end;
+
+  begin
+    execute 'alter table public.food_admin_audit owner to mn';
+  exception when others then
+    raise notice 'Skipping food_admin_audit owner change: %', sqlerrm;
   end;
 
   begin
@@ -4377,6 +5044,13 @@ begin
          public.supplement_safety_limits,
          public.supplement_aliases,
          public.supplement_admin_audit,
+         public.nutrients,
+         public.foods,
+         public.food_aliases,
+         public.food_safety_rules,
+         public.food_serving_sizes,
+         public.food_nutrient_profiles,
+         public.food_admin_audit,
          public.admin_alert_acknowledgements,
          public.safety_reviews,
          public.communication_identities,

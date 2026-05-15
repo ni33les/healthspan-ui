@@ -8,11 +8,15 @@ import {
   recordFinanceTransaction,
   recordXaiUsageCost
 } from "@/lib/finance-ledger";
+import { applyFoodGuidanceSafety } from "@/lib/food-guidance-safety";
 import { applyFormulationSafety } from "@/lib/formulation-safety";
-import type { FormulationBlueprint } from "@/lib/formulation-types";
+import type {
+  FoodGuidanceBlueprint,
+  FormulationBlueprint
+} from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { enqueueExampleEmailTask } from "@/lib/task-worker";
+import { enqueueExampleEmailIfPreviewReady } from "@/lib/task-worker";
 import {
   addTaskEvent,
   addTaskEventToTransaction,
@@ -70,6 +74,67 @@ function analysisPayload(resultPayload: unknown) {
   return analysis as Record<string, unknown> & {
     formulation: FormulationBlueprint;
   };
+}
+
+function foodGuidanceAnalysisPayload(resultPayload: unknown) {
+  const analysis = objectValue(objectValue(resultPayload).analysis);
+  const foodGuidance = objectValue(analysis.foodGuidance);
+
+  if (!Array.isArray(foodGuidance.foodGuidance)) {
+    throw new Error("Task completion result is missing food guidance analysis");
+  }
+
+  return analysis as Record<string, unknown> & {
+    foodGuidance: FoodGuidanceBlueprint;
+  };
+}
+
+async function updateAssessmentReadyIfNutritionReady(
+  sql: TaskServiceDb,
+  planId: string
+) {
+  const rows = await sql<Array<{
+    food_guidance_ready: boolean;
+    formulation_ready: boolean;
+  }>>`
+    select
+      exists (
+        select 1
+        from public.formulations
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as formulation_ready,
+      exists (
+        select 1
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as food_guidance_ready
+  `;
+  const ready =
+    rows[0]?.formulation_ready === true &&
+    rows[0]?.food_guidance_ready === true;
+
+  await sql`
+    update public.assessments set
+      status = ${ready ? "ready" : "preparing"}::public.assessment_status,
+      queue_position = 0,
+      error_message = null,
+      completed_at = case
+        when ${ready} then coalesce(completed_at, now())
+        else completed_at
+      end,
+      updated_at = now()
+    where plan_id = ${planId}::uuid
+  `;
+
+  return ready;
 }
 
 async function recordTaskXaiUsageCost({
@@ -344,15 +409,7 @@ async function applyPaidFormulationResult(
       now()
     )
   `;
-  await sql`
-    update public.assessments set
-      status = 'ready',
-      queue_position = 0,
-      error_message = null,
-      completed_at = coalesce(completed_at, now()),
-      updated_at = now()
-    where plan_id = ${planId}::uuid
-  `;
+  const nutritionReady = await updateAssessmentReadyIfNutritionReady(sql, planId);
 
   await eventually(afterCommit, async () => {
     await addWorkEvent(task, "formulation_version_written", "medium", {
@@ -361,7 +418,8 @@ async function applyPaidFormulationResult(
       promptVersion: analysis.promptVersion,
       reasoningEffort: analysis.reasoningEffort,
       responseId: analysis.responseId,
-      safetySummary: safeFormulation.safetySummary
+      safetySummary: safeFormulation.safetySummary,
+      nutritionReady
     });
   });
   await eventually(afterCommit, async () => {
@@ -379,9 +437,118 @@ async function applyPaidFormulationResult(
         promptVersion: analysis.promptVersion,
         reasoningEffort: analysis.reasoningEffort,
         responseId: analysis.responseId,
+        nutritionReady,
         taskId: task.id
       },
       selectedPlan: plan === "pro" ? "pro" : "precision"
+    });
+  });
+}
+
+async function applyPaidFoodGuidanceResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const planId = task.planId;
+
+  if (!sql || !planId) {
+    throw new Error("Food guidance completion result is missing a plan");
+  }
+
+  const rows = await sql`
+    select answers, locale
+    from public.assessments
+    where plan_id = ${planId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Assessment submission not found");
+  }
+
+  const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+  const analysis = foodGuidanceAnalysisPayload(resultPayload);
+  await eventually(afterCommit, async () => {
+    await recordTaskXaiUsageCost({
+      analysis,
+      metadata: { planId },
+      purpose: "food_guidance_analysis",
+      task
+    });
+  });
+  const safeFoodGuidance = await applyFoodGuidanceSafety(sql, {
+    afterCommit,
+    answers: row.answers,
+    audit: async ({ eventType, level, payload }) =>
+      eventually(afterCommit, async () =>
+        addWorkEvent(task, eventType, level ?? "low", payload)
+      ),
+    foodGuidance: analysis.foodGuidance,
+    locale,
+    planId,
+    taskId: task.id
+  });
+  const versionRows = await sql<{ version: number }[]>`
+    select coalesce(max(version), 0) + 1 as version
+    from public.food_guidance
+    where plan_id = ${planId}::uuid
+  `;
+  const version = Number(versionRows[0]?.version ?? 1);
+
+  await sql`
+    insert into public.food_guidance (
+      plan_id,
+      version,
+      guidance,
+      model_version,
+      generated_at,
+      updated_at
+    )
+    values (
+      ${planId}::uuid,
+      ${version},
+      ${sql.json(toJsonValue(safeFoodGuidance))},
+      ${modelVersion(analysis)},
+      now(),
+      now()
+    )
+  `;
+  const nutritionReady = await updateAssessmentReadyIfNutritionReady(sql, planId);
+
+  await eventually(afterCommit, async () => {
+    await addWorkEvent(task, "food_guidance_version_written", "medium", {
+      attempts: analysis.attempts,
+      foodSafetySummary: safeFoodGuidance.foodSafetySummary,
+      model: analysis.model,
+      nutritionReady,
+      promptVersion: analysis.promptVersion,
+      reasoningEffort: analysis.reasoningEffort,
+      responseId: analysis.responseId
+    });
+  });
+  await eventually(afterCommit, async () => {
+    await writeBpmEvent({
+      actorType: "worker",
+      eventName: "food_guidance_ready",
+      eventType: "formulation",
+      locale,
+      metrics: {
+        attempts: analysis.attempts
+      },
+      planId,
+      properties: {
+        foodSafetySummary: safeFoodGuidance.foodSafetySummary,
+        model: analysis.model,
+        nutritionReady,
+        promptVersion: analysis.promptVersion,
+        reasoningEffort: analysis.reasoningEffort,
+        responseId: analysis.responseId,
+        taskId: task.id
+      }
     });
   });
 }
@@ -472,6 +639,7 @@ async function applyExampleFormulationResult(
   await sql`
     update public.assessment_example_requests set
       status = 'formulation_ready',
+      formulation_status = 'ready',
       updated_at = now()
     where id = ${requestId}::uuid
   `;
@@ -488,7 +656,7 @@ async function applyExampleFormulationResult(
     });
   });
   await eventually(afterCommit, async () => {
-    await enqueueExampleEmailTask(planId, requestId);
+    await enqueueExampleEmailIfPreviewReady(planId, requestId);
   });
   await eventually(afterCommit, async () => {
     await writeBpmEvent({
@@ -510,6 +678,131 @@ async function applyExampleFormulationResult(
         taskId: task.id
       },
       selectedPlan: plan
+    });
+  });
+}
+
+async function applyExampleFoodGuidanceResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const planId = task.planId;
+  const requestId = payloadText(task.payload, "requestId");
+
+  if (!sql || !planId || !isUuid(requestId)) {
+    throw new Error("Example food guidance completion result is missing identifiers");
+  }
+
+  const rows = await sql`
+    select assessments.answers, assessments.locale
+    from public.assessments
+    join public.assessment_example_requests
+      on assessment_example_requests.plan_id = assessments.plan_id
+    where assessments.plan_id = ${planId}::uuid
+      and assessment_example_requests.id = ${requestId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Example request not found");
+  }
+
+  const locale: Locale = isLocale(row.locale) ? row.locale : "en";
+  const analysis = foodGuidanceAnalysisPayload(resultPayload);
+  await eventually(afterCommit, async () => {
+    await recordTaskXaiUsageCost({
+      analysis,
+      metadata: {
+        planId,
+        requestId
+      },
+      purpose: "food_guidance_analysis",
+      task
+    });
+  });
+  const safeFoodGuidance = await applyFoodGuidanceSafety(sql, {
+    afterCommit,
+    answers: row.answers,
+    audit: async ({ eventType, level, payload }) =>
+      eventually(afterCommit, async () =>
+        addWorkEvent(task, eventType, level ?? "low", { ...payload, requestId })
+      ),
+    foodGuidance: analysis.foodGuidance,
+    locale,
+    planId,
+    requestId,
+    taskId: task.id
+  });
+  const versionRows = await sql<{ version: number }[]>`
+    select coalesce(max(version), 0) + 1 as version
+    from public.food_guidance
+    where plan_id = ${planId}::uuid
+  `;
+  const version = Number(versionRows[0]?.version ?? 1);
+
+  await sql`
+    insert into public.food_guidance (
+      plan_id,
+      version,
+      guidance,
+      model_version,
+      generated_at,
+      updated_at
+    )
+    values (
+      ${planId}::uuid,
+      ${version},
+      ${sql.json(toJsonValue(safeFoodGuidance))},
+      ${modelVersion(analysis, ":example")},
+      now(),
+      now()
+    )
+  `;
+  await sql`
+    update public.assessment_example_requests set
+      status = 'formulation_ready',
+      food_guidance_status = 'ready',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+
+  await eventually(afterCommit, async () => {
+    await addWorkEvent(task, "example_food_guidance_version_written", "medium", {
+      attempts: analysis.attempts,
+      foodSafetySummary: safeFoodGuidance.foodSafetySummary,
+      model: analysis.model,
+      promptVersion: analysis.promptVersion,
+      reasoningEffort: analysis.reasoningEffort,
+      requestId,
+      responseId: analysis.responseId
+    });
+  });
+  await eventually(afterCommit, async () => {
+    await enqueueExampleEmailIfPreviewReady(planId, requestId);
+  });
+  await eventually(afterCommit, async () => {
+    await writeBpmEvent({
+      actorType: "worker",
+      eventName: "free_example_food_guidance_ready",
+      eventType: "formulation",
+      exampleRequestId: requestId,
+      locale,
+      metrics: {
+        attempts: analysis.attempts,
+        foodSafetySummary: safeFoodGuidance.foodSafetySummary
+      },
+      planId,
+      properties: {
+        model: analysis.model,
+        promptVersion: analysis.promptVersion,
+        reasoningEffort: analysis.reasoningEffort,
+        responseId: analysis.responseId,
+        taskId: task.id
+      }
     });
   });
 }
@@ -912,8 +1205,18 @@ export async function applyTaskCompletionResult({
     return resultPayload;
   }
 
+  if (task.taskType === "generate_food_guidance") {
+    await applyPaidFoodGuidanceResult(task, resultPayload, sql, afterCommit);
+    return resultPayload;
+  }
+
   if (task.taskType === "generate_example_formulation") {
     await applyExampleFormulationResult(task, resultPayload, sql, afterCommit);
+    return resultPayload;
+  }
+
+  if (task.taskType === "generate_example_food_guidance") {
+    await applyExampleFoodGuidanceResult(task, resultPayload, sql, afterCommit);
     return resultPayload;
   }
 
@@ -968,7 +1271,11 @@ export async function applyTaskFailureResult({
     return resultPayload;
   }
 
-  if (task.planId && task.taskType === "generate_formulation") {
+  if (
+    task.planId &&
+    (task.taskType === "generate_formulation" ||
+      task.taskType === "generate_food_guidance")
+  ) {
     await sql`
       update public.assessments set
         status = ${retryWillBeScheduled ? "queued" : "failed"},
@@ -981,6 +1288,7 @@ export async function applyTaskFailureResult({
   if (
     task.planId &&
     (task.taskType === "generate_example_formulation" ||
+      task.taskType === "generate_example_food_guidance" ||
       task.taskType === "send_example_email") &&
     isUuid(requestId)
   ) {
@@ -992,6 +1300,16 @@ export async function applyTaskFailureResult({
             : "formulation_queued"
           : "failed"},
         error_message = ${retryWillBeScheduled ? null : errorMessage},
+        formulation_status = case
+          when ${task.taskType} = 'generate_example_formulation'
+          then ${retryWillBeScheduled ? "queued" : "failed"}
+          else formulation_status
+        end,
+        food_guidance_status = case
+          when ${task.taskType} = 'generate_example_food_guidance'
+          then ${retryWillBeScheduled ? "queued" : "failed"}
+          else food_guidance_status
+        end,
         updated_at = now()
       where id = ${requestId}::uuid
     `;

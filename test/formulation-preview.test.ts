@@ -16,6 +16,48 @@ const baseResult: FormulationResult = {
     region: "Thailand"
   },
   generatedAt: "2026-05-14T00:00:00.000Z",
+  foodGuidance: [
+    {
+      category: "Seeds",
+      effectivenessRank: 2,
+      food: "Chia seeds",
+      frequency: "4 times weekly",
+      id: "chia",
+      rationale: "Supports fibre intake",
+      serving: "1 tbsp",
+      status: "add"
+    },
+    {
+      category: "Pulses",
+      effectivenessRank: 1,
+      food: "Lentils",
+      frequency: "3 times weekly",
+      id: "lentils",
+      rationale: "Supports steady energy",
+      serving: "1/2 cup cooked",
+      status: "add"
+    },
+    {
+      category: "Tea",
+      effectivenessRank: 3,
+      food: "Green tea",
+      frequency: "Most days",
+      id: "green-tea",
+      rationale: "Supports antioxidants",
+      serving: "1 cup",
+      status: "add"
+    },
+    {
+      category: "Fruit",
+      effectivenessRank: 4,
+      food: "Papaya",
+      frequency: "2 times weekly",
+      id: "papaya",
+      rationale: "Supports micronutrients",
+      serving: "1 small bowl",
+      status: "add"
+    }
+  ],
   planId: "320d09b2-128f-4a83-b937-7345f4bc3280",
   recommendations: [
     {
@@ -108,9 +150,15 @@ describe("free formulation preview", () => {
     assert.equal(preview.previewLimit, 3);
     assert.equal(preview.totalSupplementCount, 4);
     assert.equal(preview.lockedSupplementCount, 1);
+    assert.equal(preview.totalFoodCount, 4);
+    assert.equal(preview.lockedFoodCount, 1);
     assert.deepEqual(
       preview.supplementBreakdown.map((ingredient) => ingredient.id).sort(),
       ["ashwagandha", "magnesium", "omega3"]
+    );
+    assert.deepEqual(
+      preview.foodGuidance.map((food) => food.id).sort(),
+      ["chia", "green-tea", "lentils"]
     );
     assert.deepEqual(preview.recommendations, [
       {

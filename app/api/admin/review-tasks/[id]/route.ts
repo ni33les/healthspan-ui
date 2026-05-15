@@ -3,7 +3,8 @@ import { adminDashboardOrClawRequestAllowed } from "@/lib/admin-auth";
 import {
   decideAdminPlanReviewTask,
   dismissAdminReviewTask,
-  resolveAdminReviewTask
+  resolveAdminReviewTask,
+  type AdminReviewLocalizedText
 } from "@/lib/admin-review-queue";
 import {
   isSupplementConfidence,
@@ -40,6 +41,25 @@ function amountValue(value: unknown) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function localizedTextValue(value: unknown): AdminReviewLocalizedText | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    return trimmed ? { en: trimmed, th: trimmed } : null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const en = textOrNull(record.en);
+  const th = textOrNull(record.th);
+  const fallback = en ?? th;
+
+  return fallback ? { en: en ?? fallback, th: th ?? fallback } : null;
 }
 
 function normalizedKey(value: unknown) {
@@ -166,6 +186,9 @@ export async function PATCH(
               clientDoseAmount: amountValue(body.clientDoseAmount),
               clientDoseUnit: textOrNull(body.clientDoseUnit),
               decision: action,
+              foodFrequency: localizedTextValue(body.foodFrequency),
+              foodRationale: localizedTextValue(body.foodRationale),
+              foodServing: localizedTextValue(body.foodServing),
               id,
               reviewerNote: textOrNull(body.reviewerNote)
             })

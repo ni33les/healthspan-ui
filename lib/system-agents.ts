@@ -9,9 +9,13 @@ export const AGENT_CAPABILITIES = {
   communicationRoute: "communication_route",
   doseNormalization: "dose_normalization",
   emailSend: "email_send",
+  foodGuidanceGeneration: "food_guidance_generation",
+  foodGuidanceReview: "food_guidance_review",
+  foodReview: "food_review",
   formulationGeneration: "formulation_generation",
   formulationReview: "formulation_review",
   freeEmailSend: "free_email_send",
+  freeExampleFoodGuidance: "free_example_food_guidance",
   freeExampleFormulation: "free_example_formulation",
   healthScoreAnalysis: "healthscore_analysis",
   hostingCostSync: "hosting_cost_sync",
@@ -34,6 +38,7 @@ export type SystemAgentKey =
   | "communicationsCoordinator"
   | "contentPublisher"
   | "emailDispatcher"
+  | "foodGuidanceWorker"
   | "formulationWorker"
   | "healthScoreEngine"
   | "humanReviewer"
@@ -107,6 +112,20 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     name: "Email Dispatcher",
     type: "deterministic"
   },
+  foodGuidanceWorker: {
+    capabilities: [
+      AGENT_CAPABILITIES.foodGuidanceGeneration,
+      AGENT_CAPABILITIES.freeExampleFoodGuidance
+    ],
+    id: "6b58c999-ec78-471e-b179-17bdb42538a7",
+    metadata: {
+      seeded: true,
+      usesModel: true
+    },
+    model: "grok:food-guidance",
+    name: "Food Guidance Engine",
+    type: "ai"
+  },
   formulationWorker: {
     capabilities: [
       AGENT_CAPABILITIES.formulationGeneration,
@@ -138,6 +157,8 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
   humanReviewer: {
     capabilities: [
       AGENT_CAPABILITIES.formulationReview,
+      AGENT_CAPABILITIES.foodGuidanceReview,
+      AGENT_CAPABILITIES.foodReview,
       AGENT_CAPABILITIES.humanReview,
       AGENT_CAPABILITIES.safetyReview,
       AGENT_CAPABILITIES.supplementGovernance,
@@ -186,7 +207,9 @@ export const SYSTEM_AGENT_LIST = Object.values(SYSTEM_AGENTS);
 export const WORK_TASK_AGENT_KEYS: Readonly<Record<string, SystemAgentKey>> = {
   analyze_healthscore: "healthScoreEngine",
   client_safety_followup: "communicationsCoordinator",
+  generate_example_food_guidance: "foodGuidanceWorker",
   generate_example_formulation: "formulationWorker",
+  generate_food_guidance: "foodGuidanceWorker",
   generate_formulation: "formulationWorker",
   content_status_change: "contentPublisher",
   send_example_email: "emailDispatcher",
@@ -206,9 +229,13 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
   const capabilitiesByTaskType: Record<string, readonly string[]> = {
     analyze_healthscore: [AGENT_CAPABILITIES.healthScoreAnalysis],
     client_safety_followup: [AGENT_CAPABILITIES.clientSafetyFollowup],
+    generate_example_food_guidance: [
+      AGENT_CAPABILITIES.freeExampleFoodGuidance
+    ],
     generate_example_formulation: [
       AGENT_CAPABILITIES.freeExampleFormulation
     ],
+    generate_food_guidance: [AGENT_CAPABILITIES.foodGuidanceGeneration],
     generate_formulation: [AGENT_CAPABILITIES.formulationGeneration],
     content_status_change: [AGENT_CAPABILITIES.contentPublish],
     send_example_email: [AGENT_CAPABILITIES.freeEmailSend],

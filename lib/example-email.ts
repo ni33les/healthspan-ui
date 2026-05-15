@@ -1,4 +1,9 @@
-import type { FormulationBlueprint, LocalizedText } from "@/lib/formulation-types";
+import type {
+  FoodGuidanceBlueprint,
+  FoodGuidanceItem,
+  FormulationBlueprint,
+  LocalizedText
+} from "@/lib/formulation-types";
 import type {
   HealthScoreDomain,
   HealthScoreResult,
@@ -40,6 +45,12 @@ function effectivenessRank(
     : index + 1;
 }
 
+function foodEffectivenessRank(item: FoodGuidanceItem, index: number) {
+  return Number.isFinite(item.effectivenessRank) && item.effectivenessRank > 0
+    ? item.effectivenessRank
+    : index + 1;
+}
+
 function lowestDomain(healthScore: HealthScoreResult) {
   return healthScore.domains
     .slice()
@@ -73,17 +84,28 @@ export function buildExampleEmailHtml({
   planId,
   unsubscribeToken
 }: Readonly<{
-  formulation: FormulationBlueprint;
+  formulation: FormulationBlueprint & Partial<FoodGuidanceBlueprint>;
   healthScore: HealthScoreResult;
   locale: Locale;
   planId: string;
   unsubscribeToken?: string | null;
 }>) {
+  type NutritionPreview = FormulationBlueprint & Partial<FoodGuidanceBlueprint>;
+  const nutritionPreview = formulation as NutritionPreview;
   const previewItems = formulation.supplementBreakdown
     .filter((item) => item.safety?.visibility !== "hidden")
     .map((item, index) => ({
       item,
       rank: effectivenessRank(item, index)
+    }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ item }) => item)
+    .slice(0, 3);
+  const previewFoods = (nutritionPreview.foodGuidance ?? [])
+    .filter((item) => item.safety?.visibility !== "hidden")
+    .map((item, index) => ({
+      item,
+      rank: foodEffectivenessRank(item, index)
     }))
     .sort((a, b) => a.rank - b.rank)
     .map(({ item }) => item)
@@ -101,6 +123,7 @@ export function buildExampleEmailHtml({
       ? {
           cta: "ดูแผนฉบับเต็ม",
           plan: "แผน",
+          foodPreview: "3 อาหารเริ่มต้นจากแผนของคุณ",
           preview: "3 รายการเริ่มต้นจากแผนของคุณ",
           previewUnavailable:
             "คำแนะนำอาหารเสริมต้องผ่านการตรวจสอบด้านความปลอดภัยก่อนแสดง ทีมงานได้รับรายการแล้ว",
@@ -111,6 +134,7 @@ export function buildExampleEmailHtml({
       : {
           cta: "View the full plan",
           plan: "Plan",
+          foodPreview: "3 food starting points from your plan",
           preview: "3 starting points from your plan",
           previewUnavailable:
             "Your supplement suggestions need a safety review before we show them. The review queue has been notified.",
@@ -145,6 +169,25 @@ export function buildExampleEmailHtml({
           ${escapeHtml(labels.previewUnavailable)}
         </li>
       `;
+  const foodHtml =
+    previewFoods.length > 0
+      ? previewFoods
+          .map((item) => {
+            const name = escapeHtml(localize(item.food, locale));
+            const serving = escapeHtml(localize(item.serving, locale));
+            const frequency = escapeHtml(localize(item.frequency, locale));
+            const rationale = escapeHtml(localize(item.rationale, locale));
+
+            return `
+        <li style="margin:0 0 14px;padding:14px 16px;border:1px solid #d9e8f7;border-radius:10px;background:#ffffff;">
+          <strong style="display:block;color:#20343A;font-size:15px;">${name}</strong>
+          <span style="display:block;margin-top:4px;color:#3A7BD5;font-size:13px;font-weight:700;">${serving} · ${frequency}</span>
+          <span style="display:block;margin-top:8px;color:#5c6670;font-size:13px;line-height:1.5;">${rationale}</span>
+        </li>
+      `;
+          })
+          .join("")
+      : "";
 
   return `<!doctype html>
 <html lang="${locale}">
@@ -169,6 +212,11 @@ export function buildExampleEmailHtml({
 
         <h2 style="margin:0 0 12px;color:#20343A;font-size:18px;">${escapeHtml(labels.preview)}</h2>
         <ul style="list-style:none;margin:0;padding:0;">${itemHtml}</ul>
+        ${
+          foodHtml
+            ? `<h2 style="margin:22px 0 12px;color:#20343A;font-size:18px;">${escapeHtml(labels.foodPreview)}</h2><ul style="list-style:none;margin:0;padding:0;">${foodHtml}</ul>`
+            : ""
+        }
 
         <p style="margin:22px 0 0;color:#6b7280;font-size:12px;line-height:1.5;">${escapeHtml(labels.plan)}: ${escapeHtml(planId)}</p>
         <a href="${escapeHtml(planUrl)}" style="display:inline-block;margin-top:18px;background:#1FA77A;color:#ffffff;text-decoration:none;border-radius:8px;padding:13px 18px;font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(labels.cta)}</a>

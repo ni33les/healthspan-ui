@@ -13,6 +13,7 @@ import {
   toFreePreviewFormulationResult
 } from "@/lib/formulation-preview";
 import {
+  type FoodGuidanceItem,
   type FormulationIngredient,
   type FormulationResult,
   type RecommendedProduct
@@ -447,7 +448,12 @@ export async function getStoredAssessmentSnapshot(planId: string) {
           ) as effective_business_value
         from public.tasks
         where status = 'queued'
-          and task_type in ('generate_formulation', 'generate_example_formulation')
+          and task_type in (
+            'generate_formulation',
+            'generate_food_guidance',
+            'generate_example_formulation',
+            'generate_example_food_guidance'
+          )
       ),
       current_task as (
         select effective_business_value, scheduled_for, created_at
@@ -602,6 +608,13 @@ export async function getStoredFormulationResult(
           formulations.model_version is null
           or formulations.model_version not like ${exampleModelPattern}
         )`;
+  const foodGuidanceModeFilter =
+    mode === "preview"
+      ? sql`and food_guidance.model_version like ${exampleModelPattern}`
+      : sql`and (
+          food_guidance.model_version is null
+          or food_guidance.model_version not like ${exampleModelPattern}
+        )`;
   const assessmentAccessFilter =
     mode === "preview" ? sql`and assessments.selected_plan is null` : sql``;
 
@@ -613,6 +626,9 @@ export async function getStoredFormulationResult(
       formulations.formulation,
       formulations.generated_at,
       formulations.model_version,
+      food_guidance.guidance as food_guidance,
+      food_guidance.generated_at as food_guidance_generated_at,
+      food_guidance.model_version as food_guidance_model_version,
       recommendations.recommendations
     from assessments
     join lateral (
@@ -623,6 +639,14 @@ export async function getStoredFormulationResult(
       order by version desc, generated_at desc
       limit 1
     ) formulations on true
+    join lateral (
+      select guidance, generated_at, model_version
+      from food_guidance
+      where food_guidance.plan_id = assessments.plan_id
+        ${foodGuidanceModeFilter}
+      order by version desc, generated_at desc
+      limit 1
+    ) food_guidance on true
     left join lateral (
       select recommendations
       from recommendations
@@ -643,10 +667,17 @@ export async function getStoredFormulationResult(
   const locale = normalizeLocale(row.locale);
   const plan = fromStoredPlan(row.selected_plan);
   const storedFormulation = asRecord(row.formulation);
+  const storedFoodGuidance = asRecord(row.food_guidance);
   const supplementBreakdown = asArray<FormulationIngredient>(
     storedFormulation.supplementBreakdown ?? storedFormulation.formula
   );
+  const foodGuidance = asArray<FoodGuidanceItem>(
+    storedFoodGuidance.foodGuidance
+  );
   const safetySummary = safetySummaryFromRecord(storedFormulation.safetySummary);
+  const foodSafetySummary = safetySummaryFromRecord(
+    storedFoodGuidance.foodSafetySummary
+  );
 
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
   const generatedAt =
@@ -668,6 +699,8 @@ export async function getStoredFormulationResult(
     recommendations,
     schemaVersion: 1,
     ...(safetySummary ? { safetySummary } : {}),
+    ...(foodSafetySummary ? { foodSafetySummary } : {}),
+    foodGuidance,
     supplementBreakdown
   } satisfies FormulationResult;
 

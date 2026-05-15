@@ -14,6 +14,7 @@ type WorkerMode =
   | "communications"
   | "content"
   | "email"
+  | "food"
   | "formulation"
   | "healthscore"
   | "hosting";
@@ -29,6 +30,7 @@ const WORKER_PROFILE_MODES: readonly WorkerProfileMode[] = [
   "communications",
   "content",
   "email",
+  "food",
   "formulation",
   "healthscore",
   "hosting"
@@ -103,6 +105,7 @@ function workerMode(value: string | undefined): WorkerMode {
   return value === "communications" ||
     value === "content" ||
     value === "email" ||
+    value === "food" ||
     value === "formulation" ||
     value === "healthscore" ||
     value === "hosting"
@@ -149,6 +152,10 @@ const WORKER_PROFILES: Record<WorkerProfileMode, WorkerAgentConfig> = {
   email: agentProfile("emailDispatcher", [
     "send_example_email",
     "send_reassessment_email"
+  ]),
+  food: agentProfile("foodGuidanceWorker", [
+    "generate_food_guidance",
+    "generate_example_food_guidance"
   ]),
   formulation: agentProfile("formulationWorker", [
     "generate_formulation",

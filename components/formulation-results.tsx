@@ -3,21 +3,20 @@
 import { type FormEvent, useEffect, useState } from "react";
 import {
   ArrowPathIcon,
-  ArrowTopRightOnSquareIcon,
   BeakerIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
 import type {
+  FoodGuidanceItem,
   FormulationIngredient,
   FormulationResult,
-  LocalizedText,
-  RecommendedProduct
+  LocalizedText
 } from "@/lib/formulation-types";
 import { ChatChannelCards } from "@/components/chat-channel-cards";
+import { foodTagLabel } from "@/lib/food-tags";
 import type { Locale } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 
 type FormulationResultsProps = Readonly<{
   locale: Locale;
@@ -26,17 +25,15 @@ type FormulationResultsProps = Readonly<{
 
 type LoadState = "loading" | "ready" | "error";
 
-type ProductTone = {
-  number: string;
-};
-
-type ProductReference = {
-  displayNumber: number;
-  product: RecommendedProduct;
-  tone: ProductTone;
-};
-
 const formulationHeroBackgroundImage = "/formulation-couple.jpg";
+
+function formatNutrientValue(value: number, unit: string, locale: Locale) {
+  const formatted = new Intl.NumberFormat(locale === "th" ? "th-TH" : "en-US", {
+    maximumFractionDigits: value < 1 ? 2 : value < 10 ? 1 : 0
+  }).format(value);
+
+  return `${formatted} ${unit}`;
+}
 
 type CopyLabels = Record<
   | "connectChatBody"
@@ -57,6 +54,11 @@ type CopyLabels = Record<
   | "formulaHint"
   | "formulaNoVisibleBody"
   | "formulaNoVisibleTitle"
+  | "foods"
+  | "foodsEmptyBody"
+  | "foodsEmptyTitle"
+  | "foodsHint"
+  | "foodServing"
   | "generated"
   | "goals"
   | "heroSubtitle"
@@ -70,10 +72,6 @@ type CopyLabels = Record<
   | "previewLockedBody"
   | "previewLockedTitle"
   | "previewTitle"
-  | "products"
-  | "productsEmptyBody"
-  | "productsEmptyTitle"
-  | "productsHint"
   | "profile"
   | "region"
   | "safety"
@@ -92,8 +90,8 @@ type CopyLabels = Record<
   | "safetyChannelWhatsapp"
   | "safetyReviewBody"
   | "safetyReviewTitle"
-  | "shopLazada"
-  | "shopShopee",
+  | "foodSafetyReviewBody"
+  | "foodSafetyReviewTitle",
   string
 > & {
   safetyNotes: string[];
@@ -126,6 +124,13 @@ const copy = {
     formulaNoVisibleBody:
       "The reviewed items are no longer pending. Only supplements that pass MattaNutra review are shown here.",
     formulaNoVisibleTitle: "No visible supplement suggestions",
+    foods: "Food guidance",
+    foodsEmptyBody:
+      "Every food suggestion needs a safety review before we show it. The review queue has been notified.",
+    foodsEmptyTitle: "Food review in progress",
+    foodsHint:
+      "Practical foods and ingredients to build into meals, routines, and future concierge conversations.",
+    foodServing: "Serving",
     generated: "Generated",
     goals: "Goals",
     heroSubtitle:
@@ -142,12 +147,6 @@ const copy = {
       "The rest of your personalised recommendations are ready and will be revealed after unlock.",
     previewLockedTitle: "More recommendations locked",
     previewTitle: "Preview first, unlock when you're ready",
-    products: "Recommended products for you",
-    productsEmptyBody:
-      "Your formulation is ready. Product matching is still being prepared, so there are no marketplace recommendations attached to this plan yet.",
-    productsEmptyTitle: "No product matches yet",
-    productsHint:
-      "When available, product numbers map directly to the supplement rows on the left.",
     profile: "Profile",
     region: "Region",
     safety: "Safety notes",
@@ -169,13 +168,14 @@ const copy = {
     safetyReviewBody:
       "A few supplement suggestions need a human safety check before we show them. They are hidden for now and the review team has been notified.",
     safetyReviewTitle: "Safety review active",
+    foodSafetyReviewBody:
+      "A few food suggestions need a human safety check before we show them. They are hidden for now and the review team has been notified.",
+    foodSafetyReviewTitle: "Food safety review active",
     safetyNotes: [
       "These are optional wellness product suggestions, not medical advice.",
       "Review all labels for allergens, ingredients, and daily use instructions before purchase.",
       "Ask a qualified clinician or pharmacist to review the plan if you are pregnant, breastfeeding, taking medication, or managing a medical condition."
-    ],
-    shopLazada: "Shop on Lazada",
-    shopShopee: "Shop on Shopee"
+    ]
   },
   th: {
     connectChatBody:
@@ -202,6 +202,13 @@ const copy = {
     formulaNoVisibleBody:
       "รายการที่รีวิวแล้วไม่ได้ค้างอยู่ในคิวอีกต่อไป หน้านี้จะแสดงเฉพาะรายการที่ผ่านการตรวจสอบของ MattaNutra",
     formulaNoVisibleTitle: "ยังไม่มีรายการอาหารเสริมที่แสดงได้",
+    foods: "คำแนะนำอาหาร",
+    foodsEmptyBody:
+      "คำแนะนำอาหารทั้งหมดต้องผ่านการตรวจสอบด้านความปลอดภัยก่อนแสดง ทีมรีวิวได้รับรายการแล้ว",
+    foodsEmptyTitle: "กำลังตรวจสอบอาหาร",
+    foodsHint:
+      "อาหารและวัตถุดิบที่นำไปใช้กับมื้ออาหาร กิจวัตร และบทสนทนากับ concierge ต่อไปได้",
+    foodServing: "ปริมาณ",
     generated: "สร้างเมื่อ",
     goals: "เป้าหมาย",
     heroSubtitle:
@@ -218,12 +225,6 @@ const copy = {
       "คำแนะนำเฉพาะบุคคลที่เหลือพร้อมแล้ว และจะแสดงหลังจากปลดล็อก",
     previewLockedTitle: "ยังมีคำแนะนำเพิ่มเติมที่ล็อกอยู่",
     previewTitle: "ดูตัวอย่างก่อน แล้วปลดล็อกเมื่อพร้อม",
-    products: "ผลิตภัณฑ์ที่แนะนำสำหรับคุณ",
-    productsEmptyBody:
-      "สูตรของคุณพร้อมแล้ว แต่ระบบจับคู่ผลิตภัณฑ์ยังอยู่ระหว่างเตรียม จึงยังไม่มีคำแนะนำจาก marketplace สำหรับแผนนี้",
-    productsEmptyTitle: "ยังไม่มีผลิตภัณฑ์ที่จับคู่ได้",
-    productsHint:
-      "เมื่อมีคำแนะนำ หมายเลขผลิตภัณฑ์จะเชื่อมกับรายการอาหารเสริมทางซ้ายโดยตรง",
     profile: "โปรไฟล์",
     region: "ภูมิภาค",
     safety: "หมายเหตุด้านความปลอดภัย",
@@ -245,57 +246,16 @@ const copy = {
     safetyReviewBody:
       "คำแนะนำอาหารเสริมบางรายการต้องผ่านการตรวจสอบความปลอดภัยโดยทีมงานก่อนแสดง ตอนนี้รายการเหล่านั้นถูกซ่อนไว้และส่งให้ทีมรีวิวแล้ว",
     safetyReviewTitle: "มีการตรวจสอบความปลอดภัย",
+    foodSafetyReviewBody:
+      "คำแนะนำอาหารบางรายการต้องผ่านการตรวจสอบความปลอดภัยโดยทีมงานก่อนแสดง ตอนนี้รายการเหล่านั้นถูกซ่อนไว้และส่งให้ทีมรีวิวแล้ว",
+    foodSafetyReviewTitle: "มีการตรวจสอบความปลอดภัยด้านอาหาร",
     safetyNotes: [
       "คำแนะนำเหล่านี้เป็นตัวเลือกผลิตภัณฑ์เพื่อสุขภาพ ไม่ใช่คำแนะนำทางการแพทย์",
       "ตรวจฉลากทั้งหมดเพื่อดูสารก่อแพ้ ส่วนผสม และวิธีใช้ต่อวันก่อนซื้อ",
       "ปรึกษาแพทย์หรือเภสัชกรหากคุณตั้งครรภ์ ให้นมบุตร ใช้ยา หรือมีโรคประจำตัว"
-    ],
-    shopLazada: "ช้อปบน Lazada",
-    shopShopee: "ช้อปบน Shopee"
+    ]
   }
 } satisfies Record<Locale, CopyLabels>;
-
-const productTones: ProductTone[] = [
-  {
-    number: "bg-[#3A7BD5]"
-  },
-  {
-    number: "bg-[#1FA77A]"
-  },
-  {
-    number: "bg-cyan-600"
-  },
-  {
-    number: "bg-amber-500"
-  },
-  {
-    number: "bg-slate-600"
-  },
-  {
-    number: "bg-emerald-600"
-  },
-  {
-    number: "bg-sky-600"
-  },
-  {
-    number: "bg-lime-600"
-  }
-];
-
-function getShopLabel(product: RecommendedProduct, labels: (typeof copy)["en"]) {
-  return product.marketplace === "Shopee Thailand"
-    ? labels.shopShopee
-    : labels.shopLazada;
-}
-
-function getShopButtonClasses(product: RecommendedProduct) {
-  const base =
-    "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2";
-
-  return product.marketplace === "Shopee Thailand"
-    ? cn(base, "bg-[#EE4D2D] hover:bg-[#D93F21] focus:ring-[#EE4D2D]/40")
-    : cn(base, "bg-[#0F146D] hover:bg-[#1B238E] focus:ring-[#F57224]/40");
-}
 
 function getLocalizedText(value: LocalizedText, locale: Locale) {
   if (typeof value === "string") {
@@ -307,12 +267,15 @@ function getLocalizedText(value: LocalizedText, locale: Locale) {
 
 function pendingReviewCount(result: FormulationResult) {
   const summary = result.safetySummary;
+  const foodSummary = result.foodSafetySummary;
 
-  if (!summary) {
-    return 0;
-  }
-
-  return Math.max(0, Number(summary.reviewCount ?? summary.hiddenCount ?? 0));
+  return (
+    Math.max(0, Number(summary?.reviewCount ?? summary?.hiddenCount ?? 0)) +
+    Math.max(
+      0,
+      Number(foodSummary?.reviewCount ?? foodSummary?.hiddenCount ?? 0)
+    )
+  );
 }
 
 function planResultsHref(locale: Locale, planId: string) {
@@ -408,77 +371,15 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
   const visibleIngredients = result.supplementBreakdown.filter(
     (ingredient) => ingredient.safety?.visibility !== "hidden"
   );
-  const ingredientById = new Map(
-    visibleIngredients.map((ingredient) => [ingredient.id, ingredient])
+  const orderedIngredients = [...visibleIngredients].sort(
+    (first, second) => first.effectivenessRank - second.effectivenessRank
   );
-  const coverageCount = (product: RecommendedProduct) =>
-    product.covers.filter((ingredientId) => ingredientById.has(ingredientId))
-      .length;
-  const sortedProducts = [...result.recommendations].sort((a, b) => {
-    const coverageDifference = coverageCount(b) - coverageCount(a);
-
-    if (coverageDifference !== 0) {
-      return coverageDifference;
-    }
-
-    return a.priority - b.priority;
-  });
-  const totalRecommendedIngredients = Math.max(
-    visibleIngredients.length,
-    1
+  const visibleFoods = (result.foodGuidance ?? []).filter(
+    (item) => item.safety?.visibility !== "hidden"
   );
-  const productCoveragePercentById = new Map(
-    sortedProducts.map((product) => [
-      product.id,
-      Math.round((coverageCount(product) / totalRecommendedIngredients) * 100)
-    ])
+  const orderedFoods = [...visibleFoods].sort(
+    (first, second) => first.effectivenessRank - second.effectivenessRank
   );
-  const productToneById = new Map(
-    sortedProducts.map((product, index) => [
-      product.id,
-      productTones[index % productTones.length]
-    ])
-  );
-  const productReferencesByIngredientId = new Map<
-    string,
-    ProductReference[]
-  >();
-  const orderedIngredientIds: string[] = [];
-  const seenIngredientIds = new Set<string>();
-
-  sortedProducts.forEach((product, productIndex) => {
-    product.covers.forEach((ingredientId) => {
-      if (!ingredientById.has(ingredientId)) {
-        return;
-      }
-
-      const references = productReferencesByIngredientId.get(ingredientId) ?? [];
-
-      productReferencesByIngredientId.set(ingredientId, [
-        ...references,
-        {
-          displayNumber: productIndex + 1,
-          product,
-          tone: productToneById.get(product.id) ?? productTones[0]
-        }
-      ]);
-
-      if (!seenIngredientIds.has(ingredientId)) {
-        seenIngredientIds.add(ingredientId);
-        orderedIngredientIds.push(ingredientId);
-      }
-    });
-  });
-  visibleIngredients.forEach((ingredient) => {
-    if (!seenIngredientIds.has(ingredient.id)) {
-      orderedIngredientIds.push(ingredient.id);
-    }
-  });
-  const orderedIngredients = orderedIngredientIds
-    .map((ingredientId) => ingredientById.get(ingredientId))
-    .filter((ingredient): ingredient is FormulationIngredient =>
-      Boolean(ingredient)
-    );
   const formattedDate = new Intl.DateTimeFormat(
     locale === "th" ? "th-TH" : "en-GB",
     {
@@ -493,6 +394,7 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
     0,
     Number(result.lockedSupplementCount ?? 0)
   );
+  const lockedFoodCount = Math.max(0, Number(result.lockedFoodCount ?? 0));
   const unlockHref = planPaywallHref(locale, effectiveResultPlanId);
 
   return (
@@ -586,22 +488,23 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
         />
       ) : null}
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+      <div className="mt-8 grid gap-8 lg:grid-cols-2">
+        <FoodGuidancePanel
+          foods={orderedFoods}
+          hasPendingSafetyReview={hasPendingSafetyReview}
+          labels={labels}
+          lockedFoodCount={lockedFoodCount}
+          locale={locale}
+          unlockHref={unlockHref}
+        />
+
         <FormulaPanel
           hasPendingSafetyReview={hasPendingSafetyReview}
           ingredients={orderedIngredients}
           labels={labels}
           lockedSupplementCount={lockedSupplementCount}
           locale={locale}
-          productReferencesByIngredientId={productReferencesByIngredientId}
           unlockHref={unlockHref}
-        />
-
-        <ProductsPanel
-          coveragePercentByProductId={productCoveragePercentById}
-          labels={labels}
-          productToneById={productToneById}
-          products={sortedProducts}
         />
       </div>
 
@@ -637,6 +540,143 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
 
 type PanelLabels = (typeof copy)["en"];
 
+function FoodGuidancePanel({
+  foods,
+  hasPendingSafetyReview,
+  labels,
+  lockedFoodCount,
+  locale,
+  unlockHref
+}: Readonly<{
+  foods: FoodGuidanceItem[];
+  hasPendingSafetyReview: boolean;
+  labels: PanelLabels;
+  lockedFoodCount: number;
+  locale: Locale;
+  unlockHref: string;
+}>) {
+  return (
+    <section className="rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-normal text-[#20343A]">
+            {labels.foods}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {labels.foodsHint}
+          </p>
+        </div>
+        <SparklesIcon
+          aria-hidden={true}
+          className="size-6 flex-none text-[#1FA77A]"
+        />
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {foods.length < 1 ? (
+          <div className="rounded-lg border border-dashed border-foreground/15 bg-background/60 p-6 text-center">
+            <SparklesIcon
+              aria-hidden={true}
+              className="mx-auto size-7 text-[#1FA77A]"
+            />
+            <h3 className="mt-4 text-base font-semibold text-[#20343A]">
+              {hasPendingSafetyReview
+                ? labels.foodsEmptyTitle
+                : labels.formulaNoVisibleTitle}
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+              {hasPendingSafetyReview
+                ? labels.foodsEmptyBody
+                : labels.formulaNoVisibleBody}
+            </p>
+          </div>
+        ) : foods.map((item) => {
+          const food = getLocalizedText(item.food, locale);
+          const rationale = getLocalizedText(item.rationale, locale);
+          const serving = getLocalizedText(item.serving, locale);
+          const frequency = getLocalizedText(item.frequency, locale);
+          const tags = [...(item.benefitTags ?? []), ...(item.nutrientTags ?? [])];
+          const nutrientFacts = (item.nutrientFacts ?? [])
+            .filter((fact) => fact.amountPerServing > 0)
+            .filter((fact) => fact.nutrientId !== "energy_kcal")
+            .slice(0, 4);
+
+          return (
+            <article
+              key={item.id}
+              className="rounded-lg border border-foreground/10 bg-white p-4"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h4 className="text-base font-semibold text-[#20343A]">
+                    {food}
+                  </h4>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {rationale}
+                  </p>
+                  {tags.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {tags.slice(0, 6).map((tag) => (
+                        <span
+                          className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-xs font-semibold text-[#126B4F] ring-1 ring-[#A7F3D0]"
+                          key={tag}
+                        >
+                          {foodTagLabel(tag)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {nutrientFacts.length > 0 ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-md">
+                      {nutrientFacts.map((fact) => (
+                        <div
+                          className="rounded-md bg-[#F8FAFC] px-2 py-1.5 ring-1 ring-foreground/10"
+                          key={fact.nutrientId}
+                        >
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            {fact.label}
+                          </p>
+                          <p className="text-xs font-semibold text-[#20343A]">
+                            {formatNutrientValue(
+                              fact.amountPerServing,
+                              fact.unit,
+                              locale
+                            )}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="shrink-0 sm:w-44">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {labels.foodServing}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-[#20343A]">
+                    {serving}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-muted-foreground">
+                    {frequency}
+                  </p>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+
+        {lockedFoodCount > 0 ? (
+          <LockedFormulaPreview
+            count={lockedFoodCount}
+            labels={labels}
+            unlockHref={unlockHref}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function SafetyReviewPanel({
   labels,
   planId,
@@ -652,16 +692,30 @@ function SafetyReviewPanel({
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const summary = result.safetySummary;
+  const foodSummary = result.foodSafetySummary;
   const pendingReviews = pendingReviewCount(result);
-  const adjustedCount = Math.max(0, Number(summary?.adjustedCount ?? 0));
+  const adjustedCount =
+    Math.max(0, Number(summary?.adjustedCount ?? 0)) +
+    Math.max(0, Number(foodSummary?.adjustedCount ?? 0));
 
-  if (!summary || (adjustedCount < 1 && pendingReviews < 1)) {
+  if (!summary && !foodSummary) {
     return null;
   }
 
-  const showReviewNotice = pendingReviews > 0;
+  if (adjustedCount < 1 && pendingReviews < 1) {
+    return null;
+  }
+
+  const showReviewNotice =
+    Math.max(0, Number(summary?.reviewCount ?? summary?.hiddenCount ?? 0)) > 0;
+  const showFoodReviewNotice =
+    Math.max(
+      0,
+      Number(foodSummary?.reviewCount ?? foodSummary?.hiddenCount ?? 0)
+    ) > 0;
   const messages = [
     showReviewNotice ? labels.safetyReviewBody : null,
+    showFoodReviewNotice ? labels.foodSafetyReviewBody : null,
     adjustedCount > 0 ? labels.doseAdjustedBody : null
   ].filter((message): message is string => Boolean(message));
   const addressPlaceholder =
@@ -916,7 +970,6 @@ function FormulaPanel({
   labels,
   lockedSupplementCount,
   locale,
-  productReferencesByIngredientId,
   unlockHref
 }: Readonly<{
   hasPendingSafetyReview: boolean;
@@ -924,7 +977,6 @@ function FormulaPanel({
   labels: PanelLabels;
   lockedSupplementCount: number;
   locale: Locale;
-  productReferencesByIngredientId: Map<string, ProductReference[]>;
   unlockHref: string;
 }>) {
   return (
@@ -963,8 +1015,6 @@ function FormulaPanel({
             </p>
           </div>
         ) : ingredients.map((ingredient) => {
-          const productReferences =
-            productReferencesByIngredientId.get(ingredient.id) ?? [];
           const supplement = getLocalizedText(ingredient.supplement, locale);
           const rationale = getLocalizedText(ingredient.rationale, locale);
           const dailyDose = getLocalizedText(ingredient.dailyDose, locale);
@@ -982,23 +1032,6 @@ function FormulaPanel({
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     {rationale}
                   </p>
-                  {productReferences.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {productReferences.map(
-                        ({ displayNumber, product, tone }) => (
-                          <span
-                            key={product.id}
-                            className={cn(
-                              "flex size-5 flex-none items-center justify-center rounded text-[10px] font-semibold leading-none text-white",
-                              tone.number
-                            )}
-                          >
-                            {displayNumber}
-                          </span>
-                        )
-                      )}
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="shrink-0 sm:w-44">
@@ -1072,103 +1105,5 @@ function LockedFormulaPreview({
         ))}
       </div>
     </article>
-  );
-}
-
-function ProductsPanel({
-  coveragePercentByProductId,
-  labels,
-  productToneById,
-  products
-}: Readonly<{
-  coveragePercentByProductId: Map<string, number>;
-  labels: PanelLabels;
-  productToneById: Map<string, ProductTone>;
-  products: RecommendedProduct[];
-}>) {
-  return (
-    <section className="rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-normal text-[#20343A]">
-          {labels.products}
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          {labels.productsHint}
-        </p>
-      </div>
-
-      <div className="mt-6 space-y-4">
-        {products.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-foreground/15 bg-background/60 p-6 text-center">
-            <BeakerIcon
-              aria-hidden={true}
-              className="mx-auto size-7 text-[#3A7BD5]"
-            />
-            <h3 className="mt-4 text-base font-semibold text-[#20343A]">
-              {labels.productsEmptyTitle}
-            </h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-              {labels.productsEmptyBody}
-            </p>
-          </div>
-        ) : products.map((product, index) => {
-          const coveragePercent = coveragePercentByProductId.get(product.id) ?? 0;
-          const tone = productToneById.get(product.id) ?? productTones[0];
-
-          return (
-            <article
-              key={product.id}
-              className="rounded-lg border border-foreground/10 bg-white p-4"
-            >
-              <div className="flex gap-4">
-                <div className={cn(
-                  "flex size-10 flex-none items-center justify-center rounded-md text-sm font-semibold text-white",
-                  tone.number
-                )}>
-                  {index + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md bg-[#1FA77A]/10 px-2 py-1 text-xs font-semibold text-[#126b4f] ring-1 ring-[#1FA77A]/20">
-                      {product.tag}
-                    </span>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {product.marketplace}
-                    </span>
-                  </div>
-                  <h3 className="mt-3 text-base font-semibold text-[#20343A]">
-                    {product.name}
-                  </h3>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    {product.description}
-                  </p>
-                  <p className="mt-3 rounded-md bg-background px-3 py-2 text-xs font-semibold text-[#20343A]">
-                    {labels.coveragePrefix} {coveragePercent}%{" "}
-                    {labels.coverageSuffix}
-                  </p>
-                </div>
-              </div>
-
-              <a
-                className={getShopButtonClasses(product)}
-                data-bpm-event="marketplace_product_clicked"
-                data-bpm-label={product.name}
-                data-bpm-target={product.url}
-                data-bpm-type="affiliate"
-                href={product.url}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {getShopLabel(product, labels)}
-                <ArrowTopRightOnSquareIcon
-                  aria-hidden={true}
-                  className="size-4"
-                />
-              </a>
-            </article>
-          );
-        })}
-      </div>
-    </section>
   );
 }

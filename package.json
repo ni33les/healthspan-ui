@@ -16,6 +16,7 @@
     "worker:communications": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts communications",
     "worker:content": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts content",
     "worker:email": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts email",
+    "worker:food": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts food",
     "worker:formulation": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts formulation",
     "worker:healthscore": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts healthscore",
     "worker:hosting": "node --experimental-strip-types --import ./scripts/register-ts-path-loader.mjs workers/runner.ts hosting"

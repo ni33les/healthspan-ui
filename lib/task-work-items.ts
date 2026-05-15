@@ -1,7 +1,10 @@
 import { normalizeAssessmentPlan, type AssessmentPlan } from "@/lib/assessment-snapshot";
 import { isUuid } from "@/lib/assessment-store";
 import { getSql } from "@/lib/db";
-import type { FormulationBlueprint } from "@/lib/formulation-types";
+import type {
+  FoodGuidanceBlueprint,
+  FormulationBlueprint
+} from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
 import {
   buildExampleEmailHtml,
@@ -31,6 +34,16 @@ export type FormulationWorkItem = Readonly<{
   requestId?: string;
   taskId: string;
   taskType: "generate_example_formulation" | "generate_formulation";
+}>;
+
+export type FoodGuidanceWorkItem = Readonly<{
+  answers: unknown;
+  locale: Locale;
+  plan: AssessmentPlan;
+  planId: string;
+  requestId?: string;
+  taskId: string;
+  taskType: "generate_example_food_guidance" | "generate_food_guidance";
 }>;
 
 export type ExampleEmailWorkItem = Readonly<{
@@ -90,6 +103,7 @@ export type TaskWorkItem =
   | ContentStatusChangeWorkItem
   | DigitalOceanBillingSyncWorkItem
   | ExampleEmailWorkItem
+  | FoodGuidanceWorkItem
   | FormulationWorkItem
   | HealthScoreWorkItem
   | ReassessmentEmailWorkItem
@@ -266,6 +280,50 @@ async function buildFormulationWorkItem(task: TaskRecord) {
   } satisfies FormulationWorkItem;
 }
 
+async function buildFoodGuidanceWorkItem(task: TaskRecord) {
+  const sql = getSql();
+
+  if (!sql || !task.planId) {
+    throw new Error("Food guidance work item is missing a plan");
+  }
+
+  const rows = await sql`
+    select answers, locale, selected_plan::text
+    from public.assessments
+    where plan_id = ${task.planId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    throw new Error("Assessment submission not found");
+  }
+
+  if (task.taskType === "generate_food_guidance") {
+    await sql`
+      update public.assessments set
+        status = 'preparing',
+        queue_position = 0,
+        error_message = null,
+        processing_started_at = coalesce(processing_started_at, now()),
+        updated_at = now()
+      where plan_id = ${task.planId}::uuid
+    `;
+  }
+
+  return {
+    answers: row.answers,
+    locale: isLocale(row.locale) ? row.locale : "en",
+    plan: normalizeAssessmentPlan(row.selected_plan),
+    planId: task.planId,
+    requestId: payloadText(task.payload, "requestId") || undefined,
+    taskId: task.id,
+    taskType: task.taskType as
+      | "generate_example_food_guidance"
+      | "generate_food_guidance"
+  } satisfies FoodGuidanceWorkItem;
+}
+
 async function buildExampleEmailWorkItem(task: TaskRecord) {
   const sql = getSql();
   const requestId = payloadText(task.payload, "requestId");
@@ -281,6 +339,7 @@ async function buildExampleEmailWorkItem(task: TaskRecord) {
       assessment_example_requests.locale,
       reassessment.cron_id,
       reassessment.unsubscribe_token,
+      food_guidance.guidance as food_guidance,
       formulations.formulation
     from public.assessment_example_requests
     join lateral (
@@ -290,6 +349,13 @@ async function buildExampleEmailWorkItem(task: TaskRecord) {
       order by version desc, generated_at desc
       limit 1
     ) formulations on true
+    join lateral (
+      select guidance
+      from public.food_guidance
+      where food_guidance.plan_id = assessment_example_requests.plan_id
+      order by version desc, generated_at desc
+      limit 1
+    ) food_guidance on true
     left join lateral (
       select cron.id::text as cron_id, cron.unsubscribe_token
       from public.cron
@@ -326,13 +392,17 @@ async function buildExampleEmailWorkItem(task: TaskRecord) {
 
   const email = typeof row.email === "string" ? row.email : "";
   const formulation = row.formulation as FormulationBlueprint;
+  const foodGuidance = row.food_guidance as FoodGuidanceBlueprint;
   const healthScore = row.health_score as HealthScoreResult;
   const locale: Locale = isLocale(row.locale) ? row.locale : "en";
 
   return {
     email,
     html: buildExampleEmailHtml({
-      formulation,
+      formulation: {
+        ...formulation,
+        foodGuidance: foodGuidance.foodGuidance ?? []
+      },
       healthScore,
       locale,
       planId: task.planId,
@@ -423,6 +493,13 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
     task.taskType === "generate_example_formulation"
   ) {
     return buildFormulationWorkItem(task);
+  }
+
+  if (
+    task.taskType === "generate_food_guidance" ||
+    task.taskType === "generate_example_food_guidance"
+  ) {
+    return buildFoodGuidanceWorkItem(task);
   }
 
   if (task.taskType === "send_example_email") {

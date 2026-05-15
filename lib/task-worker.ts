@@ -18,7 +18,9 @@ type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
   | "analyze_healthscore"
   | "client_safety_followup"
+  | "generate_example_food_guidance"
   | "generate_example_formulation"
+  | "generate_food_guidance"
   | "generate_formulation"
   | "send_example_email"
   | "send_reassessment_email"
@@ -31,7 +33,9 @@ const globalScheduler = globalThis as typeof globalThis & {
 const TASK_BUSINESS_VALUES = {
   billingSync: 100,
   exampleEmail: 350,
+  exampleFoodGuidance: 150,
   exampleFormulation: 150,
+  foodGuidance: 450,
   healthScoreAnalysis: 500,
   precision: 450,
   pro: 450,
@@ -144,6 +148,7 @@ async function createWorkTask(input: Readonly<{
   };
   reasoningEffort: "low" | "medium" | "none";
   source: string;
+  taskGroupId?: string | null;
   taskTitle: string;
   taskType: WorkTaskType;
 }>) {
@@ -201,6 +206,7 @@ async function createWorkTask(input: Readonly<{
             maxRetries: Math.max(0, maxAttempts - 1)
           }),
     taskType: input.taskType,
+    taskGroupId: input.taskGroupId,
     title: input.taskTitle
   });
 
@@ -301,7 +307,7 @@ export async function enqueueHealthScoreAnalysisTask({
   });
 }
 
-export async function enqueueFormulationTask({
+export async function enqueueNutritionPlanTasks({
   answers,
   locale,
   plan,
@@ -329,71 +335,112 @@ export async function enqueueFormulationTask({
     return null;
   }
 
-  const taskId = await createWorkTask({
+  const inputHash = stableHash({
+    answers,
+    locale,
+    plan
+  });
+  const taskGroupId = deterministicUuid(
+    `mattanutra:task-group:nutrition-plan:${planId}:${inputHash}`
+  );
+  const formulationTaskId = await createWorkTask({
     actorType: "ai",
     businessValue: businessValueForPlan(plan),
     groupLabel:
       plan === "pro"
         ? "Prepare Pro nutrition plan"
         : "Prepare Precision nutrition plan",
-    id: deterministicUuid(`mattanutra:task:formulation:${planId}:${stableHash({
-      answers,
-      locale,
-      plan
-    })}`),
-    idempotencyKey: `formulation:${planId}:${stableHash({
-      answers,
-      locale,
-      plan
-    })}`,
+    id: deterministicUuid(`mattanutra:task:formulation:${planId}:${inputHash}`),
+    idempotencyKey: `formulation:${planId}:${inputHash}`,
     idempotencyScope: "successful",
     idempotencyScopeKey: `formulation:${planId}`,
     payload: { answers, locale, plan },
     planId,
     reasoningEffort: "medium",
     source: "assessment",
+    taskGroupId,
     taskTitle: "Generate nutrition plan",
     taskType: "generate_formulation"
   });
+  const foodGuidanceTaskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.foodGuidance,
+    groupLabel:
+      plan === "pro"
+        ? "Prepare Pro nutrition plan"
+        : "Prepare Precision nutrition plan",
+    id: deterministicUuid(`mattanutra:task:food-guidance:${planId}:${inputHash}`),
+    idempotencyKey: `food-guidance:${planId}:${inputHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `food-guidance:${planId}`,
+    payload: { answers, locale, plan },
+    planId,
+    reasoningEffort: "medium",
+    source: "assessment",
+    taskGroupId,
+    taskTitle: "Generate food guidance",
+    taskType: "generate_food_guidance"
+  });
 
-  if (!taskId) {
+  if (!formulationTaskId || !foodGuidanceTaskId) {
     return null;
   }
 
-  const taskRows = await sql<Array<{ status: string }>>`
-    select status
+  const taskRows = await sql<Array<{ status: string; task_type: string }>>`
+    select task_type, status
     from public.tasks
-    where id = ${taskId}::uuid
-    limit 1
+    where id = any(${[formulationTaskId, foodGuidanceTaskId]}::uuid[])
   `;
-  const taskStatus = taskRows[0]?.status ?? "";
+  const allTasksReused = taskRows.length === 2 && taskRows.every((task) =>
+    SUCCESSFUL_TASK_REUSE_STATUSES.has(task.status)
+  );
 
-  if (SUCCESSFUL_TASK_REUSE_STATUSES.has(taskStatus)) {
+  if (allTasksReused) {
     const formulationRows = await sql<Array<{ exists: boolean }>>`
       select exists (
         select 1
         from public.formulations
         where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as exists
+    `;
+    const foodRows = await sql<Array<{ exists: boolean }>>`
+      select exists (
+        select 1
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
       ) as exists
     `;
     const formulationReady = formulationRows[0]?.exists === true;
+    const foodGuidanceReady = foodRows[0]?.exists === true;
+    const planReady = formulationReady && foodGuidanceReady;
 
     await sql`
       update public.assessments set
         selected_plan = ${plan},
-        status = ${formulationReady ? "ready" : "failed"}::public.assessment_status,
+        status = ${planReady ? "ready" : "failed"}::public.assessment_status,
         queue_position = 0,
-        error_message = ${formulationReady ? null : "A completed formulation task was found, but no formulation is available."},
+        error_message = ${planReady ? null : "Completed nutrition plan tasks were found, but one or more nutrition outputs are missing."},
         plan_selected_at = coalesce(plan_selected_at, now()),
         completed_at = case
-          when ${formulationReady} then coalesce(completed_at, now())
+          when ${planReady} then coalesce(completed_at, now())
           else completed_at
         end,
         updated_at = now()
       where plan_id = ${planId}::uuid
     `;
 
-    return taskId;
+    return {
+      foodGuidanceTaskId,
+      formulationTaskId
+    };
   }
 
   await sql`
@@ -407,12 +454,22 @@ export async function enqueueFormulationTask({
     where plan_id = ${planId}::uuid
   `;
 
-  return taskId;
+  return {
+    foodGuidanceTaskId,
+    formulationTaskId
+  };
+}
+
+export async function enqueueFormulationTask(input: Parameters<typeof enqueueNutritionPlanTasks>[0]) {
+  const taskIds = await enqueueNutritionPlanTasks(input);
+
+  return taskIds?.formulationTaskId ?? null;
 }
 
 async function enqueueExampleFormulationTask(
   planId: string,
-  requestId: string
+  requestId: string,
+  taskGroupId?: string | null
 ) {
   const sql = getSql();
 
@@ -432,6 +489,7 @@ async function enqueueExampleFormulationTask(
     planId,
     reasoningEffort: "medium",
     source: "free_example",
+    taskGroupId,
     taskTitle: "Generate Free nutrition plan",
     taskType: "generate_example_formulation"
   });
@@ -440,12 +498,75 @@ async function enqueueExampleFormulationTask(
     await sql`
       update public.assessment_example_requests set
         status = 'formulation_queued',
+        formulation_status = 'queued',
         updated_at = now()
       where id = ${requestId}::uuid
     `;
   }
 
   return taskId;
+}
+
+async function enqueueExampleFoodGuidanceTask(
+  planId: string,
+  requestId: string,
+  taskGroupId?: string | null
+) {
+  const sql = getSql();
+
+  if (!sql) {
+    return null;
+  }
+
+  const taskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.exampleFoodGuidance,
+    groupLabel: "Prepare Free nutrition plan email",
+    id: deterministicUuid(`mattanutra:task:example-food-guidance:${requestId}`),
+    idempotencyKey: `example-food-guidance:${requestId}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `free-example-food:${requestId}`,
+    payload: { businessValueClass: "free_example", requestId },
+    planId,
+    reasoningEffort: "medium",
+    source: "free_example",
+    taskGroupId,
+    taskTitle: "Generate Free food guidance",
+    taskType: "generate_example_food_guidance"
+  });
+
+  if (taskId) {
+    await sql`
+      update public.assessment_example_requests set
+        status = 'formulation_queued',
+        food_guidance_status = 'queued',
+        updated_at = now()
+      where id = ${requestId}::uuid
+    `;
+  }
+
+  return taskId;
+}
+
+async function enqueueExamplePreviewTasks(planId: string, requestId: string) {
+  const taskGroupId = deterministicUuid(
+    `mattanutra:task-group:example-nutrition-plan:${requestId}`
+  );
+  const formulationTaskId = await enqueueExampleFormulationTask(
+    planId,
+    requestId,
+    taskGroupId
+  );
+  const foodGuidanceTaskId = await enqueueExampleFoodGuidanceTask(
+    planId,
+    requestId,
+    taskGroupId
+  );
+
+  return {
+    foodGuidanceTaskId,
+    formulationTaskId
+  };
 }
 
 export async function enqueueExampleEmailTask(
@@ -471,6 +592,9 @@ export async function enqueueExampleEmailTask(
     planId,
     reasoningEffort: "none",
     source: "free_example",
+    taskGroupId: deterministicUuid(
+      `mattanutra:task-group:example-nutrition-plan:${requestId}`
+    ),
     taskTitle: "Send Free nutrition plan email",
     taskType: "send_example_email"
   });
@@ -485,6 +609,73 @@ export async function enqueueExampleEmailTask(
   }
 
   return taskId;
+}
+
+export async function enqueueExampleEmailIfPreviewReady(
+  planId: string,
+  requestId: string
+) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId) || !isUuid(requestId)) {
+    return null;
+  }
+
+  const rows = await sql<Array<{
+    email_task_id: string | null;
+    food_guidance_ready: boolean;
+    formulation_ready: boolean;
+    status: string;
+  }>>`
+    select
+      assessment_example_requests.status,
+      exists (
+        select 1
+        from public.formulations
+        where formulations.plan_id = assessment_example_requests.plan_id
+          and formulations.model_version like '%:example'
+      ) as formulation_ready,
+      exists (
+        select 1
+        from public.food_guidance
+        where food_guidance.plan_id = assessment_example_requests.plan_id
+          and food_guidance.model_version like '%:example'
+      ) as food_guidance_ready,
+      (
+        select tasks.id::text
+        from public.tasks
+        where tasks.plan_id = assessment_example_requests.plan_id
+          and tasks.payload ->> 'requestId' = assessment_example_requests.id::text
+          and tasks.task_type = 'send_example_email'
+          and tasks.status not in ('failed', 'cancelled', 'skipped')
+        order by tasks.created_at desc
+        limit 1
+      ) as email_task_id
+    from public.assessment_example_requests
+    where id = ${requestId}::uuid
+      and plan_id = ${planId}::uuid
+    limit 1
+  `;
+  const row = rows[0];
+
+  if (!row || row.status === "email_sent" || row.email_task_id) {
+    return row?.email_task_id ?? null;
+  }
+
+  if (!row.formulation_ready || !row.food_guidance_ready) {
+    return null;
+  }
+
+  await sql`
+    update public.assessment_example_requests set
+      status = 'formulation_ready',
+      formulation_status = 'ready',
+      food_guidance_status = 'ready',
+      updated_at = now()
+    where id = ${requestId}::uuid
+  `;
+
+  return enqueueExampleEmailTask(planId, requestId);
 }
 
 export async function requestExampleBrief({
@@ -532,7 +723,11 @@ export async function requestExampleBrief({
         from public.tasks
         where tasks.plan_id = assessment_example_requests.plan_id
           and tasks.payload ->> 'requestId' = assessment_example_requests.id::text
-          and tasks.task_type in ('generate_example_formulation', 'send_example_email')
+          and tasks.task_type in (
+            'generate_example_formulation',
+            'generate_example_food_guidance',
+            'send_example_email'
+          )
           and tasks.status not in ('completed', 'failed', 'cancelled', 'skipped')
         order by tasks.created_at desc
         limit 1
@@ -569,7 +764,8 @@ export async function requestExampleBrief({
   ) {
     return {
       requestId: existingRequest.id,
-      taskId: (await enqueueExampleEmailTask(planId, existingRequest.id)) ?? ""
+      taskId:
+        (await enqueueExampleEmailIfPreviewReady(planId, existingRequest.id)) ?? ""
     };
   }
 
@@ -583,7 +779,8 @@ export async function requestExampleBrief({
     return {
       requestId: existingRequest.id,
       taskId:
-        (await enqueueExampleFormulationTask(planId, existingRequest.id)) ?? ""
+        (await enqueueExamplePreviewTasks(planId, existingRequest.id))
+          .formulationTaskId ?? ""
     };
   }
 
@@ -613,9 +810,9 @@ export async function requestExampleBrief({
     )
   `;
 
-  const taskId = await enqueueExampleFormulationTask(planId, requestId);
+  const taskIds = await enqueueExamplePreviewTasks(planId, requestId);
 
-  return { requestId, taskId };
+  return { requestId, taskId: taskIds.formulationTaskId ?? taskIds.foodGuidanceTaskId };
 }
 
 function mapExampleRequestStatus(status: unknown) {

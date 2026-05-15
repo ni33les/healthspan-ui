@@ -1,9 +1,11 @@
 import type {
+  FoodGuidanceItem,
   FormulationIngredient,
   FormulationResult,
   RecommendedProduct
 } from "@/lib/formulation-types";
 
+export const FREE_PREVIEW_FOOD_LIMIT = 3;
 export const FREE_PREVIEW_SUPPLEMENT_LIMIT = 3;
 
 export function isExampleFormulationModelVersion(value: unknown) {
@@ -14,8 +16,12 @@ function visibleIngredient(ingredient: FormulationIngredient) {
   return ingredient.safety?.visibility !== "hidden";
 }
 
+function visibleFood(item: FoodGuidanceItem) {
+  return item.safety?.visibility !== "hidden";
+}
+
 function effectivenessRank(
-  ingredient: FormulationIngredient,
+  ingredient: Pick<FormulationIngredient, "effectivenessRank">,
   index: number
 ) {
   return Number.isFinite(ingredient.effectivenessRank) &&
@@ -43,6 +49,7 @@ export function toFreePreviewFormulationResult(
   limit = FREE_PREVIEW_SUPPLEMENT_LIMIT
 ) {
   const normalizedLimit = Math.max(1, Math.floor(limit));
+  const foodLimit = Math.max(1, Math.floor(FREE_PREVIEW_FOOD_LIMIT));
   const visibleRankedIngredients = result.supplementBreakdown
     .map((ingredient, index) => ({
       ingredient,
@@ -58,10 +65,28 @@ export function toFreePreviewFormulationResult(
   const previewIngredients = result.supplementBreakdown.filter((ingredient) =>
     previewIngredientIds.has(ingredient.id)
   );
+  const visibleRankedFoods = result.foodGuidance
+    .map((item, index) => ({
+      item,
+      rank: effectivenessRank(item, index)
+    }))
+    .filter(({ item }) => visibleFood(item))
+    .sort((first, second) => first.rank - second.rank);
+  const previewFoodIds = new Set(
+    visibleRankedFoods.slice(0, foodLimit).map(({ item }) => item.id)
+  );
+  const previewFoods = result.foodGuidance.filter((item) =>
+    previewFoodIds.has(item.id)
+  );
 
   return {
     ...result,
     access: "preview",
+    foodGuidance: previewFoods,
+    lockedFoodCount: Math.max(
+      0,
+      visibleRankedFoods.length - previewFoods.length
+    ),
     lockedSupplementCount: Math.max(
       0,
       visibleRankedIngredients.length - previewIngredients.length
@@ -72,6 +97,7 @@ export function toFreePreviewFormulationResult(
       previewIngredientIds
     ),
     supplementBreakdown: previewIngredients,
+    totalFoodCount: visibleRankedFoods.length,
     totalSupplementCount: visibleRankedIngredients.length
   } satisfies FormulationResult;
 }

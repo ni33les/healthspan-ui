@@ -152,7 +152,7 @@ describe("external worker boundaries", () => {
 
     assert.match(
       source,
-      /INTERACTIVE_TASK_TYPES[\s\S]*analyze_healthscore[\s\S]*generate_formulation/,
+      /INTERACTIVE_TASK_TYPES[\s\S]*analyze_healthscore[\s\S]*generate_food_guidance[\s\S]*generate_formulation/,
       "blocking UI task types must be on the interactive reserve path"
     );
     assert.match(
@@ -186,14 +186,20 @@ describe("external worker boundaries", () => {
       "interactive fallback polling should avoid hammering the database"
     );
     assert.equal(
-      /INTERACTIVE_TASK_TYPES[\s\S]*generate_example_formulation/.test(source),
+      /INTERACTIVE_TASK_TYPES[\s\S]*generate_example_formulation/.test(source) ||
+        /INTERACTIVE_TASK_TYPES[\s\S]*generate_example_food_guidance/.test(source),
       false,
-      "free example formulation must stay off the interactive path because it does not block UX"
+      "free example nutrition plan tasks must stay off the interactive path because they do not block UX"
     );
     assert.match(
       taskWorkerSource,
       /exampleFormulation: 150/,
       "free example formulation must remain a low-value background task"
+    );
+    assert.match(
+      taskWorkerSource,
+      /exampleFoodGuidance: 150/,
+      "free example food guidance must remain a low-value background task"
     );
   });
 
@@ -207,8 +213,8 @@ describe("external worker boundaries", () => {
     );
     assert.match(
       source,
-      /status = \$\{formulationReady \? "ready" : "failed"\}::public\.assessment_status/,
-      "reused successful formulation work must resolve the assessment instead of leaving it queued"
+      /status = \$\{planReady \? "ready" : "failed"\}::public\.assessment_status/,
+      "reused successful nutrition plan work must resolve the assessment instead of leaving it queued"
     );
   });
 

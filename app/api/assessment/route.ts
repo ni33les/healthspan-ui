@@ -14,7 +14,7 @@ import { computeHealthScore } from "@/lib/health-score";
 import { writeSkippedPaymentSuccessEvent } from "@/lib/payment-bpm";
 import {
   enqueueHealthScoreAnalysisTask,
-  enqueueFormulationTask,
+  enqueueNutritionPlanTasks,
   enqueueDueScheduledActions,
   scheduleReassessmentAction
 } from "@/lib/task-worker";
@@ -31,6 +31,15 @@ function reassessmentEmailFromAnswers(answers: unknown) {
   const value = (answers as Record<string, unknown>).reassessmentEmail;
 
   return typeof value === "string" ? value : "";
+}
+
+function foodSafetyAcknowledged(answers: unknown) {
+  return (
+    Boolean(answers) &&
+    typeof answers === "object" &&
+    !Array.isArray(answers) &&
+    (answers as Record<string, unknown>).foodSafetyAcknowledged === true
+  );
 }
 
 function buildHealthScore(answers: unknown, locale: unknown) {
@@ -97,6 +106,18 @@ export async function POST(request: Request) {
     }
 
     selectedPlan = body.plan;
+
+    if (!foodSafetyAcknowledged(body.answers)) {
+      return NextResponse.json(
+        { message: "Food safety acknowledgement is required" },
+        {
+          headers: {
+            "Cache-Control": "no-store"
+          },
+          status: 400
+        }
+      );
+    }
   }
   const snapshot = createAssessmentSnapshot({
     healthScore: buildHealthScore(body.answers, body.locale),
@@ -178,14 +199,14 @@ export async function POST(request: Request) {
         ...healthScoreBpmFields(snapshot)
       });
 
-      const taskId = await enqueueFormulationTask({
+      const taskIds = await enqueueNutritionPlanTasks({
         answers: body.answers,
         locale: body.locale,
         plan: selectedPlan,
         planId: snapshot.planId
       });
 
-      if (!taskId) {
+      if (!taskIds) {
         throw new Error("Unable to queue assessment processing");
       }
 
@@ -196,7 +217,10 @@ export async function POST(request: Request) {
         eventType: "formulation",
         locale: body.locale,
         planId: snapshot.planId,
-        properties: { taskId },
+        properties: {
+          foodGuidanceTaskId: taskIds.foodGuidanceTaskId,
+          formulationTaskId: taskIds.formulationTaskId
+        },
         ray: typeof bpm.ray === "string" ? bpm.ray : null,
         selectedPlan,
         ...healthScoreBpmFields(snapshot)
