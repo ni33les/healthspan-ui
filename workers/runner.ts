@@ -19,6 +19,7 @@ type WorkerMode =
   | "formulation"
   | "healthscore"
   | "hosting"
+  | "products"
   | "supplement";
 type WorkerProfileMode = Exclude<WorkerMode, "all" | "supplement">;
 
@@ -37,7 +38,8 @@ const WORKER_PROFILE_MODES: readonly WorkerProfileMode[] = [
   "food",
   "formulation",
   "healthscore",
-  "hosting"
+  "hosting",
+  "products"
 ];
 
 type ActiveSession = Readonly<{
@@ -123,6 +125,7 @@ function workerMode(value: string | undefined): WorkerMode {
     value === "formulation" ||
     value === "healthscore" ||
     value === "hosting" ||
+    value === "products" ||
     value === "advisor"
     ? value
     : "all";
@@ -182,7 +185,13 @@ const WORKER_PROFILES: Record<WorkerProfileMode, WorkerAgentConfig> = {
     "generate_example_supplement_guidance"
   ]),
   healthscore: agentProfile("healthScoreEngine", ["analyze_healthscore"]),
-  hosting: agentProfile("scheduler", ["sync_digitalocean_billing"])
+  hosting: agentProfile("scheduler", ["sync_digitalocean_billing"]),
+  products: agentProfile("productMatcher", [
+    "discover_marketplace_products",
+    "generate_product_recommendations",
+    "parse_product_label",
+    "refresh_marketplace_product"
+  ])
 };
 
 function profileForMode(mode: WorkerProfileMode) {

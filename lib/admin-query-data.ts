@@ -25,6 +25,7 @@ import {
   type AdminFlowNodeId
 } from "@/lib/admin-flow-data";
 import { getAdminReviewQueueData } from "@/lib/admin-review-queue";
+import { getAdminProductsData } from "@/lib/admin-products";
 import { getAdminSupplementsData } from "@/lib/admin-supplements";
 import { getAdminTechnicalAlertsData } from "@/lib/admin-technical";
 import { getSql } from "@/lib/db";
@@ -39,6 +40,8 @@ export type AdminExternalQueryView =
   | "conversions"
   | "glance"
   | "leads"
+  | "product-recommendations"
+  | "products"
   | "reviews"
   | "supplements"
   | "tasks";
@@ -183,6 +186,8 @@ const views = new Set<AdminExternalQueryView>([
   "conversions",
   "glance",
   "leads",
+  "product-recommendations",
+  "products",
   "reviews",
   "supplements",
   "tasks"
@@ -976,6 +981,108 @@ export async function getAdminContentData(
   return getContentInventory(dashboardQueryParams({ filters, limit, range, status }));
 }
 
+async function getProductRecommendationHistory(params: QueryParams) {
+  const sql = getSql();
+
+  if (!sql) {
+    return {
+      databaseAvailable: false,
+      rows: [],
+      summary: {
+        averageStackCoveragePercent: null,
+        runs: 0,
+        shownProducts: 0
+      }
+    };
+  }
+
+  const planFilter = /^[0-9a-f-]{36}$/i.test(params.filters.planId)
+    ? params.filters.planId
+    : null;
+  const rayFilter = /^[0-9a-f-]{36}$/i.test(params.filters.ray)
+    ? params.filters.ray
+    : null;
+  const rows = await sql<Array<{
+    affiliate: boolean;
+    created_at: Date | string;
+    platform: string;
+    plan_id: string | null;
+    product_coverage_percent: string | number;
+    product_id: string;
+    product_title: string;
+    rank: number;
+    run_id: string;
+    stack_contribution_percent: string | number;
+    stack_coverage_percent: string | number;
+    status: string;
+    unknown_at_recommendation: boolean;
+    url_used: string;
+  }>>`
+    select
+      product_recommendation_runs.id::text as run_id,
+      product_recommendation_runs.plan_id::text,
+      product_recommendation_runs.status,
+      product_recommendation_runs.stack_coverage_percent,
+      product_recommendation_items.product_id::text,
+      marketplace_products.title as product_title,
+      marketplace_products.platform,
+      product_recommendation_items.rank,
+      product_recommendation_items.product_coverage_percent,
+      product_recommendation_items.stack_contribution_percent,
+      product_recommendation_items.url_used,
+      product_recommendation_items.unknown_at_recommendation,
+      product_recommendation_items.affiliate_link_id is not null as affiliate,
+      product_recommendation_items.created_at
+    from public.product_recommendation_items
+    join public.product_recommendation_runs
+      on product_recommendation_runs.id = product_recommendation_items.run_id
+    join public.marketplace_products
+      on marketplace_products.id = product_recommendation_items.product_id
+    where (${planFilter}::uuid is null or product_recommendation_runs.plan_id = ${planFilter}::uuid)
+      and (${rayFilter}::uuid is null or product_recommendation_runs.ray_id = ${rayFilter}::uuid)
+      and (${params.status || null}::text is null or product_recommendation_runs.status = ${params.status || null})
+    order by product_recommendation_items.created_at desc, product_recommendation_items.rank asc
+    limit ${params.limit}
+    offset ${params.cursor}
+  `;
+  const mappedRows = rows.map((row) => ({
+    affiliate: row.affiliate,
+    createdAt: new Date(row.created_at).toISOString(),
+    platform: row.platform,
+    planId: row.plan_id,
+    productCoveragePercent: Number(row.product_coverage_percent) || 0,
+    productId: row.product_id,
+    productTitle: row.product_title,
+    rank: row.rank,
+    runId: row.run_id,
+    stackContributionPercent: Number(row.stack_contribution_percent) || 0,
+    stackCoveragePercent: Number(row.stack_coverage_percent) || 0,
+    status: row.status,
+    unknownAtRecommendation: row.unknown_at_recommendation,
+    urlUsed: row.url_used
+  }));
+  const runIds = new Set(mappedRows.map((row) => row.runId));
+  const averageStackCoveragePercent =
+    mappedRows.length > 0
+      ? Math.round(
+          mappedRows.reduce(
+            (total, row) => total + row.stackCoveragePercent,
+            0
+          ) / mappedRows.length
+        )
+      : null;
+
+  return {
+    databaseAvailable: true,
+    rows: mappedRows,
+    summary: {
+      averageStackCoveragePercent,
+      runs: runIds.size,
+      shownProducts: mappedRows.length
+    }
+  };
+}
+
 export async function getAdminExternalQueryData(
   view: AdminExternalQueryView,
   searchParams: URLSearchParams
@@ -1073,6 +1180,32 @@ export async function getAdminExternalQueryData(
     const { pageRows, pagination } = paginateAdminRows(rows, params);
 
     return adminQueryEnvelope({ ...data, rows: pageRows }, params, pagination);
+  }
+
+  if (view === "products") {
+    const data = await getAdminProductsData();
+    const rows = data.rows.filter(
+      (row) =>
+        (!params.status || row.listStatus === params.status) &&
+        (!params.filters.source || row.platform === params.filters.source)
+    );
+    const { pageRows, pagination } = paginateAdminRows(rows, params);
+
+    return adminQueryEnvelope({ ...data, rows: pageRows }, params, pagination);
+  }
+
+  if (view === "product-recommendations") {
+    const data = await getProductRecommendationHistory(params);
+    const pagination = {
+      cursor: params.cursor > 0 ? String(params.cursor) : null,
+      limit: params.limit,
+      nextCursor:
+        data.rows.length === params.limit
+          ? String(params.cursor + params.limit)
+          : null
+    } satisfies AdminQueryPagination;
+
+    return adminQueryEnvelope(data, params, pagination);
   }
 
   if (view === "communications") {

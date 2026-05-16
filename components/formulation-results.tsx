@@ -18,7 +18,8 @@ import type {
   FormulationIngredient,
   FormulationResult,
   LocalizedText,
-  PlanChatMessage
+  PlanChatMessage,
+  RecommendedProduct
 } from "@/lib/formulation-types";
 import { foodTagLabel } from "@/lib/food-tags";
 import type { Locale } from "@/lib/i18n";
@@ -1498,6 +1499,220 @@ export function FinalReportPanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+const productRecommendationCopy = {
+  en: {
+    completeEmptyBody:
+      "Product matching has finished, but the current catalogue does not contain parsed, safe, available products that match this plan yet.",
+    completeEmptyTitle: "Product matching complete",
+    emptyBody:
+      "We are matching your final plan against available Thailand marketplace products. Your nutrition plan is ready; product matches update separately.",
+    emptyTitle: "Product matching in progress",
+    failedBody:
+      "Your nutrition plan is ready, but product matching needs attention before we can show marketplace options.",
+    failedTitle: "Product matching needs review",
+    matched: "Matched",
+    needsReviewed: "client needs reviewed",
+    needs: "Meets",
+    stack: "Stack coverage",
+    title: "Recommended products",
+    view: "View product"
+  },
+  th: {
+    completeEmptyBody:
+      "การจับคู่สินค้าเสร็จแล้ว แต่แคตตาล็อกปัจจุบันยังไม่มีสินค้าที่อ่านฉลากแล้ว ปลอดภัย พร้อมจำหน่าย และตรงกับแผนนี้",
+    completeEmptyTitle: "จับคู่สินค้าเสร็จแล้ว",
+    emptyBody:
+      "เรากำลังจับคู่แผนสุดท้ายของคุณกับสินค้าที่มีในตลาดไทย แผนโภชนาการของคุณพร้อมแล้ว ส่วนสินค้าแนะนำจะอัปเดตแยกต่างหาก",
+    emptyTitle: "กำลังจับคู่สินค้า",
+    failedBody:
+      "แผนโภชนาการของคุณพร้อมแล้ว แต่การจับคู่สินค้าต้องตรวจสอบก่อนแสดงตัวเลือก marketplace",
+    failedTitle: "ต้องตรวจสอบการจับคู่สินค้า",
+    matched: "จับคู่แล้ว",
+    needsReviewed: "ความต้องการที่ตรวจแล้ว",
+    needs: "ตรงกับความต้องการ",
+    stack: "ความครอบคลุมของชุดสินค้า",
+    title: "สินค้าแนะนำ",
+    view: "ดูสินค้า"
+  }
+} satisfies Record<Locale, Record<string, string>>;
+
+function trackMarketplaceClick(
+  planId: string,
+  product: RecommendedProduct
+) {
+  const payload = JSON.stringify({
+    affiliate: product.affiliate,
+    marketplace: product.marketplace,
+    planId,
+    productCoveragePercent: product.productCoveragePercent,
+    productId: product.productId ?? product.id,
+    rank: product.rank ?? product.priority,
+    recommendationRunId: product.recommendationRunId,
+    stackContributionPercent: product.stackContributionPercent,
+    stackCoveragePercent: product.stackCoveragePercent
+  });
+
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(
+      "/api/marketplace-products/click",
+      new Blob([payload], { type: "application/json" })
+    );
+    return;
+  }
+
+  void fetch("/api/marketplace-products/click", {
+    body: payload,
+    headers: {
+      "Content-Type": "application/json"
+    },
+    keepalive: true,
+    method: "POST"
+  });
+}
+
+export function ProductRecommendationsPanel({
+  locale,
+  planId,
+  productRecommendations,
+  recommendations
+}: Readonly<{
+  locale: Locale;
+  planId: string;
+  productRecommendations?: FormulationResult["productRecommendations"];
+  recommendations: RecommendedProduct[];
+}>) {
+  const labels = productRecommendationCopy[locale];
+  const stackCoverage = Math.max(
+    0,
+    ...recommendations.map((item) => item.stackCoveragePercent ?? 0)
+  );
+  const emptyTitle =
+    productRecommendations?.status === "failed"
+      ? labels.failedTitle
+      : productRecommendations?.status === "partial" ||
+          productRecommendations?.status === "ready"
+        ? labels.completeEmptyTitle
+        : labels.emptyTitle;
+  const emptyBody =
+    productRecommendations?.status === "failed"
+      ? labels.failedBody
+      : productRecommendations?.status === "partial" ||
+          productRecommendations?.status === "ready"
+        ? labels.completeEmptyBody
+        : labels.emptyBody;
+  const isTerminal =
+    productRecommendations?.status === "partial" ||
+    productRecommendations?.status === "ready" ||
+    productRecommendations?.status === "failed";
+
+  if (recommendations.length < 1) {
+    return (
+      <section className="mt-6 rounded-lg border border-gray-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="text-xl font-semibold tracking-normal text-[#20343A]">
+            {emptyTitle}
+          </h3>
+          {isTerminal ? (
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+              {productRecommendations?.stackCoveragePercent ?? 0}%
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {emptyBody}
+        </p>
+        {productRecommendations?.notes ? (
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
+            {productRecommendations.notes}
+          </p>
+        ) : null}
+        {productRecommendations ? (
+          <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div className="rounded-md bg-gray-50 px-3 py-2 ring-1 ring-gray-200">
+              <span className="font-semibold text-[#20343A]">
+                {productRecommendations.matchedCount}
+              </span>{" "}
+              <span className="text-gray-500">{labels.matched}</span>
+            </div>
+            <div className="rounded-md bg-gray-50 px-3 py-2 ring-1 ring-gray-200">
+              <span className="font-semibold text-[#20343A]">
+                {productRecommendations.needsCount}
+              </span>{" "}
+              <span className="text-gray-500">{labels.needsReviewed}</span>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-gray-200 bg-white p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="text-2xl font-semibold tracking-normal text-[#20343A]">
+          {labels.title}
+        </h3>
+        <p className="text-sm font-medium text-gray-500">
+          {labels.stack}: <span className="text-[#20343A]">{stackCoverage}%</span>
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        {recommendations.map((product) => (
+          <article
+            className="flex flex-col overflow-hidden rounded-lg bg-[#F8FAFC] ring-1 ring-gray-200"
+            key={`${product.recommendationRunId ?? "product"}:${product.id}`}
+          >
+            {product.imageUrl ? (
+              <img
+                alt=""
+                className="h-40 w-full object-cover"
+                src={product.imageUrl}
+              />
+            ) : (
+              <div className="flex h-40 items-center justify-center bg-white text-sm font-semibold text-gray-400">
+                {product.marketplace}
+              </div>
+            )}
+            <div className="flex flex-1 flex-col p-4">
+              <div className="flex items-start justify-between gap-3">
+                <h4 className="text-base font-semibold text-[#20343A]">
+                  {product.name}
+                </h4>
+                <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                  {product.productCoveragePercent ?? 0}%
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-gray-500">
+                {labels.needs} {product.productCoveragePercent ?? 0}% · {product.marketplace}
+              </p>
+              <p className="mt-3 flex-1 text-sm leading-6 text-muted-foreground">
+                {product.description}
+              </p>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#20343A]">
+                  {product.price
+                    ? `${product.price.amount} ${product.price.currency}`
+                    : ""}
+                </p>
+                <a
+                  className="rounded-md bg-[#1FA77A] px-3 py-2 text-sm font-semibold text-white hover:bg-[#168763]"
+                  href={product.url}
+                  onClick={() => trackMarketplaceClick(planId, product)}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {labels.view}
+                </a>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

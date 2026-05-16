@@ -4,6 +4,14 @@ import { writeBpmEvent } from "@/lib/bpm";
 import { recordEmailCommunicationDelivery } from "@/lib/communications";
 import { getSql } from "@/lib/db";
 import {
+  getProductRecommendationCandidates,
+  importDiscoveredMarketplaceProducts
+} from "@/lib/admin-products";
+import type {
+  MarketplaceProductSnapshot,
+  MarketplaceSearchDiagnostic
+} from "@/lib/marketplace-adapters";
+import {
   analysisPayload,
   foodGuidanceAnalysisPayload,
   modelVersion,
@@ -41,11 +49,19 @@ import {
   enqueueExampleEmailIfPreviewReady,
   enqueueExampleEmailsForReadyFullPlan,
   enqueueNutritionPlanRefinementTask,
+  enqueueProductRecommendationsTask,
   enqueueRefinedNutritionPlanTasks
 } from "@/lib/task-worker";
 import {
+  recommendProductStack,
+  toRecommendedProduct,
+  type ProductRecommendationResult
+} from "@/lib/product-recommendations";
+import { AGENT_CAPABILITIES } from "@/lib/system-agents";
+import {
   addTaskEvent,
   addTaskEventWithDb,
+  createTask,
   getTaskBundle,
   type TaskAfterCommitEffect,
   type TaskServiceDb,
@@ -1349,9 +1365,348 @@ async function applyNutritionReportResult(
     await addWorkEvent(task, "nutrition_report_completed", "medium", {
       planId: task.planId
     });
+    try {
+      await enqueueProductRecommendationsTask({
+        parentTaskId: task.id,
+        planId: task.planId!,
+        taskGroupId: task.taskGroupId
+      });
+    } catch (error) {
+      console.error("Unable to queue product recommendations", error);
+      await addWorkEvent(task, "product_recommendations_queue_failed", "medium", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown product queue error"
+      });
+    }
   });
 
   return resultPayload;
+}
+
+function productRecommendationPayload(value: unknown): ProductRecommendationResult {
+  const payload = objectValue(value);
+  const recommendations = Array.isArray(payload.recommendations)
+    ? payload
+    : objectValue(payload.recommendations);
+
+  return {
+    clientNeeds: Array.isArray(recommendations.clientNeeds)
+      ? recommendations.clientNeeds as ProductRecommendationResult["clientNeeds"]
+      : [],
+    exclusions: Array.isArray(recommendations.exclusions)
+      ? recommendations.exclusions as ProductRecommendationResult["exclusions"]
+      : [],
+    recommendations: Array.isArray(recommendations.recommendations)
+      ? recommendations.recommendations as ProductRecommendationResult["recommendations"]
+      : [],
+    stackCoveragePercent: Number(recommendations.stackCoveragePercent) || 0
+  };
+}
+
+function marketplaceSnapshotPayload(value: unknown): MarketplaceProductSnapshot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const record = objectValue(item);
+    const platform = payloadText(record, "platform");
+    const productUrl = payloadText(record, "productUrl");
+    const title = payloadText(record, "title");
+
+    if (
+      (platform !== "lazada" && platform !== "manual" && platform !== "shopee") ||
+      !productUrl ||
+      !title
+    ) {
+      return [];
+    }
+
+    return [{
+      availabilityStatus:
+        record.availabilityStatus === "in_stock" ||
+        record.availabilityStatus === "out_of_stock" ||
+        record.availabilityStatus === "unavailable"
+          ? record.availabilityStatus
+          : "unknown",
+      brandName: payloadText(record, "brandName") || null,
+      currency: "THB",
+      imageUrl: payloadText(record, "imageUrl") || null,
+      marketplaceProductId: payloadText(record, "marketplaceProductId") || null,
+      platform,
+      priceAmount: Number(record.priceAmount) || null,
+      productUrl,
+      region: "TH",
+      title
+    } satisfies MarketplaceProductSnapshot];
+  });
+}
+
+function marketplaceDiagnosticsPayload(value: unknown): MarketplaceSearchDiagnostic[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const record = objectValue(item);
+    const platform = payloadText(record, "platform");
+    const query = payloadText(record, "query");
+
+    if (platform !== "lazada" && platform !== "manual" && platform !== "shopee") {
+      return [];
+    }
+
+    return [{
+      configured: record.configured === true,
+      error: payloadText(record, "error") || undefined,
+      platform,
+      query,
+      resultCount: Number(record.resultCount) || 0,
+      source:
+        record.source === "affiliate_api" ||
+        record.source === "official_api" ||
+        record.source === "scrape_fallback"
+          ? record.source
+          : "unconfigured"
+    } satisfies MarketplaceSearchDiagnostic];
+  });
+}
+
+function productDiscoveryPayload(value: unknown) {
+  const payload = objectValue(value);
+  const discovery = objectValue(payload.discovery);
+
+  return {
+    diagnostics: marketplaceDiagnosticsPayload(discovery.diagnostics),
+    products: marketplaceSnapshotPayload(discovery.products)
+  };
+}
+
+async function queueUnknownProductReviewTasks(
+  task: TaskRecord,
+  runId: string,
+  result: ProductRecommendationResult
+) {
+  for (const item of result.recommendations) {
+    if (!item.unknownAtRecommendation) {
+      continue;
+    }
+
+    await createTask({
+      actorType: "human",
+      businessValue: 420,
+      context: {
+        source: "product_recommendations",
+        taskType: "review_marketplace_product"
+      },
+      createdByTaskId: task.id,
+      groupLabel: "Review product recommendations",
+      idempotencyKey: `review-marketplace-product:${item.product.id}`,
+      idempotencyScope: "active",
+      idempotencyScopeKey: `review-marketplace-product:${item.product.id}`,
+      initialComment: {
+        authorName: "Product Matcher",
+        authorType: "deterministic",
+        body: `${item.product.title} was recommended because it matched this plan, but it is not yet reviewed by the admin team.`,
+        commentType: "instruction",
+        metadata: {
+          productCoveragePercent: item.productCoveragePercent,
+          productId: item.product.id,
+          recommendationRunId: runId,
+          stackContributionPercent: item.stackContributionPercent
+        },
+        visibility: "admin"
+      },
+      maxAttempts: 1,
+      payload: {
+        coveredNeeds: item.coveredNeeds,
+        productId: item.product.id,
+        productTitle: item.product.title,
+        recommendationRunId: runId,
+        selectedBecause: item.why
+      },
+      planId: task.planId,
+      rayId: task.rayId,
+      reasoningEffort: "none",
+      requiredCapabilities: [
+        AGENT_CAPABILITIES.humanReview,
+        AGENT_CAPABILITIES.productReview,
+        AGENT_CAPABILITIES.safetyReview
+      ],
+      retryPolicy: false,
+      taskGroupId: task.taskGroupId,
+      taskType: "review_marketplace_product",
+      title: `Review product ${item.product.title}`
+    });
+  }
+}
+
+async function applyProductRecommendationsResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const initialResult = productRecommendationPayload(resultPayload);
+  const discovery = productDiscoveryPayload(resultPayload);
+
+  if (!sql || !task.planId) {
+    throw new Error("Product recommendation result is missing plan");
+  }
+  const importSummary = await importDiscoveredMarketplaceProducts({
+    actor: "product_matcher",
+    needs: initialResult.clientNeeds,
+    products: discovery.products
+  });
+  const result = importSummary.withInferredFacts > 0
+    ? recommendProductStack({
+        candidates: await getProductRecommendationCandidates(),
+        needs: initialResult.clientNeeds
+      })
+    : initialResult;
+  const configuredAdapters = discovery.diagnostics.filter(
+    (item) => item.configured
+  ).length;
+  const discoveryResults = discovery.diagnostics.reduce(
+    (total, item) => total + item.resultCount,
+    0
+  );
+  const discoveryNotes =
+    discovery.diagnostics.length < 1
+      ? "Marketplace discovery was not attempted."
+      : configuredAdapters < 1
+        ? "Marketplace discovery adapters are not configured."
+        : `Marketplace discovery returned ${discoveryResults} products; imported ${importSummary.imported}.`;
+
+  const runRows = await sql<Array<{ id: string }>>`
+    insert into public.product_recommendation_runs (
+      plan_id,
+      task_id,
+      ray_id,
+      status,
+      market_region,
+      stack_coverage_percent,
+      client_needs,
+      exclusions,
+      notes,
+      generated_at,
+      created_at
+    )
+    values (
+      ${task.planId}::uuid,
+      ${task.id}::uuid,
+      ${task.rayId ?? null}::uuid,
+      ${result.recommendations.length > 0 ? "completed" : "partial"},
+      'TH',
+      ${result.stackCoveragePercent},
+      ${sql.json(toJsonValue(result.clientNeeds))}::jsonb,
+      ${sql.json(toJsonValue(result.exclusions))}::jsonb,
+      ${discoveryNotes},
+      now(),
+      now()
+    )
+    returning id::text
+  `;
+  const runId = runRows[0]?.id;
+
+  if (!runId) {
+    throw new Error("Product recommendation run was not created");
+  }
+
+  for (const item of result.recommendations) {
+    await sql`
+      insert into public.product_recommendation_items (
+        run_id,
+        product_id,
+        rank,
+        score,
+        product_coverage_percent,
+        stack_contribution_percent,
+        covered_needs,
+        why,
+        affiliate_link_id,
+        url_used,
+        price_amount,
+        currency,
+        image_url,
+        unknown_at_recommendation,
+        created_at
+      )
+      values (
+        ${runId}::uuid,
+        ${item.product.id}::uuid,
+        ${item.rank},
+        ${item.score},
+        ${item.productCoveragePercent},
+        ${item.stackContributionPercent},
+        ${sql.json(toJsonValue(item.coveredNeeds))}::jsonb,
+        ${item.why},
+        ${item.affiliateLinkId}::uuid,
+        ${item.url},
+        ${item.product.priceAmount ?? null},
+        ${item.product.currency || "THB"},
+        ${item.product.imageUrl ?? null},
+        ${item.unknownAtRecommendation},
+        now()
+      )
+      on conflict (run_id, product_id) do nothing
+    `;
+  }
+
+  const legacyRecommendations = result.recommendations.map((item) =>
+    toRecommendedProduct(item, result.stackCoveragePercent, runId)
+  );
+
+  await sql`
+    insert into public.recommendations (
+      plan_id,
+      version,
+      recommendations,
+      generated_at,
+      updated_at
+    )
+    select
+      ${task.planId}::uuid,
+      coalesce(max(version), 0) + 1,
+      ${sql.json(toJsonValue(legacyRecommendations))}::jsonb,
+      now(),
+      now()
+    from public.recommendations
+    where plan_id = ${task.planId}::uuid
+  `;
+
+  await eventually(afterCommit, async () => {
+    await writeBpmEvent({
+      actorType: "worker",
+      eventName: "product_recommendations_ready",
+      eventType: "affiliate",
+      planId: task.planId,
+      properties: {
+        discoveredProductCount: discovery.products.length,
+        importedProductCount: importSummary.imported,
+        productCount: result.recommendations.length,
+        recommendationRunId: runId,
+        stackCoveragePercent: result.stackCoveragePercent
+      },
+      severity: "medium"
+    });
+    await addWorkEvent(task, "product_recommendations_ready", "medium", {
+      configuredMarketplaceAdapters: configuredAdapters,
+      discoveredProductCount: discovery.products.length,
+      discoveryNotes,
+      importedProductCount: importSummary.imported,
+      productCount: result.recommendations.length,
+      recommendationRunId: runId,
+      stackCoveragePercent: result.stackCoveragePercent
+    });
+    await queueUnknownProductReviewTasks(task, runId, result);
+  });
+
+  return {
+    ...objectValue(resultPayload),
+    recommendationRunId: runId
+  };
 }
 
 export async function applyTaskCompletionResult({
@@ -1426,6 +1781,10 @@ export async function applyTaskCompletionResult({
 
   if (task.taskType === "generate_nutrition_report") {
     return applyNutritionReportResult(task, resultPayload, sql, afterCommit);
+  }
+
+  if (task.taskType === "generate_product_recommendations") {
+    return applyProductRecommendationsResult(task, resultPayload, sql, afterCommit);
   }
 
   return resultPayload;

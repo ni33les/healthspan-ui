@@ -24,6 +24,9 @@ export const AGENT_CAPABILITIES = {
   nutritionPlanChat: "nutrition_plan_chat",
   nutritionPlanRefinement: "nutrition_plan_refinement",
   nutritionReportGeneration: "nutrition_report_generation",
+  productRecommendation: "product_recommendation",
+  productRefresh: "product_refresh",
+  productReview: "product_review",
   reassessmentEmailSend: "reassessment_email_send",
   safetyReview: "safety_review",
   salesCopy: "sales_copy",
@@ -46,6 +49,7 @@ export type SystemAgentKey =
   | "healthScoreEngine"
   | "humanReviewer"
   | "nutritionPlanAdvisor"
+  | "productMatcher"
   | "safetyScanner"
   | "scheduler";
 
@@ -164,6 +168,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
       AGENT_CAPABILITIES.foodGuidanceReview,
       AGENT_CAPABILITIES.foodReview,
       AGENT_CAPABILITIES.humanReview,
+      AGENT_CAPABILITIES.productReview,
       AGENT_CAPABILITIES.safetyReview,
       AGENT_CAPABILITIES.supplementGovernance,
       AGENT_CAPABILITIES.supplementReview
@@ -190,6 +195,22 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
     model: "grok:nutrition-advisor",
     name: "Nutrition Plan Advisor",
     type: "ai"
+  },
+  productMatcher: {
+    capabilities: [
+      AGENT_CAPABILITIES.doseNormalization,
+      AGENT_CAPABILITIES.productRecommendation,
+      AGENT_CAPABILITIES.productRefresh,
+      AGENT_CAPABILITIES.supplementSafetyScan
+    ],
+    id: "28e0d3fd-4f6f-4877-92bc-bb77024496d4",
+    metadata: {
+      marketRegion: "TH",
+      seeded: true
+    },
+    model: null,
+    name: "Product Matcher",
+    type: "deterministic"
   },
   safetyScanner: {
     capabilities: [
@@ -226,13 +247,17 @@ export const SYSTEM_AGENT_LIST = Object.values(SYSTEM_AGENTS);
 export const WORK_TASK_AGENT_KEYS: Readonly<Record<string, SystemAgentKey>> = {
   analyze_healthscore: "healthScoreEngine",
   client_safety_followup: "communicationsCoordinator",
+  discover_marketplace_products: "productMatcher",
   generate_example_food_guidance: "foodGuidanceWorker",
   generate_example_supplement_guidance: "formulationWorker",
   generate_food_guidance: "foodGuidanceWorker",
   generate_supplement_guidance: "formulationWorker",
   generate_nutrition_report: "nutritionPlanAdvisor",
+  generate_product_recommendations: "productMatcher",
   nutrition_plan_chat_reply: "nutritionPlanAdvisor",
+  parse_product_label: "productMatcher",
   refine_nutrition_plan: "nutritionPlanAdvisor",
+  refresh_marketplace_product: "productMatcher",
   content_status_change: "contentPublisher",
   send_example_email: "emailDispatcher",
   send_reassessment_email: "emailDispatcher",
@@ -251,6 +276,9 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
   const capabilitiesByTaskType: Record<string, readonly string[]> = {
     analyze_healthscore: [AGENT_CAPABILITIES.healthScoreAnalysis],
     client_safety_followup: [AGENT_CAPABILITIES.clientSafetyFollowup],
+    discover_marketplace_products: [
+      AGENT_CAPABILITIES.productRecommendation
+    ],
     generate_example_food_guidance: [
       AGENT_CAPABILITIES.freeExampleFoodGuidance
     ],
@@ -262,8 +290,13 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
     generate_nutrition_report: [
       AGENT_CAPABILITIES.nutritionReportGeneration
     ],
+    generate_product_recommendations: [
+      AGENT_CAPABILITIES.productRecommendation
+    ],
     nutrition_plan_chat_reply: [AGENT_CAPABILITIES.nutritionPlanChat],
+    parse_product_label: [AGENT_CAPABILITIES.productRecommendation],
     refine_nutrition_plan: [AGENT_CAPABILITIES.nutritionPlanRefinement],
+    refresh_marketplace_product: [AGENT_CAPABILITIES.productRefresh],
     content_status_change: [AGENT_CAPABILITIES.contentPublish],
     send_example_email: [AGENT_CAPABILITIES.freeEmailSend],
     send_reassessment_email: [AGENT_CAPABILITIES.reassessmentEmailSend],

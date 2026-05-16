@@ -69,12 +69,24 @@ export type FoodGuidanceItem = {
 };
 
 export type RecommendedProduct = {
+  affiliate?: boolean;
   covers: string[];
   description: string;
   id: string;
-  marketplace: "Lazada Thailand" | "Shopee Thailand";
+  imageUrl?: string | null;
+  marketplace: "Imported product" | "Lazada Thailand" | "Shopee Thailand";
   name: string;
+  price?: {
+    amount: number;
+    currency: string;
+  } | null;
   priority: number;
+  productCoveragePercent?: number;
+  productId?: string;
+  rank?: number;
+  recommendationRunId?: string;
+  stackContributionPercent?: number;
+  stackCoveragePercent?: number;
   tag: string;
   url: string;
 };
@@ -154,6 +166,18 @@ export type NutritionReport = {
   version?: number;
 };
 
+export type ProductRecommendationStatus = "failed" | "partial" | "pending" | "ready";
+
+export type ProductRecommendationSummary = {
+  generatedAt?: string;
+  matchedCount: number;
+  needsCount: number;
+  notes?: string;
+  runId?: string;
+  stackCoveragePercent: number;
+  status: ProductRecommendationStatus;
+};
+
 export type AssessmentSummary = {
   constraints: string[];
   goals: string[];
@@ -194,6 +218,7 @@ export type FormulationResult = FormulationBlueprint & FoodGuidanceBlueprint & {
   nutritionReport?: NutritionReport | null;
   planId: string;
   previewLimit?: number;
+  productRecommendations?: ProductRecommendationSummary;
   recommendations: RecommendedProduct[];
   schemaVersion: 1;
   sectionStatuses?: {

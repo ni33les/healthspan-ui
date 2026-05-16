@@ -41,6 +41,13 @@ drop table if exists
   public.plan_feedback,
   public.plan_guidance_adjustments,
   public.plan_communication_identities,
+  public.product_admin_audit,
+  public.product_affiliate_links,
+  public.product_brands,
+  public.product_facts,
+  public.product_recommendation_items,
+  public.product_recommendation_runs,
+  public.marketplace_products,
   public.rays,
   public.recommendations,
   public.nutrients,
@@ -671,6 +678,23 @@ values
     now()
   ),
   (
+    '28e0d3fd-4f6f-4877-92bc-bb77024496d4'::uuid,
+    'Product Matcher',
+    'deterministic',
+    'active',
+    array[
+      'dose_normalization',
+      'product_recommendation',
+      'product_refresh',
+      'supplement_safety_scan'
+    ]::text[],
+    null,
+    '{"seeded": true, "marketRegion": "TH"}'::jsonb,
+    null,
+    now(),
+    now()
+  ),
+  (
     '161f03a5-70ec-4e56-b54e-b23daee2e520'::uuid,
     'Communications Coordinator',
     'deterministic',
@@ -744,6 +768,7 @@ values
       'food_review',
       'formulation_review',
       'human_review',
+      'product_review',
       'safety_review',
       'supplement_governance',
       'supplement_review'
@@ -3494,6 +3519,204 @@ create index supplement_aliases_supplement_idx
 
 create index supplement_admin_audit_supplement_idx
   on public.supplement_admin_audit (supplement_id, created_at desc);
+
+-- Marketplace product catalogue and product recommendation history.
+create table public.product_brands (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  normalized_name text not null unique,
+  list_status text not null default 'unknown' check (list_status in (
+    'unknown',
+    'whitelisted',
+    'review_required',
+    'blacklisted',
+    'inactive'
+  )),
+  admin_notes text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.marketplace_products (
+  id uuid primary key default gen_random_uuid(),
+  platform text not null check (platform in ('lazada', 'manual', 'shopee')),
+  region text not null default 'TH',
+  marketplace_product_id text null,
+  title text not null,
+  normalized_title text not null,
+  brand_id uuid null references public.product_brands(id) on delete set null,
+  brand_name text null,
+  normalized_brand_name text null,
+  image_url text null,
+  product_url text not null,
+  normalized_url text not null unique,
+  description text null,
+  category text null,
+  list_status text not null default 'unknown' check (list_status in (
+    'unknown',
+    'whitelisted',
+    'review_required',
+    'blacklisted',
+    'inactive'
+  )),
+  label_status text not null default 'missing' check (label_status in (
+    'failed',
+    'missing',
+    'parsed',
+    'stale'
+  )),
+  availability_status text not null default 'unknown' check (availability_status in (
+    'in_stock',
+    'out_of_stock',
+    'unavailable',
+    'unknown'
+  )),
+  affiliate_status text not null default 'none' check (affiliate_status in (
+    'active',
+    'flagged_stale',
+    'none'
+  )),
+  price_amount numeric null,
+  currency text not null default 'THB',
+  price_cached_at timestamptz null,
+  availability_cached_at timestamptz null,
+  affiliate_checked_at timestamptz null,
+  product_data_expires_at timestamptz null,
+  source text not null default 'admin',
+  admin_notes text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index marketplace_products_platform_identifier_idx
+  on public.marketplace_products (platform, region, marketplace_product_id)
+  where marketplace_product_id is not null;
+
+create index marketplace_products_status_idx
+  on public.marketplace_products (list_status, availability_status, label_status, updated_at desc);
+
+create index marketplace_products_brand_idx
+  on public.marketplace_products (brand_id, list_status, title);
+
+create index marketplace_products_title_search_idx
+  on public.marketplace_products (normalized_title);
+
+create table public.product_facts (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.marketplace_products(id) on delete cascade,
+  item_type text not null check (item_type in ('food', 'nutrient', 'supplement')),
+  supplement_id uuid null references public.supplements(id) on delete set null,
+  food_id uuid null references public.foods(id) on delete set null,
+  nutrient_id text null references public.nutrients(id) on delete set null,
+  name text not null,
+  normalized_name text not null,
+  amount numeric null,
+  unit text null,
+  serving_label text null,
+  confidence text not null default 'moderate' check (confidence in ('high', 'low', 'moderate')),
+  source text not null default 'admin',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index product_facts_product_idx
+  on public.product_facts (product_id, item_type, normalized_name);
+
+create index product_facts_supplement_idx
+  on public.product_facts (supplement_id)
+  where supplement_id is not null;
+
+create index product_facts_food_idx
+  on public.product_facts (food_id)
+  where food_id is not null;
+
+create index product_facts_nutrient_idx
+  on public.product_facts (nutrient_id)
+  where nutrient_id is not null;
+
+create table public.product_affiliate_links (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.marketplace_products(id) on delete cascade,
+  network text null,
+  url text not null,
+  tracking_id text null,
+  status text not null default 'active' check (status in (
+    'active',
+    'flagged_stale',
+    'inactive'
+  )),
+  starts_at timestamptz null,
+  expires_at timestamptz null,
+  last_checked_at timestamptz null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index product_affiliate_links_product_idx
+  on public.product_affiliate_links (product_id, status, updated_at desc);
+
+create table public.product_recommendation_runs (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid null references public.assessments(plan_id) on delete set null,
+  task_id uuid null references public.tasks(id) on delete set null,
+  ray_id uuid null,
+  status text not null default 'completed' check (status in ('completed', 'failed', 'partial')),
+  market_region text not null default 'TH',
+  stack_coverage_percent numeric not null default 0,
+  client_needs jsonb not null default '[]'::jsonb,
+  exclusions jsonb not null default '[]'::jsonb,
+  notes text null,
+  generated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index product_recommendation_runs_plan_idx
+  on public.product_recommendation_runs (plan_id, generated_at desc);
+
+create index product_recommendation_runs_task_idx
+  on public.product_recommendation_runs (task_id)
+  where task_id is not null;
+
+create table public.product_recommendation_items (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid not null references public.product_recommendation_runs(id) on delete cascade,
+  product_id uuid not null references public.marketplace_products(id) on delete restrict,
+  rank integer not null,
+  score numeric not null default 0,
+  product_coverage_percent numeric not null default 0,
+  stack_contribution_percent numeric not null default 0,
+  covered_needs jsonb not null default '[]'::jsonb,
+  why text null,
+  affiliate_link_id uuid null references public.product_affiliate_links(id) on delete set null,
+  url_used text not null,
+  price_amount numeric null,
+  currency text not null default 'THB',
+  image_url text null,
+  unknown_at_recommendation boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (run_id, rank),
+  unique (run_id, product_id)
+);
+
+create index product_recommendation_items_product_idx
+  on public.product_recommendation_items (product_id, created_at desc);
+
+create table public.product_admin_audit (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid null references public.marketplace_products(id) on delete set null,
+  brand_id uuid null references public.product_brands(id) on delete set null,
+  action text not null,
+  actor text null,
+  before_payload jsonb not null default '{}'::jsonb,
+  after_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index product_admin_audit_product_idx
+  on public.product_admin_audit (product_id, created_at desc);
+
+create index product_admin_audit_brand_idx
+  on public.product_admin_audit (brand_id, created_at desc);
 
 with seed as (
   select *

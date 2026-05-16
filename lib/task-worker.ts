@@ -24,13 +24,17 @@ type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
   | "analyze_healthscore"
   | "client_safety_followup"
+  | "discover_marketplace_products"
   | "generate_example_food_guidance"
   | "generate_example_supplement_guidance"
   | "generate_food_guidance"
   | "generate_nutrition_report"
+  | "generate_product_recommendations"
   | "generate_supplement_guidance"
   | "nutrition_plan_chat_reply"
+  | "parse_product_label"
   | "refine_nutrition_plan"
+  | "refresh_marketplace_product"
   | "send_example_email"
   | "send_reassessment_email"
   | "sync_digitalocean_billing";
@@ -49,6 +53,7 @@ const TASK_BUSINESS_VALUES = {
   nutritionPlanChatReply: 430,
   nutritionPlanRefinement: 520,
   nutritionReport: 500,
+  productRecommendations: 360,
   precision: 450,
   pro: 450,
   reassessment: 200
@@ -759,6 +764,92 @@ export async function enqueueNutritionReportTask({
     reason: taskId ? null : "Unable to queue final plan.",
     taskId
   };
+}
+
+export async function enqueueProductRecommendationsTask({
+  parentTaskId,
+  planId,
+  taskGroupId
+}: Readonly<{
+  parentTaskId?: string | null;
+  planId: string;
+  taskGroupId?: string | null;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return null;
+  }
+
+  const rows = await sql<Array<{
+    food_version: number;
+    formulation_version: number;
+    report_version: number;
+  }>>`
+    select
+      coalesce((
+        select max(version)
+        from public.formulations
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ), 0) as formulation_version,
+      coalesce((
+        select max(version)
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ), 0) as food_version,
+      coalesce((
+        select max(version)
+        from public.nutrition_reports
+        where plan_id = ${planId}::uuid
+      ), 0) as report_version
+  `;
+  const row = rows[0];
+
+  if (
+    !row ||
+    row.formulation_version < 1 ||
+    row.food_version < 1 ||
+    row.report_version < 1
+  ) {
+    return null;
+  }
+
+  const inputHash = stableHash(row);
+  const groupId =
+    taskGroupId ??
+    (await latestNutritionTaskGroupId(sql, planId)) ??
+    deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
+
+  return createWorkTask({
+    actorType: "deterministic",
+    businessValue: TASK_BUSINESS_VALUES.productRecommendations,
+    groupLabel: "Match products",
+    id: deterministicUuid(
+      `mattanutra:task:product-recommendations:${planId}:${inputHash}`
+    ),
+    idempotencyKey: `product-recommendations:${planId}:${inputHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `product-recommendations:${planId}:${inputHash}`,
+    payload: {
+      inputHash,
+      parentTaskId,
+      row
+    },
+    planId,
+    reasoningEffort: "none",
+    source: "product_recommendations",
+    taskGroupId: groupId,
+    taskTitle: "Match marketplace products",
+    taskType: "generate_product_recommendations"
+  });
 }
 
 export async function enqueueRefinedNutritionPlanTasks({

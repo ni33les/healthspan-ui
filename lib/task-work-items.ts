@@ -14,8 +14,17 @@ import {
   buildExampleEmailSubject
 } from "@/lib/example-email";
 import { isLocale, type Locale } from "@/lib/i18n";
+import {
+  getProductRecommendationCandidates
+} from "@/lib/admin-products";
 import { loadActivePlanFeedback } from "@/lib/plan-feedback";
 import { loadActivePlanGuidanceAdjustments } from "@/lib/plan-guidance-adjustments";
+import {
+  buildMarketplaceSearchQueries,
+  buildProductNeeds,
+  type ProductCandidate,
+  type ProductRecommendationNeed
+} from "@/lib/product-recommendations";
 import {
   buildReassessmentEmailHtml,
   buildReassessmentEmailSubject
@@ -148,6 +157,25 @@ export type NutritionPlanRefinementWorkItem = Readonly<{
   taskType: "refine_nutrition_plan";
 }>;
 
+export type ProductRecommendationsWorkItem = Readonly<{
+  candidates: ProductCandidate[];
+  needs: ProductRecommendationNeed[];
+  planId: string;
+  searchQueries: string[];
+  taskId: string;
+  taskType: "generate_product_recommendations";
+}>;
+
+export type MarketplaceProductMaintenanceWorkItem = Readonly<{
+  payload: Record<string, unknown>;
+  planId: string | null;
+  taskId: string;
+  taskType:
+    | "discover_marketplace_products"
+    | "parse_product_label"
+    | "refresh_marketplace_product";
+}>;
+
 export type TaskWorkItem =
   | CommunicationFollowupWorkItem
   | ContentStatusChangeWorkItem
@@ -156,9 +184,11 @@ export type TaskWorkItem =
   | FoodGuidanceWorkItem
   | FormulationWorkItem
   | HealthScoreWorkItem
+  | MarketplaceProductMaintenanceWorkItem
   | NutritionPlanChatWorkItem
   | NutritionPlanRefinementWorkItem
   | NutritionReportWorkItem
+  | ProductRecommendationsWorkItem
   | ReassessmentEmailWorkItem
   | Readonly<{
       originalTaskType: string;
@@ -672,6 +702,27 @@ async function buildNutritionReportWorkItem(task: TaskRecord) {
   } satisfies NutritionReportWorkItem;
 }
 
+async function buildProductRecommendationsWorkItem(task: TaskRecord) {
+  const context = await buildNutritionAdvisorContext(task);
+
+  if (!task.planId || !context.formulation || !context.foodGuidance) {
+    throw new Error("Product recommendation task requires a finalized plan");
+  }
+  const needs = buildProductNeeds({
+    foodGuidance: context.foodGuidance,
+    formulation: context.formulation
+  });
+
+  return {
+    candidates: await getProductRecommendationCandidates(),
+    needs,
+    planId: task.planId,
+    searchQueries: buildMarketplaceSearchQueries(needs),
+    taskId: task.id,
+    taskType: "generate_product_recommendations"
+  } satisfies ProductRecommendationsWorkItem;
+}
+
 async function buildNutritionPlanRefinementWorkItem(task: TaskRecord) {
   if (!task.planId) {
     throw new Error("Nutrition plan refinement task is missing a plan");
@@ -722,6 +773,23 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
 
   if (task.taskType === "generate_nutrition_report") {
     return buildNutritionReportWorkItem(task);
+  }
+
+  if (task.taskType === "generate_product_recommendations") {
+    return buildProductRecommendationsWorkItem(task);
+  }
+
+  if (
+    task.taskType === "discover_marketplace_products" ||
+    task.taskType === "parse_product_label" ||
+    task.taskType === "refresh_marketplace_product"
+  ) {
+    return {
+      payload: payloadRecord(task.payload),
+      planId: task.planId,
+      taskId: task.id,
+      taskType: task.taskType
+    } satisfies MarketplaceProductMaintenanceWorkItem;
   }
 
   if (task.taskType === "client_safety_followup") {

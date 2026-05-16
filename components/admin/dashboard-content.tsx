@@ -11,6 +11,7 @@ import {
   HomeIcon,
   MegaphoneIcon,
   QueueListIcon,
+  ShoppingBagIcon,
   SparklesIcon
 } from "@heroicons/react/24/outline";
 import type { AdminDashboardRange } from "@/lib/admin-dashboard-data";
@@ -31,6 +32,7 @@ export type AdminDashboardView =
   | "flow"
   | "glance"
   | "leads"
+  | "products"
   | "reviews"
   | "supplements"
   | "testimonials"
@@ -701,6 +703,7 @@ export const content = {
     governance: [
       { icon: ExclamationTriangleIcon, name: "Reviews", view: "reviews" },
       { icon: SparklesIcon, name: "Foods", view: "foods" },
+      { icon: ShoppingBagIcon, name: "Products", view: "products" },
       { icon: BeakerIcon, name: "Supplements", view: "supplements" }
     ],
     governanceTitle: "Safety",
@@ -723,6 +726,7 @@ export const content = {
       flow: "Conversions",
       glance: "Dashboard",
       leads: "Leads",
+      products: "Products",
       reviews: "Reviews",
       supplements: "Supplements",
       testimonials: "Testimonials",
@@ -1125,6 +1129,7 @@ export const content = {
     governance: [
       { icon: ExclamationTriangleIcon, name: "รีวิว", view: "reviews" },
       { icon: SparklesIcon, name: "อาหาร", view: "foods" },
+      { icon: ShoppingBagIcon, name: "สินค้า", view: "products" },
       { icon: BeakerIcon, name: "อาหารเสริม", view: "supplements" }
     ],
     governanceTitle: "ความปลอดภัย",
@@ -1147,6 +1152,7 @@ export const content = {
       flow: "Conversions",
       glance: "Dashboard",
       leads: "ลีด",
+      products: "สินค้า",
       reviews: "รีวิว",
       supplements: "อาหารเสริม",
       testimonials: "คำรับรอง",

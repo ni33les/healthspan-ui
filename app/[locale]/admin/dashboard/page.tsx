@@ -15,6 +15,7 @@ import {
 import { getAdminFlowData } from "@/lib/admin-flow-data";
 import { getAdminFinancialsData } from "@/lib/admin-financials";
 import { getAdminFoodsData } from "@/lib/admin-foods";
+import { getAdminProductsData } from "@/lib/admin-products";
 import {
   getAdminCampaignsData,
   getAdminContentData,
@@ -75,6 +76,7 @@ export default async function LocalizedAdminDashboardPage({
     rawView === "flow" ||
     rawView === "glance" ||
     rawView === "leads" ||
+    rawView === "products" ||
     rawView === "reviews" ||
     rawView === "supplements" ||
     rawView === "testimonials" ||
@@ -100,6 +102,7 @@ export default async function LocalizedAdminDashboardPage({
     foodsData,
     flowData,
     leadsData,
+    productsData,
     reviewQueueData,
     supplementsData,
     visibilityData
@@ -114,6 +117,7 @@ export default async function LocalizedAdminDashboardPage({
     getAdminFoodsData(),
     getAdminFlowData(range, filters),
     getAdminLeadsData(range, filters),
+    getAdminProductsData(),
     getAdminReviewQueueData(),
     getAdminSupplementsData(),
     getAdminTaskVisibilityData(range, selectedTaskId)
@@ -134,6 +138,7 @@ export default async function LocalizedAdminDashboardPage({
       flowData={flowData}
       leadsData={leadsData}
       locale={locale}
+      productsData={productsData}
       reviewQueueData={reviewQueueData}
       selectedReviewTaskId={selectedReviewTaskId}
       selectedTaskId={selectedTaskId}

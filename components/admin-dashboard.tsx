@@ -57,6 +57,9 @@ import type {
   AdminFoodsData
 } from "@/lib/admin-foods";
 import type {
+  AdminProductsData
+} from "@/lib/admin-products";
+import type {
   AdminCampaignsData,
   AdminContentInventoryData,
   AdminLeadsData
@@ -107,6 +110,7 @@ import { AdminLeadsView } from "@/components/admin/marketing-leads";
 import { AdminContentView, contentTypeForView } from "@/components/admin/content-view";
 import {
   AdminFoodsView,
+  AdminProductsView,
   AdminReviewQueueView,
   AdminSupplementsView,
   SupplementListMeta
@@ -2088,6 +2092,7 @@ function adminViewDatabaseAvailable({
   foodsData,
   flowData,
   leadsData,
+  productsData,
   reviewQueueData,
   supplementsData,
   visibilityData,
@@ -2103,6 +2108,7 @@ function adminViewDatabaseAvailable({
   foodsData: AdminFoodsData;
   flowData: AdminFlowData;
   leadsData: AdminLeadsData;
+  productsData: AdminProductsData;
   reviewQueueData: AdminReviewQueueData;
   supplementsData: AdminSupplementsData;
   visibilityData: AdminTaskVisibilityData;
@@ -2154,6 +2160,10 @@ function adminViewDatabaseAvailable({
     return leadsData.databaseAvailable;
   }
 
+  if (view === "products") {
+    return productsData.databaseAvailable;
+  }
+
   if (view === "reviews") {
     return reviewQueueData.databaseAvailable;
   }
@@ -2183,6 +2193,7 @@ export function AdminDashboard({
   flowData,
   leadsData,
   locale,
+  productsData,
   reviewQueueData,
   selectedReviewTaskId,
   selectedTaskId,
@@ -2203,6 +2214,7 @@ export function AdminDashboard({
   flowData: AdminFlowData;
   leadsData: AdminLeadsData;
   locale: Locale;
+  productsData: AdminProductsData;
   reviewQueueData: AdminReviewQueueData;
   selectedReviewTaskId?: string | null;
   selectedTaskId?: string | null;
@@ -2261,6 +2273,7 @@ export function AdminDashboard({
     foodsData,
     flowData,
     leadsData,
+    productsData,
     reviewQueueData,
     supplementsData,
     visibilityData: liveVisibilityData,
@@ -2478,6 +2491,12 @@ export function AdminDashboard({
             <AdminFoodsView
               accessToken={accessToken}
               data={foodsData}
+              locale={locale}
+            />
+          ) : view === "products" ? (
+            <AdminProductsView
+              accessToken={accessToken}
+              data={productsData}
               locale={locale}
             />
           ) : view === "supplements" ? (

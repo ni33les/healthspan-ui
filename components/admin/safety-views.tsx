@@ -32,6 +32,12 @@ import type {
   FoodConfidence,
   FoodListStatus
 } from "@/lib/admin-foods";
+import type {
+  AdminProductRow,
+  AdminProductsData,
+  ProductAffiliateStatus,
+  ProductLabelStatus
+} from "@/lib/admin-products";
 import { foodNutrientCatalog } from "@/lib/food-nutrients";
 import {
   foodBenefitTags,
@@ -82,6 +88,485 @@ import {
   toggleSupplementSafetyFlag,
   updateFoodNutrientProfileValue
 } from "@/components/admin/safety-view-helpers";
+
+const productListStatuses = [
+  "unknown",
+  "whitelisted",
+  "review_required",
+  "blacklisted",
+  "inactive"
+] as const;
+const productLabelStatuses = ["parsed", "missing", "stale", "failed"] as const;
+const productAvailabilityStatuses = [
+  "in_stock",
+  "unknown",
+  "out_of_stock",
+  "unavailable"
+] as const;
+const productAffiliateStatuses = [
+  "active",
+  "flagged_stale",
+  "none"
+] as const;
+
+function productSearchText(row: AdminProductRow) {
+  return [
+    row.title,
+    row.brandName,
+    row.platform,
+    row.listStatus,
+    row.affiliateStatus,
+    ...row.facts.map((fact) => fact.name)
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function productStatusLabel(status: string) {
+  return readableToken(status);
+}
+
+function productStatusClass(status: string) {
+  if (status === "whitelisted" || status === "active" || status === "in_stock") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (status === "blacklisted" || status === "failed" || status === "unavailable") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  if (
+    status === "review_required" ||
+    status === "flagged_stale" ||
+    status === "missing" ||
+    status === "stale" ||
+    status === "out_of_stock"
+  ) {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-gray-200 bg-gray-50 text-gray-700";
+}
+
+export function AdminProductsView({
+  accessToken,
+  data,
+  locale
+}: Readonly<{
+  accessToken: string;
+  data: AdminProductsData;
+  locale: Locale;
+}>) {
+  const [rows, setRows] = useState(data.rows);
+  const [draft, setDraft] = useState<AdminProductRow | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const summary = rows.reduce(
+    (counts, row) => {
+      counts.total += 1;
+      counts.activeAffiliate += row.affiliateStatus === "active" ? 1 : 0;
+      counts.missingFacts += row.facts.length < 1 || row.labelStatus !== "parsed" ? 1 : 0;
+      counts.reviewRequired += row.listStatus === "review_required" ? 1 : 0;
+      counts.unknown += row.listStatus === "unknown" ? 1 : 0;
+      counts.whitelisted += row.listStatus === "whitelisted" ? 1 : 0;
+
+      return counts;
+    },
+    {
+      activeAffiliate: 0,
+      missingFacts: 0,
+      reviewRequired: 0,
+      total: 0,
+      unknown: 0,
+      whitelisted: 0
+    }
+  );
+  const metrics: BusinessMetric[] = [
+    safetyMetric({
+      color: businessMetricColors.total,
+      id: "productsTotal",
+      label: "Products",
+      locale,
+      value: summary.total
+    }),
+    safetyMetric({
+      color: businessMetricColors.succeeded,
+      id: "productsWhitelisted",
+      label: "Whitelisted",
+      locale,
+      value: summary.whitelisted
+    }),
+    safetyMetric({
+      color: businessMetricColors.pendingReviews,
+      id: "productsUnknown",
+      label: "Unknown",
+      locale,
+      value: summary.unknown
+    }),
+    safetyMetric({
+      color: businessMetricColors.failed,
+      id: "productsMissingFacts",
+      label: "Missing facts",
+      locale,
+      value: summary.missingFacts
+    }),
+    safetyMetric({
+      color: businessMetricColors.active,
+      id: "productsAffiliates",
+      label: "Active affiliates",
+      locale,
+      value: summary.activeAffiliate
+    })
+  ];
+  const filteredRows = rows.filter((row) => {
+    const matchesSearch =
+      !normalizedSearch || productSearchText(row).includes(normalizedSearch);
+    const matchesStatus = !status || row.listStatus === status;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  async function saveProduct(row: AdminProductRow) {
+    setSavingId(row.id);
+    setErrorId(null);
+
+    try {
+      const response = await fetch(`/api/admin/products/${row.id}`, {
+        body: JSON.stringify({
+          accessToken,
+          affiliateStatus: row.affiliateStatus,
+          availabilityStatus: row.availabilityStatus,
+          labelStatus: row.labelStatus,
+          listStatus: row.listStatus,
+          priceAmount: row.priceAmount
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "PATCH"
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save product");
+      }
+
+      const payload = (await response.json()) as { row?: AdminProductRow };
+      const savedRow = payload.row ?? row;
+
+      setRows((currentRows) =>
+        currentRows.map((item) => (item.id === row.id ? savedRow : item))
+      );
+      setDraft((currentDraft) =>
+        currentDraft?.id === row.id ? savedRow : currentDraft
+      );
+      return true;
+    } catch {
+      setErrorId(row.id);
+      return false;
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="mt-8 space-y-6">
+      <BusinessStatsGrid metrics={metrics} />
+
+      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_14rem]">
+          <input
+            aria-label="Search products"
+            className="rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-[#1FA77A]"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search products, brands, ingredients"
+            type="search"
+            value={search}
+          />
+          <select
+            aria-label="Status"
+            className="rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+            onChange={(event) => setStatus(event.target.value)}
+            value={status}
+          >
+            <option value="">All statuses</option>
+            {productListStatuses.map((item) => (
+              <option key={item} value={item}>
+                {productStatusLabel(item)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {filteredRows.map((row) => (
+          <button
+            className="rounded-2xl bg-white p-5 text-left shadow-sm ring-1 ring-gray-200 transition hover:-translate-y-0.5 hover:shadow-md"
+            key={row.id}
+            onClick={() => setDraft(row)}
+            type="button"
+          >
+            <div className="flex gap-4">
+              {row.imageUrl ? (
+                <img
+                  alt=""
+                  className="size-20 rounded-lg object-cover ring-1 ring-gray-200"
+                  src={row.imageUrl}
+                />
+              ) : (
+                <div className="flex size-20 items-center justify-center rounded-lg bg-gray-50 text-xs font-semibold text-gray-400 ring-1 ring-gray-200">
+                  {row.platform.toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">
+                      {row.title}
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      {[row.brandName, readableToken(row.platform), row.priceAmount ? `${row.priceAmount} ${row.currency}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                  <span
+                    className={classNames(
+                      "rounded-full border px-2.5 py-1 text-xs font-medium",
+                      productStatusClass(row.listStatus)
+                    )}
+                  >
+                    {productStatusLabel(row.listStatus)}
+                  </span>
+                </div>
+                {row.facts.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {row.facts.slice(0, 6).map((fact) => (
+                      <span
+                        className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                        key={fact.id}
+                      >
+                        {fact.name}
+                        {fact.amount ? ` ${fact.amount}${fact.unit ? ` ${fact.unit}` : ""}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-amber-700">No parsed label facts yet.</p>
+                )}
+                <p className="mt-3 text-sm text-gray-500">
+                  Chosen {row.recommendationHistory.chosenCount} times
+                  {row.recommendationHistory.averageProductCoveragePercent
+                    ? ` · avg ${Math.round(row.recommendationHistory.averageProductCoveragePercent)}% client fit`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {draft ? (
+        <ProductModal
+          draft={draft}
+          error={errorId === draft.id}
+          onClose={() => setDraft(null)}
+          onSave={saveProduct}
+          saving={savingId === draft.id}
+          setDraft={setDraft}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ProductModal({
+  draft,
+  error,
+  onClose,
+  onSave,
+  saving,
+  setDraft
+}: Readonly<{
+  draft: AdminProductRow;
+  error: boolean;
+  onClose: () => void;
+  onSave: (row: AdminProductRow) => Promise<boolean>;
+  saving: boolean;
+  setDraft: (row: AdminProductRow) => void;
+}>) {
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-950/40 px-4 py-8">
+      <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-200">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">{draft.title}</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              {[draft.brandName, readableToken(draft.platform), draft.region]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+          <button
+            aria-label="Close"
+            className="rounded-full p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+            onClick={onClose}
+            type="button"
+          >
+            <XMarkIcon className="size-5" />
+          </button>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-medium text-gray-700">
+            Product status
+            <select
+              className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  listStatus: event.target.value as AdminProductRow["listStatus"]
+                })
+              }
+              value={draft.listStatus}
+            >
+              {productListStatuses.map((item) => (
+                <option key={item} value={item}>
+                  {productStatusLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-gray-700">
+            Label facts
+            <select
+              className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  labelStatus: event.target.value as ProductLabelStatus
+                })
+              }
+              value={draft.labelStatus}
+            >
+              {productLabelStatuses.map((item) => (
+                <option key={item} value={item}>
+                  {productStatusLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-gray-700">
+            Availability
+            <select
+              className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  availabilityStatus: event.target.value as AdminProductRow["availabilityStatus"]
+                })
+              }
+              value={draft.availabilityStatus}
+            >
+              {productAvailabilityStatuses.map((item) => (
+                <option key={item} value={item}>
+                  {productStatusLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-gray-700">
+            Affiliate
+            <select
+              className="mt-1 block w-full rounded-md bg-white px-3 py-2 text-sm text-gray-900 ring-1 ring-gray-200 outline-none focus:ring-2 focus:ring-[#1FA77A]"
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  affiliateStatus: event.target.value as ProductAffiliateStatus
+                })
+              }
+              value={draft.affiliateStatus}
+            >
+              {productAffiliateStatuses.map((item) => (
+                <option key={item} value={item}>
+                  {productStatusLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-5">
+          <h3 className="text-sm font-semibold text-gray-900">Parsed facts</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {draft.facts.length > 0 ? draft.facts.map((fact) => (
+              <span
+                className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                key={fact.id}
+              >
+                {fact.name}
+                {fact.amount ? ` ${fact.amount}${fact.unit ? ` ${fact.unit}` : ""}` : ""}
+              </span>
+            )) : (
+              <span className="text-sm text-amber-700">No parsed facts yet.</span>
+            )}
+          </div>
+        </div>
+
+        {draft.affiliateLinks.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold text-gray-900">Affiliate links</h3>
+            <div className="mt-2 space-y-2">
+              {draft.affiliateLinks.map((link) => (
+                <a
+                  className="block truncate text-sm font-medium text-[#2563EB] hover:text-[#1D4ED8]"
+                  href={link.url}
+                  key={link.id}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {link.url}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="mt-4 text-sm font-medium text-red-700">
+            Could not save this product.
+          </p>
+        ) : null}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded-md bg-[#1FA77A] px-3 py-2 text-sm font-semibold text-white hover:bg-[#168763] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving}
+            onClick={async () => {
+              if (await onSave(draft)) {
+                onClose();
+              }
+            }}
+            type="button"
+          >
+            {saving ? "Saving" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AdminFoodsView({
   accessToken,

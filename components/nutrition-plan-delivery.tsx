@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ExclamationTriangleIcon } from "@heroicons/react/20/solid";
 import {
   FinalReportPanel,
+  ProductRecommendationsPanel,
   formulationResultsCopy
 } from "@/components/formulation-results";
 import { NutritionProgress } from "@/components/nutrition-progress";
@@ -56,11 +57,13 @@ export function NutritionPlanDelivery({
   );
   const [result, setResult] = useState<FormulationResult | null>(initialResult);
   const finalizationRequestedRef = useRef(false);
+  const productPollAttemptsRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
     finalizationRequestedRef.current = false;
+    productPollAttemptsRef.current = 0;
 
     async function loadPlan() {
       try {
@@ -85,6 +88,18 @@ export function NutritionPlanDelivery({
           if (!cancelled) {
             setResult(payload);
             setState("ready");
+            const productStatus = payload.productRecommendations?.status;
+            const productMatchingTerminal =
+              productStatus === "ready" ||
+              productStatus === "partial" ||
+              productStatus === "failed";
+            if (
+              !productMatchingTerminal &&
+              productPollAttemptsRef.current < 80
+            ) {
+              productPollAttemptsRef.current += 1;
+              timer = window.setTimeout(loadPlan, 1500);
+            }
           }
           return;
         }
@@ -206,6 +221,12 @@ export function NutritionPlanDelivery({
         labels={formulationLabels}
         locale={locale}
         report={result.nutritionReport}
+      />
+      <ProductRecommendationsPanel
+        locale={locale}
+        planId={planId}
+        productRecommendations={result.productRecommendations}
+        recommendations={result.recommendations}
       />
     </section>
   );

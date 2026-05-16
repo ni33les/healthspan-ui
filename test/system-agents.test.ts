@@ -25,6 +25,7 @@ describe("system agents", () => {
         "Human Reviewer",
         "Nutrition Plan Advisor",
         "Nutrition Plan Formulator",
+        "Product Matcher",
         "Safety Scanner",
         "Scheduler"
       ].sort()
@@ -36,13 +37,17 @@ describe("system agents", () => {
       "analyze_healthscore",
       "client_safety_followup",
       "content_status_change",
+      "discover_marketplace_products",
       "generate_example_food_guidance",
       "generate_example_supplement_guidance",
       "generate_food_guidance",
       "generate_nutrition_report",
+      "generate_product_recommendations",
       "generate_supplement_guidance",
       "nutrition_plan_chat_reply",
+      "parse_product_label",
       "refine_nutrition_plan",
+      "refresh_marketplace_product",
       "send_example_email",
       "send_reassessment_email",
       "sync_digitalocean_billing"

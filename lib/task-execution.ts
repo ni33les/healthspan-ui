@@ -3,14 +3,60 @@ import { analyzeFoodGuidanceWithGrok } from "@/lib/food-guidance-analysis";
 import { analyzeFormulationWithGrok } from "@/lib/formulation-analysis";
 import { fetchDigitalOceanInvoicePreview } from "@/lib/finance-ledger";
 import type { HealthScoreResult } from "@/lib/health-score";
+import {
+  searchMarketplaceProducts,
+  type MarketplaceProductSnapshot,
+  type MarketplaceSearchDiagnostic
+} from "@/lib/marketplace-adapters";
 import { analyzeHealthScoreAdviceWithUsage } from "@/lib/health-score-analysis";
 import {
   analyzeNutritionPlanChatWithGrok,
   analyzeNutritionReportWithGrok
 } from "@/lib/nutrition-plan-advisor-analysis";
+import { recommendProductStack } from "@/lib/product-recommendations";
 import { sendTransactionalEmail } from "@/lib/smtp-email";
 import type { TaskWorkItem } from "@/lib/task-work-items";
 import type { SendTransactionalEmailResult } from "@/lib/smtp-email";
+
+function uniqueSnapshots(products: MarketplaceProductSnapshot[]) {
+  const seen = new Set<string>();
+  const unique: MarketplaceProductSnapshot[] = [];
+
+  for (const product of products) {
+    const key =
+      `${product.platform}:${product.region}:` +
+      (product.marketplaceProductId || product.productUrl || product.title).toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(product);
+  }
+
+  return unique;
+}
+
+async function discoverMarketplaceProductsForQueries(queries: readonly string[]) {
+  const diagnostics: MarketplaceSearchDiagnostic[] = [];
+  const products: MarketplaceProductSnapshot[] = [];
+
+  for (const query of queries.slice(0, 10)) {
+    const result = await searchMarketplaceProducts({
+      limit: 12,
+      query,
+      region: "TH"
+    });
+    diagnostics.push(...result.diagnostics);
+    products.push(...result.products);
+  }
+
+  return {
+    diagnostics,
+    products: uniqueSnapshots(products).slice(0, 80)
+  };
+}
 
 function analysisErrorMessage(error: unknown) {
   return error instanceof Error
@@ -213,6 +259,31 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
     });
 
     return { analysis };
+  }
+
+  if (workItem.taskType === "generate_product_recommendations") {
+    const discovery = await discoverMarketplaceProductsForQueries(
+      workItem.searchQueries
+    );
+    const recommendations = recommendProductStack({
+      candidates: workItem.candidates,
+      needs: workItem.needs
+    });
+
+    return { discovery, recommendations };
+  }
+
+  if (
+    workItem.taskType === "discover_marketplace_products" ||
+    workItem.taskType === "parse_product_label" ||
+    workItem.taskType === "refresh_marketplace_product"
+  ) {
+    return {
+      accepted: true,
+      reason: "Marketplace official adapter is not configured yet.",
+      skipped: true,
+      taskType: workItem.taskType
+    };
   }
 
   if (workItem.taskType === "refine_nutrition_plan") {

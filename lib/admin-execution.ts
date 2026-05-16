@@ -11,6 +11,7 @@ const ADMIN_AGENT_DISPLAY_ORDER = [
   SYSTEM_AGENTS.healthScoreEngine.id,
   SYSTEM_AGENTS.formulationWorker.id,
   SYSTEM_AGENTS.safetyScanner.id,
+  SYSTEM_AGENTS.productMatcher.id,
   SYSTEM_AGENTS.humanReviewer.id,
   SYSTEM_AGENTS.emailDispatcher.id,
   SYSTEM_AGENTS.communicationsCoordinator.id,

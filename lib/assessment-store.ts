@@ -540,7 +540,14 @@ export async function getStoredFormulationResult(
       nutrition_reports.generated_at as nutrition_report_generated_at,
       report_task.status as report_task_status,
       refinement_task.status as refinement_task_status,
-      recommendations.recommendations
+      recommendations.recommendations,
+      product_recommendation_run.id::text as product_recommendation_run_id,
+      product_recommendation_run.status as product_recommendation_run_status,
+      product_recommendation_run.stack_coverage_percent as product_recommendation_stack_coverage_percent,
+      product_recommendation_run.client_needs_count as product_recommendation_needs_count,
+      product_recommendation_run.generated_at as product_recommendation_generated_at,
+      product_recommendation_run.notes as product_recommendation_notes,
+      product_recommendation_task.status as product_recommendation_task_status
     from assessments
     left join lateral (
       select formulation, generated_at, model_version
@@ -595,6 +602,27 @@ export async function getStoredFormulationResult(
       order by version desc, generated_at desc
       limit 1
     ) recommendations on true
+    left join lateral (
+      select
+        id,
+        status,
+        stack_coverage_percent,
+        jsonb_array_length(client_needs) as client_needs_count,
+        notes,
+        generated_at
+      from product_recommendation_runs
+      where product_recommendation_runs.plan_id = assessments.plan_id
+      order by generated_at desc
+      limit 1
+    ) product_recommendation_run on true
+    left join lateral (
+      select status
+      from tasks
+      where tasks.plan_id = assessments.plan_id
+        and task_type = 'generate_product_recommendations'
+      order by created_at desc
+      limit 1
+    ) product_recommendation_task on true
     where assessments.plan_id = ${planId}::uuid
       ${assessmentAccessFilter}
     limit 1
@@ -629,8 +657,40 @@ export async function getStoredFormulationResult(
 
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
   const nutritionReportRecord = asRecord(row.nutrition_report);
+  const hasNutritionReportRecord = Object.keys(nutritionReportRecord).length > 0;
+  const productRecommendationTaskStatus =
+    typeof row.product_recommendation_task_status === "string"
+      ? row.product_recommendation_task_status
+      : "";
+  const productRecommendationRunStatus =
+    typeof row.product_recommendation_run_status === "string"
+      ? row.product_recommendation_run_status
+      : "";
+  const productRecommendationPending = [
+    "queued",
+    "reserved",
+    "running",
+    "needs_review",
+    "waiting_approval"
+  ].includes(productRecommendationTaskStatus);
+  const productRecommendationStatus =
+    productRecommendationRunStatus === "completed"
+      ? "ready"
+      : productRecommendationRunStatus === "partial"
+        ? "partial"
+        : productRecommendationRunStatus === "failed"
+          ? "failed"
+          : productRecommendationPending || hasNutritionReportRecord
+            ? "pending"
+            : undefined;
+  const productRecommendationGeneratedAt =
+    row.product_recommendation_generated_at instanceof Date
+      ? row.product_recommendation_generated_at.toISOString()
+      : row.product_recommendation_generated_at
+        ? new Date(row.product_recommendation_generated_at).toISOString()
+        : undefined;
   const nutritionReport =
-    Object.keys(nutritionReportRecord).length > 0
+    hasNutritionReportRecord
       ? ({
           ...nutritionReportRecord,
           generatedAt:
@@ -702,6 +762,28 @@ export async function getStoredFormulationResult(
     generatedAt,
     planId,
     nutritionReport,
+    ...(productRecommendationStatus
+      ? {
+          productRecommendations: {
+            ...(productRecommendationGeneratedAt
+              ? { generatedAt: productRecommendationGeneratedAt }
+              : {}),
+            matchedCount: recommendations.length,
+            needsCount:
+              Number(row.product_recommendation_needs_count) || 0,
+            ...(typeof row.product_recommendation_notes === "string" &&
+            row.product_recommendation_notes.trim()
+              ? { notes: row.product_recommendation_notes.trim() }
+              : {}),
+            ...(typeof row.product_recommendation_run_id === "string"
+              ? { runId: row.product_recommendation_run_id }
+              : {}),
+            stackCoveragePercent:
+              Number(row.product_recommendation_stack_coverage_percent) || 0,
+            status: productRecommendationStatus
+          }
+        }
+      : {}),
     recommendations,
     schemaVersion: 1,
     sectionStatuses: {
