@@ -352,6 +352,7 @@ export type ReserveNextTaskInput = Readonly<{
 
 export type ReleaseExpiredReservationsInput = Readonly<{
   applyFailure?: (context: TaskFailureContext) => Promise<unknown>;
+  batchLimit?: number;
 }>;
 
 export type RetryFailedTaskInput = Readonly<{
@@ -467,4 +468,3 @@ export type CreatedTaskSequence = Readonly<{
   dependencies: TaskDependency[];
   tasks: TaskRecord[];
 }>;
-

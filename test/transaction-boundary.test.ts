@@ -149,6 +149,17 @@ describe("database transaction boundaries", () => {
     );
   });
 
+  it("keeps expired reservation sweeps bounded inside the transaction", async () => {
+    const source = await readFile("lib/task-service.ts", "utf8");
+    const claimBody = functionBody(source, "claimExpiredReservationsInTransaction");
+
+    assert.match(
+      claimBody,
+      /limit\s+\$\{batchLimit\}[\s\S]*for\s+update\s+skip\s+locked/i,
+      "expired reservation release must claim a bounded batch while holding row locks"
+    );
+  });
+
   it("keeps communication retry preparation outside the message claim transaction", async () => {
     const source = await readFile("lib/communications.ts", "utf8");
     const claimBody = functionBody(source, "claimCommunicationRetry");

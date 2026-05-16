@@ -99,6 +99,8 @@ const globalTaskService = globalThis as typeof globalThis & {
 };
 
 const TASK_FINALIZATION_LEASE_SECONDS = 300;
+const EXPIRED_RESERVATION_SWEEP_BATCH_LIMIT = 50;
+const EXPIRED_RESERVATION_SWEEP_BATCH_LIMIT_MAX = 100;
 
 type Db = TaskServiceDb;
 
@@ -110,6 +112,17 @@ function getRequiredSql(sql?: postgres.Sql) {
   }
 
   return configured;
+}
+
+function normalizeExpiredReservationSweepLimit(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return EXPIRED_RESERVATION_SWEEP_BATCH_LIMIT;
+  }
+
+  return Math.min(
+    EXPIRED_RESERVATION_SWEEP_BATCH_LIMIT_MAX,
+    Math.max(1, Math.floor(value))
+  );
 }
 
 export async function ensureWorkerSessionSchema(sql?: postgres.Sql) {
@@ -1404,9 +1417,10 @@ export async function releaseExpiredReservations(
 ) {
   const sql = getRequiredSql();
   const afterCommitEffects: TaskAfterCommitEffect[] = [];
+  const batchLimit = normalizeExpiredReservationSweepLimit(input.batchLimit);
 
   const released = await sql.begin((tx) =>
-    claimExpiredReservationsInTransaction(tx)
+    claimExpiredReservationsInTransaction(tx, batchLimit)
   );
 
   for (const claim of released) {
@@ -1446,7 +1460,10 @@ export async function releaseExpiredReservations(
   return released.length;
 }
 
-async function claimExpiredReservationsInTransaction(sql: Db) {
+async function claimExpiredReservationsInTransaction(
+  sql: Db,
+  batchLimit: number
+) {
   const expired = await sql<ExpiredReservationRow[]>`
     select
       task_reservations.id::text as reservation_id,
@@ -1459,6 +1476,7 @@ async function claimExpiredReservationsInTransaction(sql: Db) {
       and task_reservations.lease_until < now()
       and tasks.status in ('reserved', 'running')
     order by task_reservations.lease_until asc
+    limit ${batchLimit}
     for update skip locked
   `;
   const claims: ExpiredReservationClaim[] = [];
