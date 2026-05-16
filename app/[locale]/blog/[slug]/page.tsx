@@ -39,7 +39,7 @@ function getArticleCta(locale: Locale) {
       body:
         "ใช้เวลาเพียงไม่กี่นาทีเพื่อดู HealthScore ของคุณ และเริ่มบทสนทนาที่เป็นส่วนตัวมากขึ้นเกี่ยวกับพลังงาน การนอน อาหาร งบประมาณ และสิ่งที่เหมาะกับชีวิตประจำวันของคุณจริงๆ",
       eyebrow: "ขั้นตอนถัดไป",
-      href: "/th/assessment",
+      href: "/th/nutrition/quiz",
       primaryLabel: "เริ่มทำแบบประเมิน",
       secondaryHref: "/th",
       secondaryLabel: "กลับหน้าหลัก",
@@ -51,7 +51,7 @@ function getArticleCta(locale: Locale) {
     body:
       "Take a few minutes to discover your HealthScore and begin a more personal conversation about your energy, sleep, diet, budget, and what support actually fits your day.",
     eyebrow: "Your next step",
-    href: "/en/assessment",
+    href: "/en/nutrition/quiz",
     primaryLabel: "Start the assessment",
     secondaryHref: "/en",
     secondaryLabel: "Back to home",

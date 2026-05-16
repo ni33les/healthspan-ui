@@ -38,6 +38,7 @@ drop table if exists
   public.goals,
   public.nutrition_reports,
   public.plan_chat_messages,
+  public.plan_feedback,
   public.plan_guidance_adjustments,
   public.plan_communication_identities,
   public.rays,
@@ -644,6 +645,7 @@ values
     'active',
     array[
       'nutrition_plan_chat',
+      'nutrition_plan_refinement',
       'nutrition_report_generation'
     ]::text[],
     'grok:nutrition-advisor',
@@ -1392,6 +1394,65 @@ create unique index plan_guidance_adjustments_active_unique_idx
     action,
     coalesce(item_id, ''),
     normalized_item_name
+  )
+  where status = 'active';
+
+create table public.plan_feedback (
+  id uuid primary key,
+  plan_id uuid not null references public.assessments(plan_id) on delete cascade,
+  source_message_id uuid null references public.plan_chat_messages(id) on delete set null,
+  source_task_id uuid null references public.tasks(id) on delete set null,
+  feedback_type text not null check (
+    feedback_type in (
+      'budget',
+      'capsule_limit',
+      'constraint',
+      'cuisine',
+      'dislike',
+      'preference',
+      'removal',
+      'routine',
+      'safety_disclosure',
+      'other'
+    )
+  ),
+  item_type text null check (
+    item_type is null or item_type in (
+      'condition',
+      'food',
+      'other',
+      'plan',
+      'supplement'
+    )
+  ),
+  item_id text null,
+  item_name text null,
+  normalized_text text not null,
+  body text not null,
+  urgency text not null default 'normal' check (urgency in ('normal', 'safety')),
+  status text not null default 'active' check (status in ('active', 'revoked')),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table public.plan_feedback is
+  'Durable concierge feedback and preferences used as input when refining a nutrition plan version.';
+
+create index plan_feedback_plan_idx
+  on public.plan_feedback (plan_id, status, urgency, created_at asc);
+
+create index plan_feedback_source_message_idx
+  on public.plan_feedback (source_message_id)
+  where source_message_id is not null;
+
+create unique index plan_feedback_active_unique_idx
+  on public.plan_feedback (
+    plan_id,
+    feedback_type,
+    coalesce(item_type, ''),
+    coalesce(item_id, ''),
+    normalized_text
   )
   where status = 'active';
 
@@ -5026,6 +5087,12 @@ begin
   end;
 
   begin
+    execute 'alter table public.plan_feedback owner to mn';
+  exception when others then
+    raise notice 'Skipping plan_feedback owner change: %', sqlerrm;
+  end;
+
+  begin
     execute 'alter table public.nutrition_reports owner to mn';
   exception when others then
     raise notice 'Skipping nutrition_reports owner change: %', sqlerrm;
@@ -5211,6 +5278,7 @@ begin
          public.communication_messages,
          public.plan_chat_messages,
          public.plan_guidance_adjustments,
+         public.plan_feedback,
          public.nutrition_reports,
          public.agents,
          public.tasks,

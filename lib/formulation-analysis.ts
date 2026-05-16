@@ -1,10 +1,13 @@
 import type { AssessmentPlan } from "@/lib/assessment-snapshot";
 import type { Locale } from "@/lib/i18n";
 import type {
+  FoodGuidanceBlueprint,
   FormulationBlueprint,
   FormulationIngredient,
   LocalizedText,
   MarketingPoint,
+  PlanChatMessage,
+  PlanFeedbackItem,
   FormulationStatus
 } from "@/lib/formulation-types";
 
@@ -17,9 +20,13 @@ type AnalysisAuditEvent = {
 type AnalysisInput = Readonly<{
   answers: unknown;
   audit?: (event: AnalysisAuditEvent) => Promise<void>;
+  chatMessages?: PlanChatMessage[];
   locale: Locale;
   plan: AssessmentPlan;
+  planFeedback?: PlanFeedbackItem[];
   planId: string;
+  previousFoodGuidance?: FoodGuidanceBlueprint | null;
+  previousFormulation?: FormulationBlueprint | null;
   taskId?: string | null;
 }>;
 
@@ -46,7 +53,7 @@ type XaiChatCompletion = {
 
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_GROK_MODEL = "grok-4.3";
-const DEFAULT_FORMULATION_REASONING_EFFORT = "medium";
+const DEFAULT_FORMULATION_REASONING_EFFORT = "low";
 const DEFAULT_PROMPT_VERSION = "v1";
 const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 360_000;
@@ -96,13 +103,37 @@ function systemPrompt(promptVersion: string) {
 
 function userPrompt({
   answers,
+  chatMessages,
   locale,
   plan,
+  planFeedback,
+  previousFoodGuidance,
+  previousFormulation,
   planId
-}: Pick<AnalysisInput, "answers" | "locale" | "plan" | "planId">) {
+}: Pick<
+  AnalysisInput,
+  | "answers"
+  | "chatMessages"
+  | "locale"
+  | "plan"
+  | "planFeedback"
+  | "previousFoodGuidance"
+  | "previousFormulation"
+  | "planId"
+>) {
   return JSON.stringify(
     {
       assessment: answers,
+      currentPlanContext: {
+        chatMessages: (chatMessages ?? []).map((message) => ({
+          body: message.body,
+          createdAt: message.createdAt,
+          role: message.role
+        })),
+        planFeedback: planFeedback ?? [],
+        previousFoodGuidance,
+        previousSupplementGuidance: previousFormulation
+      },
       contract: {
         supplementBreakdown: [
           {
@@ -148,6 +179,9 @@ function userPrompt({
         "marketingPoints title and body must each be localized objects with exactly en and th string values.",
         "Marketing copy must be truthful, benefit-led, and calm. Do not invent discounts, urgency, guarantees, cures, diagnosis, treatment claims, or product availability.",
         "Use marketingPoints to explain why the full bespoke plan is more useful than the free preview: for example prioritization, dose/safety checks, and food-plus-supplement fit.",
+        "When currentPlanContext.planFeedback is present, treat it as client-stated preferences and constraints for this new version.",
+        "Do not reintroduce supplements the client asked to remove or avoid unless safety or clarity requires status=review with a conservative explanation.",
+        "Use previousSupplementGuidance only as context; this response must be a fresh full version, not a patch.",
         "Every supplementBreakdown array entry must be an object. Do not put plain strings in the array.",
         "Every item must include id, category, supplement, dailyDose, effectivenessRank, status, and rationale.",
         "Set effectivenessRank as a unique integer from 1 to the number of items, where 1 is the most effective/highest-impact supplement suggestion for this person's assessment.",

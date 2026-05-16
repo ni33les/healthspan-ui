@@ -1,4 +1,8 @@
 import type { Locale } from "@/lib/i18n";
+import {
+  nutritionQuizPath,
+  nutritionRefinePath
+} from "@/lib/nutrition-paths";
 
 export function siteBaseUrl() {
   return (
@@ -9,11 +13,13 @@ export function siteBaseUrl() {
 }
 
 export function buildAssessmentResultsUrl(locale: Locale, planId: string) {
-  return `${siteBaseUrl()}/${locale}/assessment/results?plan=${encodeURIComponent(planId)}`;
+  return `${siteBaseUrl()}${nutritionRefinePath(locale, planId)}`;
 }
 
 export function buildReassessmentUrl(locale: Locale, planId: string) {
-  return `${siteBaseUrl()}/${locale}/assessment?plan=${encodeURIComponent(planId)}&reassessment=1`;
+  return `${siteBaseUrl()}${nutritionQuizPath(locale, planId, {
+    reassessment: "1"
+  })}`;
 }
 
 export function buildUnsubscribeUrl(token: string) {

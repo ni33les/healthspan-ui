@@ -7,10 +7,6 @@ function sseEvent(name: string, data: unknown) {
   return encoder.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function sseComment(comment: string) {
-  return encoder.encode(`: ${comment}\n\n`);
-}
-
 export function streamAdminSnapshots<T>({
   eventName,
   heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -79,7 +75,18 @@ export function streamAdminSnapshots<T>({
         }
       }
 
+      function sendHeartbeat() {
+        if (!closed) {
+          controller.enqueue(
+            sseEvent("pong", {
+              at: new Date().toISOString()
+            })
+          );
+        }
+      }
+
       void sendSnapshot();
+      sendHeartbeat();
 
       void (async function streamSnapshots() {
         while (!closed) {
@@ -94,9 +101,7 @@ export function streamAdminSnapshots<T>({
       })();
 
       heartbeat = setInterval(() => {
-        if (!closed) {
-          controller.enqueue(sseComment("heartbeat"));
-        }
+        sendHeartbeat();
       }, heartbeatIntervalMs);
 
       request.signal.addEventListener("abort", () => {

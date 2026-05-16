@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 const schema = readFileSync(new URL("../db-schema.sql", import.meta.url), "utf8");
+const taskResultApplier = readFileSync(
+  new URL("../lib/task-result-applier.ts", import.meta.url),
+  "utf8"
+);
 
 describe("task-only schema", () => {
   it("does not rebuild operational goals", () => {
@@ -40,5 +44,18 @@ describe("task-only schema", () => {
     assert.match(schema, /\bplan_id\s+uuid\s+not\s+null\s+references\s+public\.assessments\(plan_id\)/i);
     assert.match(schema, /\bitem_type\s+text\s+not\s+null\s+check\s+\(item_type\s+in\s+\('food',\s+'supplement'\)\)/i);
     assert.match(schema, /\bplan_guidance_adjustments_active_unique_idx\b/i);
+  });
+
+  it("stores concierge feedback separately from generated plan versions", () => {
+    assert.match(schema, /\bcreate\s+table\s+public\.plan_feedback\b/i);
+    assert.match(schema, /\bfeedback_type\s+text\s+not\s+null\s+check\b/i);
+    assert.match(schema, /\burgency\s+text\s+not\s+null\s+default\s+'normal'/i);
+    assert.match(schema, /\bplan_feedback_active_unique_idx\b/i);
+  });
+
+  it("supports idempotent nutrition report writes by task id", () => {
+    assert.match(schema, /\bcreate\s+unique\s+index\s+nutrition_reports_task_idx\b/i);
+    assert.match(schema, /\bon\s+public\.nutrition_reports\s+\(task_id\)\s+where\s+task_id\s+is\s+not\s+null\b/i);
+    assert.match(taskResultApplier, /\bon\s+conflict\s+\(task_id\)\s+where\s+task_id\s+is\s+not\s+null\b/i);
   });
 });

@@ -155,6 +155,7 @@ function agentProfile(
 const WORKER_PROFILES: Record<WorkerProfileMode, WorkerAgentConfig> = {
   advisor: agentProfile("nutritionPlanAdvisor", [
     "nutrition_plan_chat_reply",
+    "refine_nutrition_plan",
     "generate_nutrition_report"
   ]),
   communications: agentProfile("communicationsCoordinator", [

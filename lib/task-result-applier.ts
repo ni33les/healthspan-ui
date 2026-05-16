@@ -13,8 +13,13 @@ import { applyFormulationSafety } from "@/lib/formulation-safety";
 import {
   inferGuidanceRemovalAdjustments,
   normalizeGuidanceAdjustments,
-  savePlanGuidanceAdjustments
 } from "@/lib/plan-guidance-adjustments";
+import {
+  inferPlanFeedbackFromMessage,
+  isPlanRefinementRequest,
+  normalizePlanFeedbackItems,
+  savePlanFeedback
+} from "@/lib/plan-feedback";
 import type {
   FoodGuidanceBlueprint,
   FormulationBlueprint,
@@ -24,7 +29,9 @@ import type { HealthScoreResult } from "@/lib/health-score";
 import { isLocale, type Locale } from "@/lib/i18n";
 import {
   enqueueExampleEmailIfPreviewReady,
-  enqueueExampleEmailsForReadyFullPlan
+  enqueueExampleEmailsForReadyFullPlan,
+  enqueueNutritionPlanRefinementTask,
+  enqueueRefinedNutritionPlanTasks
 } from "@/lib/task-worker";
 import {
   addTaskEvent,
@@ -109,11 +116,21 @@ function nutritionChatAnalysisPayload(resultPayload: unknown) {
   return {
     ...analysis,
     adjustments: normalizeGuidanceAdjustments(analysis.adjustments),
+    feedback: normalizePlanFeedbackItems(analysis.feedback),
     reply
   } as Record<string, unknown> & {
     adjustments: ReturnType<typeof normalizeGuidanceAdjustments>;
+    feedback: ReturnType<typeof normalizePlanFeedbackItems>;
     reply: string;
   };
+}
+
+function refinementQueuedReply(userMessage: string) {
+  if (/[ก-๙]/u.test(userMessage)) {
+    return "รับทราบครับ ผมจะปรับแผนใหม่โดยใช้บทสนทนานี้เป็นบริบท แล้วจะแสดงคำแนะนำอาหาร อาหารเสริม และแผนสรุปฉบับใหม่เมื่อเสร็จ";
+  }
+
+  return "Got it. I’ll regenerate your plan now using this conversation as context. The food guidance, supplement guidance, and final plan will update here as each step finishes.";
 }
 
 function nutritionReportAnalysisPayload(resultPayload: unknown) {
@@ -1315,12 +1332,21 @@ async function applyNutritionPlanChatResult(
       userMessage
     })
   ];
-  const adjustmentCount = await savePlanGuidanceAdjustments(sql, {
-    adjustments: guidanceAdjustments,
+  const planFeedback = [
+    ...analysis.feedback,
+    ...inferPlanFeedbackFromMessage({
+      adjustments: guidanceAdjustments,
+      message: userMessage
+    })
+  ];
+  const feedbackCount = await savePlanFeedback(sql, {
+    feedback: planFeedback,
+    metadata: {
+      source: "nutrition_plan_chat_reply"
+    },
     messageId,
     planId: task.planId,
-    taskId: task.id,
-    userMessage
+    taskId: task.id
   });
 
   await sql`
@@ -1331,6 +1357,16 @@ async function applyNutritionPlanChatResult(
     where id = ${messageId}::uuid
       and plan_id = ${task.planId}::uuid
   `;
+
+  const refinementRequested = isPlanRefinementRequest(userMessage);
+  const refinementQueued = refinementRequested
+    ? await enqueueNutritionPlanRefinementTask({
+        planId: task.planId,
+        requestedBy: "chat"
+      })
+    : null;
+  const assistantReply =
+    refinementQueued?.taskId ? refinementQueuedReply(userMessage) : analysis.reply;
 
   await sql`
     insert into public.plan_chat_messages (
@@ -1351,12 +1387,15 @@ async function applyNutritionPlanChatResult(
       ${task.id}::uuid,
       ${messageId}::uuid,
       'assistant',
-      ${analysis.reply},
+      ${assistantReply},
       'ready',
       ${sql.json(toJsonValue({
-        guidanceAdjustments,
         model: textValue(analysis.model),
+        planFeedback,
         promptVersion: textValue(analysis.promptVersion),
+        refinementRequested,
+        refinementTaskId: refinementQueued?.taskId ?? null,
+        refinementTaskReason: refinementQueued?.reason ?? null,
         responseId: textValue(analysis.responseId),
         taskId: task.id
       }))}::jsonb,
@@ -1383,12 +1422,52 @@ async function applyNutritionPlanChatResult(
 
   await eventually(afterCommit, async () => {
     await addWorkEvent(task, "nutrition_plan_chat_reply_completed", "low", {
-      adjustmentCount,
-      messageId
+      feedbackCount,
+      messageId,
+      refinementRequested,
+      refinementTaskId: refinementQueued?.taskId ?? null
     });
   });
 
   return resultPayload;
+}
+
+async function applyNutritionPlanRefinementResult(
+  task: TaskRecord,
+  resultPayload: unknown,
+  sqlOverride?: TaskServiceDb,
+  afterCommit?: AfterCommitScheduler
+) {
+  const sql = sqlOverride ?? getSql();
+  const payload = objectValue(resultPayload);
+  const refinementHash =
+    textValue(payload.refinementHash) ||
+    payloadText(task.payload, "refinementHash");
+
+  if (!sql || !task.planId || !refinementHash) {
+    throw new Error("Nutrition plan refinement result is missing identifiers");
+  }
+
+  const queued = await enqueueRefinedNutritionPlanTasks({
+    parentTaskId: task.id,
+    planId: task.planId,
+    refinementHash,
+    taskGroupId: task.taskGroupId
+  });
+
+  await eventually(afterCommit, async () => {
+    await addWorkEvent(task, "nutrition_plan_refinement_queued", "medium", {
+      foodGuidanceTaskId: queued.foodGuidanceTaskId,
+      nutritionReportTaskId: queued.nutritionReportTaskId,
+      refinementHash,
+      supplementGuidanceTaskId: queued.supplementGuidanceTaskId
+    });
+  });
+
+  return {
+    ...payload,
+    queued
+  };
 }
 
 async function applyNutritionReportResult(
@@ -1428,6 +1507,7 @@ async function applyNutritionReportResult(
       now()
     )
     on conflict (task_id)
+    where task_id is not null
     do update set
       report = excluded.report,
       model_version = excluded.model_version,
@@ -1514,6 +1594,10 @@ export async function applyTaskCompletionResult({
 
   if (task.taskType === "nutrition_plan_chat_reply") {
     return applyNutritionPlanChatResult(task, resultPayload, sql, afterCommit);
+  }
+
+  if (task.taskType === "refine_nutrition_plan") {
+    return applyNutritionPlanRefinementResult(task, resultPayload, sql, afterCommit);
   }
 
   if (task.taskType === "generate_nutrition_report") {

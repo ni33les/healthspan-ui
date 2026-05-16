@@ -28,6 +28,7 @@ const INTERACTIVE_TASK_TYPES = new Set([
   "generate_nutrition_report",
   "generate_supplement_guidance",
   "nutrition_plan_chat_reply",
+  "refine_nutrition_plan",
   "send_example_email"
 ]);
 

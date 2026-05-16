@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { isUuid, toJsonValue } from "@/lib/assessment-store";
 import { getSql } from "@/lib/db";
+import {
+  appendPlanChatMessage,
+  loadPlanConversationForClient,
+  PLAN_CHAT_LIMIT_ERROR_MESSAGE
+} from "@/lib/plan-concierge";
 import { enqueueNutritionPlanChatReplyTask } from "@/lib/task-worker";
 
 type PlanChatRouteProps = Readonly<{
@@ -19,51 +24,9 @@ function messageFromBody(value: unknown) {
   return typeof message === "string" ? message.trim() : "";
 }
 
-async function loadMessages(planId: string) {
-  const sql = getSql();
-
-  if (!sql || !isUuid(planId)) {
-    return null;
-  }
-
-  const planRows = await sql<Array<{ exists: boolean }>>`
-    select exists (
-      select 1
-      from public.assessments
-      where plan_id = ${planId}::uuid
-        and selected_plan is not null
-    ) as exists
-  `;
-
-  if (planRows[0]?.exists !== true) {
-    return null;
-  }
-
-  const rows = await sql<Array<{
-    body: string;
-    created_at: Date;
-    id: string;
-    role: "assistant" | "user";
-    status: "failed" | "queued" | "ready";
-  }>>`
-    select id::text, role, body, status, created_at
-    from public.plan_chat_messages
-    where plan_id = ${planId}::uuid
-    order by created_at asc
-  `;
-
-  return rows.map((row) => ({
-    body: row.body,
-    createdAt: row.created_at.toISOString(),
-    id: row.id,
-    role: row.role,
-    status: row.status
-  }));
-}
-
 export async function GET(_request: Request, { params }: PlanChatRouteProps) {
   const { planId } = await params;
-  const messages = await loadMessages(planId);
+  const messages = await loadPlanConversationForClient(planId);
 
   if (!messages) {
     return NextResponse.json({ message: "Plan not found" }, { status: 404 });
@@ -96,43 +59,36 @@ export async function POST(request: Request, { params }: PlanChatRouteProps) {
     );
   }
 
-  const planRows = await sql<Array<{ exists: boolean }>>`
-    select exists (
-      select 1
-      from public.assessments
-      where plan_id = ${planId}::uuid
-        and selected_plan is not null
-    ) as exists
-  `;
+  let messageId = "";
 
-  if (planRows[0]?.exists !== true) {
+  try {
+    const recorded = await appendPlanChatMessage(sql, {
+      body,
+      channel: "gui",
+      planId,
+      role: "user",
+      source: "results_page",
+      status: "queued"
+    });
+    messageId = recorded.messageId;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === PLAN_CHAT_LIMIT_ERROR_MESSAGE
+    ) {
+      const messages = await loadPlanConversationForClient(planId);
+
+      return NextResponse.json(
+        {
+          message: "Chat interaction limit reached",
+          messages: messages ?? []
+        },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json({ message: "Plan not found" }, { status: 404 });
   }
-
-  const messageRows = await sql<Array<{ id: string }>>`
-    insert into public.plan_chat_messages (
-      id,
-      plan_id,
-      role,
-      body,
-      status,
-      metadata,
-      created_at,
-      updated_at
-    )
-    values (
-      gen_random_uuid(),
-      ${planId}::uuid,
-      'user',
-      ${body},
-      'queued',
-      ${sql.json(toJsonValue({ source: "results_page" }))}::jsonb,
-      now(),
-      now()
-    )
-    returning id::text
-  `;
-  const messageId = messageRows[0]?.id;
   const taskId = messageId
     ? await enqueueNutritionPlanChatReplyTask({ messageId, planId })
     : null;
@@ -154,7 +110,7 @@ export async function POST(request: Request, { params }: PlanChatRouteProps) {
     );
   }
 
-  const messages = await loadMessages(planId);
+  const messages = await loadPlanConversationForClient(planId);
 
   return NextResponse.json({
     messageId,

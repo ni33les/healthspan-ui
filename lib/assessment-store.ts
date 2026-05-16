@@ -20,11 +20,6 @@ import {
   type NutritionReport,
   type RecommendedProduct
 } from "@/lib/formulation-types";
-import {
-  applyPlanGuidanceAdjustmentsToFoodGuidance,
-  applyPlanGuidanceAdjustmentsToFormulation,
-  loadActivePlanGuidanceAdjustments
-} from "@/lib/plan-guidance-adjustments";
 import { getSql } from "@/lib/db";
 
 export type StoredAssessmentStatus =
@@ -544,6 +539,7 @@ export async function getStoredFormulationResult(
       nutrition_reports.version as nutrition_report_version,
       nutrition_reports.generated_at as nutrition_report_generated_at,
       report_task.status as report_task_status,
+      refinement_task.status as refinement_task_status,
       recommendations.recommendations
     from assessments
     left join lateral (
@@ -578,6 +574,21 @@ export async function getStoredFormulationResult(
       limit 1
     ) report_task on true
     left join lateral (
+      select status
+      from tasks
+      where tasks.plan_id = assessments.plan_id
+        and task_type in (
+          'refine_nutrition_plan',
+          'generate_supplement_guidance',
+          'generate_food_guidance',
+          'generate_nutrition_report'
+        )
+        and context ->> 'source' = 'plan_refinement'
+        and status in ('queued', 'reserved', 'running', 'needs_review', 'waiting_approval')
+      order by created_at desc
+      limit 1
+    ) refinement_task on true
+    left join lateral (
       select recommendations
       from recommendations
       where recommendations.plan_id = assessments.plan_id
@@ -602,44 +613,19 @@ export async function getStoredFormulationResult(
   const plan = fromStoredPlan(row.selected_plan);
   const storedFormulation = asRecord(row.formulation);
   const storedFoodGuidance = asRecord(row.food_guidance);
-  const guidanceAdjustments =
-    mode === "preview"
-      ? []
-      : await loadActivePlanGuidanceAdjustments(sql, planId);
-  const adjustedFormulation = applyPlanGuidanceAdjustmentsToFormulation(
-    {
-      marketingPoints: asArray<MarketingPoint>(
-        storedFormulation.marketingPoints
-      ),
-      safetySummary: safetySummaryFromRecord(storedFormulation.safetySummary),
-      supplementBreakdown: asArray<FormulationIngredient>(
-        storedFormulation.supplementBreakdown ?? storedFormulation.formula
-      )
-    },
-    guidanceAdjustments
-  );
-  const adjustedFoodGuidance = applyPlanGuidanceAdjustmentsToFoodGuidance(
-    {
-      foodGuidance: asArray<FoodGuidanceItem>(
-        storedFoodGuidance.foodGuidance
-      ),
-      foodSafetySummary: safetySummaryFromRecord(
-        storedFoodGuidance.foodSafetySummary
-      )
-    },
-    guidanceAdjustments
-  );
   const supplementBreakdown = asArray<FormulationIngredient>(
-    adjustedFormulation.supplementBreakdown
+    storedFormulation.supplementBreakdown ?? storedFormulation.formula
   );
   const marketingPoints = asArray<MarketingPoint>(
-    adjustedFormulation.marketingPoints
+    storedFormulation.marketingPoints
   );
   const foodGuidance = asArray<FoodGuidanceItem>(
-    adjustedFoodGuidance.foodGuidance
+    storedFoodGuidance.foodGuidance
   );
-  const safetySummary = adjustedFormulation.safetySummary;
-  const foodSafetySummary = adjustedFoodGuidance.foodSafetySummary;
+  const safetySummary = safetySummaryFromRecord(storedFormulation.safetySummary);
+  const foodSafetySummary = safetySummaryFromRecord(
+    storedFoodGuidance.foodSafetySummary
+  );
 
   const recommendations = asArray<RecommendedProduct>(row.recommendations);
   const nutritionReportRecord = asRecord(row.nutrition_report);
@@ -675,8 +661,21 @@ export async function getStoredFormulationResult(
   const foodsReady = Boolean(row.food_guidance);
   const reportTaskStatus =
     typeof row.report_task_status === "string" ? row.report_task_status : "";
+  const refinementTaskStatus =
+    typeof row.refinement_task_status === "string"
+      ? row.refinement_task_status
+      : "";
+  const refinementPending = [
+    "queued",
+    "reserved",
+    "running",
+    "needs_review",
+    "waiting_approval"
+  ].includes(refinementTaskStatus);
   const reportStatus =
-    nutritionReport
+    refinementPending
+      ? "pending"
+      : nutritionReport
       ? "ready"
       : [
           "queued",
@@ -706,9 +705,9 @@ export async function getStoredFormulationResult(
     recommendations,
     schemaVersion: 1,
     sectionStatuses: {
-      foods: foodsReady ? "ready" : "pending",
+      foods: foodsReady && !refinementPending ? "ready" : "pending",
       ...(reportStatus ? { report: reportStatus } : {}),
-      supplements: supplementsReady ? "ready" : "pending"
+      supplements: supplementsReady && !refinementPending ? "ready" : "pending"
     },
     ...(safetySummary ? { safetySummary } : {}),
     ...(foodSafetySummary ? { foodSafetySummary } : {}),

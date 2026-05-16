@@ -10,6 +10,7 @@ import { TitleBar } from "@/components/title-bar";
 import { getPublishedBlogPosts } from "@/lib/blog";
 import { checkDatabaseConnection } from "@/lib/db";
 import { getDictionary, isLocale, locales, type Locale } from "@/lib/i18n";
+import { nutritionQuizPath } from "@/lib/nutrition-paths";
 
 type HomeProps = Readonly<{
   params: Promise<{
@@ -32,7 +33,7 @@ export default async function Home({ params }: HomeProps) {
 
   const locale: Locale = rawLocale;
   const dictionary = getDictionary(locale);
-  const assessmentPath = `/${locale}/assessment`;
+  const assessmentPath = nutritionQuizPath(locale);
   const databaseReady = await checkDatabaseConnection();
 
   if (!databaseReady) {

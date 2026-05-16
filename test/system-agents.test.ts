@@ -42,6 +42,7 @@ describe("system agents", () => {
       "generate_nutrition_report",
       "generate_supplement_guidance",
       "nutrition_plan_chat_reply",
+      "refine_nutrition_plan",
       "send_example_email",
       "send_reassessment_email",
       "sync_digitalocean_billing"

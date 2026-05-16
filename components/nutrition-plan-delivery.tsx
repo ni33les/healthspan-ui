@@ -1,0 +1,212 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { ExclamationTriangleIcon } from "@heroicons/react/20/solid";
+import {
+  FinalReportPanel,
+  formulationResultsCopy
+} from "@/components/formulation-results";
+import { NutritionProgress } from "@/components/nutrition-progress";
+import type { FormulationResult } from "@/lib/formulation-types";
+import type { Locale } from "@/lib/i18n";
+
+type NutritionPlanDeliveryProps = Readonly<{
+  initialResult?: FormulationResult | null;
+  locale: Locale;
+  planId: string;
+}>;
+
+type DeliveryState = "loading" | "ready" | "error";
+
+const copy = {
+  en: {
+    error:
+      "We could not deliver this plan yet. Please return to refinement and try again.",
+    loadingBody:
+      "We’re tailoring the final plan from your food guidance, supplements, and refinement notes.",
+    loadingTitle: "Delivering your nutrition plan",
+    subtitle:
+      "A tailored plan built from your assessment, food guidance, supplement guidance, and refinement notes.",
+    title: "Your Nutrition Plan"
+  },
+  th: {
+    error:
+      "ยังไม่สามารถส่งมอบแผนนี้ได้ โปรดกลับไปหน้าปรับคำแนะนำแล้วลองอีกครั้ง",
+    loadingBody:
+      "เรากำลังออกแบบแผนสุดท้ายจากคำแนะนำอาหาร อาหารเสริม และบันทึกการปรับแต่งของคุณ",
+    loadingTitle: "กำลังส่งมอบแผนโภชนาการของคุณ",
+    subtitle:
+      "แผนเฉพาะตัวที่สร้างจากแบบประเมิน คำแนะนำอาหาร คำแนะนำอาหารเสริม และบันทึกการปรับแต่งของคุณ",
+    title: "แผนโภชนาการของคุณ"
+  }
+} satisfies Record<
+  Locale,
+  Record<"error" | "loadingBody" | "loadingTitle" | "subtitle" | "title", string>
+>;
+
+export function NutritionPlanDelivery({
+  initialResult = null,
+  locale,
+  planId
+}: NutritionPlanDeliveryProps) {
+  const labels = copy[locale];
+  const formulationLabels = formulationResultsCopy[locale];
+  const [state, setState] = useState<DeliveryState>(
+    initialResult?.nutritionReport ? "ready" : "loading"
+  );
+  const [result, setResult] = useState<FormulationResult | null>(initialResult);
+  const finalizationRequestedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    finalizationRequestedRef.current = false;
+
+    async function loadPlan() {
+      try {
+        const response = await fetch(
+          `/api/assessment/${encodeURIComponent(planId)}/formulation?locale=${locale}`,
+          { cache: "no-store" }
+        );
+
+        if (response.status === 202) {
+          timer = window.setTimeout(loadPlan, 1500);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Unable to load nutrition plan");
+        }
+
+        const payload = (await response.json()) as FormulationResult;
+        const reportStatus = payload.sectionStatuses?.report;
+
+        if (payload.nutritionReport) {
+          if (!cancelled) {
+            setResult(payload);
+            setState("ready");
+          }
+          return;
+        }
+
+        if (reportStatus === "failed") {
+          throw new Error("Nutrition report failed");
+        }
+
+        const readyForReport =
+          payload.sectionStatuses?.foods === "ready" &&
+          payload.sectionStatuses?.supplements === "ready";
+
+        if (
+          readyForReport &&
+          reportStatus !== "pending" &&
+          !finalizationRequestedRef.current
+        ) {
+          finalizationRequestedRef.current = true;
+
+          const finalizeResponse = await fetch(
+            `/api/assessment/${encodeURIComponent(planId)}/finalize`,
+            {
+              cache: "no-store",
+              method: "POST"
+            }
+          );
+
+          if (!finalizeResponse.ok) {
+            throw new Error("Unable to queue nutrition report");
+          }
+        }
+
+        if (!cancelled) {
+          setResult(payload);
+          setState("loading");
+          timer = window.setTimeout(loadPlan, 1500);
+        }
+      } catch {
+        if (!cancelled) {
+          setState("error");
+        }
+      }
+    }
+
+    loadPlan();
+
+    return () => {
+      cancelled = true;
+
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [locale, planId]);
+
+  if (state === "error") {
+    return (
+      <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+        <NutritionProgress
+          className="mb-8"
+          current="plan"
+          locale={locale}
+        />
+        <div className="rounded-lg bg-white p-6 ring-1 ring-foreground/10 sm:p-8">
+          <ExclamationTriangleIcon
+            aria-hidden={true}
+            className="size-6 text-amber-500"
+          />
+          <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
+            {labels.error}
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (state !== "ready" || !result?.nutritionReport) {
+    return (
+      <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+        <NutritionProgress
+          className="mb-8"
+          current="plan"
+          locale={locale}
+          pending={true}
+        />
+        <div
+          aria-live="polite"
+          className="rounded-lg bg-white p-6 ring-1 ring-foreground/10 transition-colors sm:p-8"
+        >
+          <h1 className="max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] sm:text-3xl">
+            {labels.loadingTitle}
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+            {labels.loadingBody}
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+      <NutritionProgress
+        className="mb-8"
+        complete={true}
+        current="plan"
+        locale={locale}
+      />
+      <div>
+        <h1 className="text-4xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-5xl">
+          {labels.title}
+        </h1>
+        <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+          {labels.subtitle}
+        </p>
+      </div>
+
+      <FinalReportPanel
+        labels={formulationLabels}
+        locale={locale}
+        report={result.nutritionReport}
+      />
+    </section>
+  );
+}

@@ -58,17 +58,10 @@ export function buildAssessmentSteps(
   const hasFailed = status === "failed";
 
   return [
-    { id: "assessment", state: "complete" },
     { id: "score", state: "complete" },
-    { id: "scoreAnalysis", state: "complete" },
-    { id: "payment", state: "complete" },
     {
       id: "formulation",
       state: isReady ? "complete" : hasFailed ? "failed" : "active"
-    },
-    {
-      id: "safety",
-      state: isReady ? "complete" : "pending"
     },
     {
       id: "results",

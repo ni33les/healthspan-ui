@@ -30,7 +30,7 @@ export type HealthScoreAdviceAnalysis = Readonly<{
 
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_GROK_MODEL = "grok-4.3";
-const DEFAULT_HEALTHSCORE_REASONING_EFFORT = "low";
+const DEFAULT_HEALTHSCORE_REASONING_EFFORT = "none";
 const DEFAULT_PROMPT_VERSION = "v5";
 const CACHE_TYPE = "healthscore_advice";
 const CACHE_TTL_DAYS = 7;

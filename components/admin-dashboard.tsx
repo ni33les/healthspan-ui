@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useState,
   type ChangeEvent,
@@ -91,6 +92,7 @@ import {
   hasAdminDashboardFilters,
   type AdminDashboardFilters
 } from "@/lib/admin-dashboard-filters";
+import { nutritionRefinePath } from "@/lib/nutrition-paths";
 import type {
   AdminConversionTargetId,
   AdminConversionTargets,
@@ -1462,12 +1464,14 @@ function useLiveAdminData<T>({
   eventName,
   href,
   initialData,
+  onHeartbeat,
   streamKey
 }: Readonly<{
   enabled: boolean;
   eventName: string;
   href: string;
   initialData: T;
+  onHeartbeat?: () => void;
   streamKey: string;
 }>) {
   const [streamedData, setStreamedData] = useState<{
@@ -1493,13 +1497,19 @@ function useLiveAdminData<T>({
       }
     }
 
+    function handleHeartbeat() {
+      onHeartbeat?.();
+    }
+
     source.addEventListener(eventName, handleEvent);
+    source.addEventListener("pong", handleHeartbeat);
 
     return () => {
       source.removeEventListener(eventName, handleEvent);
+      source.removeEventListener("pong", handleHeartbeat);
       source.close();
     };
-  }, [enabled, eventName, href, streamKey]);
+  }, [enabled, eventName, href, onHeartbeat, streamKey]);
 
   return streamedData?.key === streamKey ? streamedData.data : initialData;
 }
@@ -7944,7 +7954,7 @@ function compactId(value: string) {
 }
 
 function planResultsHref(locale: Locale, planId: string) {
-  return `/${locale}/assessment/results?plan=${encodeURIComponent(planId)}`;
+  return nutritionRefinePath(locale, planId);
 }
 
 function PlanIdLink({
@@ -8003,6 +8013,53 @@ function LiveUpdatedBadge({
   );
 }
 
+function LiveStatusBadge({
+  pulseAt
+}: Readonly<{
+  pulseAt: number;
+}>) {
+  const [now, setNow] = useState(() => Date.now());
+  const displayNow = Math.max(now, pulseAt);
+  const elapsedMs =
+    pulseAt > 0 ? displayNow - pulseAt : Number.POSITIVE_INFINITY;
+  const state =
+    elapsedMs < 45_000
+      ? "live"
+      : elapsedMs < 120_000
+        ? "idle"
+        : "disconnected";
+  const stateLabel =
+    state === "live" ? "Live" : state === "idle" ? "Idle" : "Disconnected";
+  const dotClass =
+    state === "live"
+      ? "bg-[#1FA77A]"
+      : state === "idle"
+        ? "bg-amber-400"
+        : "bg-red-500";
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 5_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex justify-end">
+      <span
+        aria-label={`Live updates ${state}`}
+        className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600 shadow-sm ring-1 ring-gray-200 transition-colors"
+        title={`Live updates ${state}`}
+      >
+        <span
+          aria-hidden="true"
+          className={classNames("size-2 rounded-full", dotClass)}
+        />
+        {stateLabel}
+      </span>
+    </div>
+  );
+}
+
 function taskStatusClass(status: string) {
   if (status === "completed") {
     return "bg-[#1FA77A]/10 text-[#126B4F] ring-[#1FA77A]/20";
@@ -8029,6 +8086,26 @@ function taskStatusClass(status: string) {
   }
 
   return "bg-gray-50 text-gray-700 ring-gray-200";
+}
+
+function taskStatusLabel(status: string, labels: AdminContent) {
+  if (status === "reserved" || status === "running") {
+    return labels.visibility.active;
+  }
+
+  if (status === "queued") {
+    return labels.visibility.queued;
+  }
+
+  if (status === "completed") {
+    return labels.visibility.completed;
+  }
+
+  if (status === "failed") {
+    return labels.visibility.failed;
+  }
+
+  return readableToken(status);
 }
 
 function agentStatusClass(status: string) {
@@ -8089,11 +8166,13 @@ function taskGroupTint(taskGroupId: string) {
 
 function AdminVisibilityView({
   data,
+  heartbeatAt,
   labels,
   locale,
   selectedTaskId
 }: Readonly<{
   data: AdminTaskVisibilityData;
+  heartbeatAt: number;
   labels: AdminContent;
   locale: Locale;
   selectedTaskId?: string | null;
@@ -8175,10 +8254,8 @@ function AdminVisibilityView({
 
   return (
     <section className="mt-8 space-y-6">
-      <LiveUpdatedBadge
-        generatedAt={data.generatedAt}
-        labels={labels}
-        locale={locale}
+      <LiveStatusBadge
+        pulseAt={heartbeatAt}
       />
 
       <BusinessStatsGrid
@@ -8258,7 +8335,7 @@ function VisibilityTaskRow({
             "w-max rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
           )}
         >
-          {readableToken(row.status)}
+          {taskStatusLabel(row.status, labels)}
         </span>
         <span
           className={classNames(
@@ -8336,7 +8413,7 @@ function VisibilityTaskDetailsModal({
                     "rounded-full px-2.5 py-1 text-xs font-semibold ring-1"
                   )}
                 >
-                  {readableToken(row.status)}
+                  {taskStatusLabel(row.status, labels)}
                 </span>
                 <span
                   className={classNames(
@@ -9674,6 +9751,10 @@ export function AdminDashboard({
   const contentManagementView =
     view === "blogs" || view === "content" || view === "testimonials";
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [visibilityHeartbeatAt, setVisibilityHeartbeatAt] = useState(0);
+  const recordVisibilityHeartbeat = useCallback(() => {
+    setVisibilityHeartbeatAt(Date.now());
+  }, []);
   const visibilityStreamKey = `${view}:${data.range}:visibility`;
   const liveVisibilityData = useLiveAdminData({
     enabled: view === "visibility" && Boolean(accessToken),
@@ -9687,6 +9768,7 @@ export function AdminDashboard({
           })
         : "",
     initialData: visibilityData,
+    onHeartbeat: recordVisibilityHeartbeat,
     streamKey: visibilityStreamKey
   });
   const agentsStreamKey = `${view}:${data.range}:agents`;
@@ -9945,6 +10027,7 @@ export function AdminDashboard({
           ) : view === "visibility" ? (
             <AdminVisibilityView
               data={liveVisibilityData}
+              heartbeatAt={visibilityHeartbeatAt}
               labels={labels}
               locale={locale}
               selectedTaskId={selectedTaskId}

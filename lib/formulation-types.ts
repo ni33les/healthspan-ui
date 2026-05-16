@@ -89,8 +89,11 @@ export type PlanChatMessage = {
   body: string;
   createdAt: string;
   id: string;
+  metadata?: Record<string, unknown>;
+  replyToMessageId?: string | null;
   role: "assistant" | "user";
   status: "failed" | "queued" | "ready";
+  taskId?: string | null;
 };
 
 export type PlanGuidanceAdjustment = {
@@ -104,6 +107,33 @@ export type PlanGuidanceAdjustment = {
   sourceMessageId?: string | null;
   sourceTaskId?: string | null;
   status?: "active" | "revoked";
+};
+
+export type PlanFeedbackType =
+  | "budget"
+  | "capsule_limit"
+  | "constraint"
+  | "cuisine"
+  | "dislike"
+  | "preference"
+  | "removal"
+  | "routine"
+  | "safety_disclosure"
+  | "other";
+
+export type PlanFeedbackItem = {
+  body: string;
+  createdAt?: string;
+  feedbackType: PlanFeedbackType;
+  id?: string;
+  itemId?: string | null;
+  itemName?: string | null;
+  itemType?: "condition" | "food" | "other" | "plan" | "supplement" | null;
+  metadata?: Record<string, unknown>;
+  sourceMessageId?: string | null;
+  sourceTaskId?: string | null;
+  status?: "active" | "revoked";
+  urgency?: "normal" | "safety";
 };
 
 export type NutritionReportSection = {

@@ -1,9 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { isUuid } from "@/lib/assessment-store";
 import { isLocale, type Locale } from "@/lib/i18n";
-import { nutritionRefinePath } from "@/lib/nutrition-paths";
+import { nutritionPlanPath } from "@/lib/nutrition-paths";
 
-type AssessmentResultsRedirectPageProps = Readonly<{
+type AssessmentPlanRedirectPageProps = Readonly<{
   params: Promise<{
     locale: string;
   }>;
@@ -12,10 +12,10 @@ type AssessmentResultsRedirectPageProps = Readonly<{
   }>;
 }>;
 
-export default async function AssessmentResultsRedirectPage({
+export default async function AssessmentPlanRedirectPage({
   params,
   searchParams
-}: AssessmentResultsRedirectPageProps) {
+}: AssessmentPlanRedirectPageProps) {
   const { locale: rawLocale } = await params;
 
   if (!isLocale(rawLocale)) {
@@ -30,5 +30,5 @@ export default async function AssessmentResultsRedirectPage({
     notFound();
   }
 
-  redirect(nutritionRefinePath(locale, planId));
+  redirect(nutritionPlanPath(locale, planId));
 }

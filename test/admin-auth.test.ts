@@ -165,6 +165,9 @@ describe("API auth boundaries", () => {
       "app/api/communications/messages/route.ts",
       "app/api/communications/messages/[id]/route.ts",
       "app/api/cron/route.ts",
+      "app/api/openclaw/plans/[planId]/context/route.ts",
+      "app/api/openclaw/plans/[planId]/messages/route.ts",
+      "app/api/openclaw/plans/[planId]/refine/route.ts",
       "app/api/tasks/[id]/route.ts"
     ];
 

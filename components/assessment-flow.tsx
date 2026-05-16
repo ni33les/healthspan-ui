@@ -8,13 +8,13 @@ import {
   BeakerIcon,
   CheckIcon,
   CheckCircleIcon,
-  ClockIcon,
   ExclamationTriangleIcon,
   ShieldCheckIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
 import { ChatChannelCards } from "@/components/chat-channel-cards";
 import { HighlightedBrandText } from "@/components/highlighted-brand-text";
+import { NutritionProgress } from "@/components/nutrition-progress";
 import { getBpmPayload, trackBpmEvent } from "@/lib/bpm-client";
 import { normalizeLeadEmail, validateLeadEmail } from "@/lib/email-validation";
 import type { BlogTestimonial } from "@/lib/blog";
@@ -24,6 +24,10 @@ import type {
   LocalizedHealthScoreText
 } from "@/lib/health-score";
 import type { Locale } from "@/lib/i18n";
+import {
+  nutritionHealthScorePath,
+  nutritionRefinePath
+} from "@/lib/nutrition-paths";
 
 type Option = Readonly<{
   label: string;
@@ -1267,6 +1271,7 @@ function formatWeightImperial(value: string) {
 
 type AssessmentFlowProps = Readonly<{
   exampleTestimonial?: BlogTestimonial | null;
+  initialStage?: "healthscore" | "quiz";
   locale: Locale;
   prefillAnswers?: unknown;
   returningHealthScore?: HealthScoreResult | null;
@@ -1731,6 +1736,7 @@ function getPlanContent(locale: Locale): PlanContent {
 
 export function AssessmentFlow({
   exampleTestimonial,
+  initialStage = "quiz",
   locale,
   prefillAnswers,
   returningHealthScore,
@@ -1758,7 +1764,10 @@ export function AssessmentFlow({
     useState<ProcessingStatus | null>(returningScoreStatus);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [showPlans, setShowPlans] = useState(
-    Boolean(returningScoreStatus && !returningPlan)
+    Boolean(
+      returningScoreStatus &&
+        (!returningPlan || initialStage === "healthscore")
+    )
   );
   const [showExampleExit, setShowExampleExit] = useState(false);
   const [processingMode, setProcessingMode] =
@@ -1864,19 +1873,19 @@ export function AssessmentFlow({
           processingQueue: (count: number) =>
             count > 0
               ? `มี ${count} คนอยู่ในคิวก่อนคุณ`
-              : "กำลังเปิดแผนโภชนาการของคุณ",
+              : "กำลังเปิดหน้าปรับคำแนะนำของคุณ",
           processingSteps: {
-            assessment: "ทำแบบประเมินเสร็จแล้ว",
-            score: "กำลังเตรียม HealthScore",
+            assessment: "แบบประเมิน",
+            score: "HealthScore",
             scoreAnalysis: "กำลังวิเคราะห์ HealthScore",
-            payment: "ยืนยันสิทธิ์เข้าถึง",
-            formulation: "กำลังเปิดหน้าแผน",
+            payment: "สิทธิ์เข้าถึง",
+            formulation: "ปรับคำแนะนำ",
             safety: "คำแนะนำกำลังแสดงในหน้านั้น",
-            results: "หน้าแผนพร้อมใช้งาน"
+            results: "ส่งมอบแผน"
           },
           processingSubtitle:
-            "เราจะเปิดหน้าแผนทันที จากนั้นคำแนะนำอาหารและอาหารเสริมจะเติมเข้ามาเมื่อแต่ละส่วนเสร็จ",
-          processingTitle: "กำลังเปิดแผนโภชนาการของคุณ",
+            "เราจะเปิดหน้าปรับคำแนะนำก่อน จากนั้นคุณค่อยส่งมอบแผนสุดท้ายเมื่อพร้อม",
+          processingTitle: "กำลังเตรียมคำแนะนำของคุณ",
           scoreProcessingQueue: "กำลังเตรียมคะแนนสุขภาพของคุณ",
           scoreProcessingSteps: {
             assessment: "ทำแบบประเมินเสร็จแล้ว",
@@ -1967,19 +1976,19 @@ export function AssessmentFlow({
           processingQueue: (count: number) =>
             count > 0
               ? `${count} ${count === 1 ? "person is" : "people are"} queued ahead of you`
-              : "Opening your nutrition plan",
+              : "Opening your refinement page",
           processingSteps: {
-            assessment: "Assessment complete",
-            score: "Preparing your HealthScore",
+            assessment: "Assessment",
+            score: "HealthScore",
             scoreAnalysis: "Analyzing HealthScore",
-            payment: "Confirming access",
-            formulation: "Opening plan page",
+            payment: "Access",
+            formulation: "Refine Guidance",
             safety: "Guidance populates there",
-            results: "Plan page ready"
+            results: "Deliver Plan"
           },
           processingSubtitle:
-            "We will open your plan page now, then food and supplement guidance will fill in as each section finishes.",
-          processingTitle: "Opening your nutrition plan",
+            "We will open the refinement page first. When you are ready, deliver the final plan from there.",
+          processingTitle: "Preparing your guidance",
           scoreProcessingQueue: "Preparing your HealthScore",
           scoreProcessingSteps: {
             assessment: "Assessment complete",
@@ -2884,15 +2893,6 @@ export function AssessmentFlow({
     return;
   }
 
-  function closePlanGate() {
-    setProcessingError("");
-    setExampleError("");
-    setShowPlans(false);
-    setShowExampleExit(false);
-    clearProcessingStatus();
-    setExampleRequest(null);
-  }
-
   function goNext() {
     if (!canMoveForward) {
       return;
@@ -3032,6 +3032,7 @@ export function AssessmentFlow({
       applyHealthScoreStatus(captured);
       setCapturedStatus(captured);
       setProcessingStatus(captured);
+      router.replace(nutritionHealthScorePath(locale, captured.planId));
 
     } catch {
       window.clearTimeout(analysisStepTimeout);
@@ -3108,12 +3109,8 @@ export function AssessmentFlow({
       queuePosition: 0,
       status: "queued",
       steps: [
-        { id: "assessment", state: "complete" },
         { id: "score", state: "complete" },
-        { id: "scoreAnalysis", state: "complete" },
-        { id: "payment", state: "active" },
-        { id: "formulation", state: "pending" },
-        { id: "safety", state: "pending" },
+        { id: "formulation", state: "active" },
         { id: "results", state: "pending" }
       ]
     });
@@ -3160,13 +3157,6 @@ export function AssessmentFlow({
 
       const status = (await response.json()) as ProcessingStatus;
       setCapturedStatus(status);
-      clearProcessingStatus();
-
-      if (status.planId) {
-        router.push(`/${locale}/assessment/results?plan=${status.planId}`);
-        return;
-      }
-
       setProcessingStatus(status);
     } catch {
       setProcessingError(ui.processingError);
@@ -3330,6 +3320,11 @@ export function AssessmentFlow({
 
     const timeout = window.setTimeout(() => {
       if (processingMode === "score") {
+        if (displayedProcessingStatus.planId) {
+          router.replace(
+            nutritionHealthScorePath(locale, displayedProcessingStatus.planId)
+          );
+        }
         clearProcessingStatus();
         setShowPlans(true);
         return;
@@ -3342,9 +3337,7 @@ export function AssessmentFlow({
       }
 
       if (displayedProcessingStatus.planId) {
-        router.push(
-          `/${locale}/assessment/results?plan=${displayedProcessingStatus.planId}`
-        );
+        router.push(nutritionRefinePath(locale, displayedProcessingStatus.planId));
       }
     }, PROCESSING_COMPLETE_HOLD_MS);
 
@@ -3445,10 +3438,24 @@ export function AssessmentFlow({
 
   const visibleProcessingStatus =
     displayedProcessingStatus ?? processingStatus;
+  const progressStage =
+    visibleProcessingStatus && processingMode !== "score" && processingMode !== "example"
+      ? "refine"
+      : showPlans || showExampleExit
+        ? "refine"
+        : "quiz";
 
   return (
     <>
       <div className="mx-auto w-full max-w-6xl px-6 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-10 sm:px-8 sm:pb-16 lg:pt-14">
+        <NutritionProgress
+          className="mb-6"
+          current={progressStage}
+          locale={locale}
+          pending={Boolean(
+            visibleProcessingStatus && visibleProcessingStatus.status !== "failed"
+          )}
+        />
         {visibleProcessingStatus ? (
           <ProcessingPanel
             error={
@@ -3463,23 +3470,7 @@ export function AssessmentFlow({
                   ? void requestExampleBrief()
                   : void startProcessing()
             }
-            queueLabel={
-              processingMode === "score"
-                ? ui.scoreProcessingQueue
-                : processingMode === "example"
-                  ? ui.exampleProcessingQueue
-                  : ui.processingQueue(visibleProcessingStatus.queuePosition)
-            }
             retryLabel={ui.retry}
-            status={visibleProcessingStatus}
-            statusLabels={ui.statusLabels}
-            stepLabels={
-              processingMode === "score"
-                ? ui.scoreProcessingSteps
-                : processingMode === "example"
-                  ? ui.exampleProcessingSteps
-                  : ui.processingSteps
-            }
             subtitle={
               processingMode === "score"
                 ? ui.scoreProcessingSubtitle
@@ -3512,7 +3503,6 @@ export function AssessmentFlow({
             healthScore={healthScore}
             includeReassessment={includeExampleReassessment}
             locale={locale}
-            onBack={closePlanGate}
             onEmailChange={setExampleEmail}
             onIncludeReassessmentChange={setIncludeExampleReassessment}
             onRequestExample={() => void requestExampleBrief()}
@@ -3522,7 +3512,7 @@ export function AssessmentFlow({
             reassessmentAlreadyOptedIn={reassessmentAlreadyOptedIn}
           />
         ) : (
-          <div className="mx-auto max-w-4xl space-y-6">
+          <div className="space-y-6">
             {sectionIndex === 0 ? (
               <section className="relative overflow-hidden rounded-lg bg-[#3A7BD5]/5 p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
                 <Image
@@ -3698,11 +3688,7 @@ type SectionProgressProps = Readonly<{
 type ProcessingPanelProps = Readonly<{
   error: string;
   onRetry: () => void;
-  queueLabel: string;
   retryLabel: string;
-  status: ProcessingStatus;
-  statusLabels: Record<ProcessingStepState, string>;
-  stepLabels: Record<string, string>;
   subtitle: string;
   title: string;
 }>;
@@ -3715,7 +3701,6 @@ type PlanSelectionPanelProps = Readonly<{
   healthScore: HealthScoreResult | null;
   includeReassessment: boolean;
   locale: Locale;
-  onBack: () => void;
   onEmailChange: (value: string) => void;
   onIncludeReassessmentChange: (value: boolean) => void;
   onRequestExample: () => void;
@@ -3749,7 +3734,6 @@ function PlanSelectionPanel({
   healthScore,
   includeReassessment,
   locale,
-  onBack,
   onEmailChange,
   onIncludeReassessmentChange,
   onRequestExample,
@@ -3857,7 +3841,7 @@ function PlanSelectionPanel({
         />
       </div>
 
-      <div className="mx-auto max-w-4xl text-center">
+      <div className="text-center">
         <p className="text-base/7 font-semibold text-[#3A7BD5]">
           {heroEyebrow}
         </p>
@@ -3883,7 +3867,7 @@ function PlanSelectionPanel({
       </div>
 
       {!proAccess ? (
-        <div className="mx-auto mt-12 max-w-5xl rounded-3xl bg-white/80 px-6 py-8 ring-1 ring-[#3A7BD5]/10 sm:px-8">
+        <div className="mt-12 rounded-3xl bg-white/80 px-6 py-8 ring-1 ring-[#3A7BD5]/10 sm:px-8">
           <dl className="grid grid-cols-1 gap-x-8 gap-y-10 lg:grid-cols-3">
             {paywallFeatures.map((feature, index) => {
               const Icon = paywallFeatureIcons[index] ?? ArrowPathIcon;
@@ -3908,7 +3892,7 @@ function PlanSelectionPanel({
       ) : null}
 
       {proAccess ? (
-        <div className="mx-auto mt-14 max-w-xl rounded-3xl bg-[#20343A] p-8 text-center shadow-2xl ring-1 ring-gray-900/10 sm:p-10">
+        <div className="mt-14 rounded-3xl bg-[#20343A] p-8 text-center shadow-2xl ring-1 ring-gray-900/10 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#8BC6FF]">
             Pro
           </p>
@@ -3927,7 +3911,7 @@ function PlanSelectionPanel({
           </button>
         </div>
       ) : (
-        <div className="mx-auto mt-14 grid max-w-lg grid-cols-1 items-center gap-y-6 sm:mt-16 sm:gap-y-0 lg:max-w-4xl lg:grid-cols-2">
+        <div className="mt-14 grid grid-cols-1 items-center gap-y-6 sm:mt-16 sm:gap-y-0 lg:grid-cols-2">
           {content.tiers.map((tier, tierIndex) => (
           <div
             key={tier.id}
@@ -3935,7 +3919,7 @@ function PlanSelectionPanel({
               "rounded-3xl p-8 ring-1 ring-gray-900/10 sm:p-10",
               tier.featured
                 ? "relative z-10 bg-[#20343A] shadow-2xl"
-                : "bg-white/70 sm:mx-8 lg:mx-0",
+                : "bg-white/70",
               !tier.featured && tierIndex === 0
                 ? "rounded-t-3xl sm:rounded-b-none lg:rounded-bl-3xl lg:rounded-tr-none"
                 : undefined,
@@ -4059,16 +4043,6 @@ function PlanSelectionPanel({
         onRequestExample={onRequestExample}
         reassessmentAlreadyOptedIn={reassessmentAlreadyOptedIn}
       />
-
-      <div className="mt-8 flex justify-center">
-        <button
-          type="button"
-          className="rounded-md bg-white/70 px-5 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-[#20343A] ring-1 ring-foreground/10 transition hover:bg-white"
-          onClick={onBack}
-        >
-          {content.back}
-        </button>
-      </div>
     </section>
   );
 }
@@ -4095,7 +4069,7 @@ function FreePreviewEmailSection({
   reassessmentAlreadyOptedIn: boolean;
 }>) {
   return (
-    <section className="mx-auto mt-8 max-w-4xl rounded-3xl bg-white py-12 ring-1 ring-gray-900/10 sm:py-14">
+    <section className="mt-8 rounded-3xl bg-white py-12 ring-1 ring-gray-900/10 sm:py-14">
       <div className="mx-auto grid grid-cols-1 gap-8 px-6 lg:grid-cols-12 lg:gap-8 lg:px-8">
         <div className="lg:col-span-7">
           <h2 className="max-w-xl text-3xl font-semibold tracking-tight text-balance text-[#20343A] sm:text-4xl">
@@ -4487,7 +4461,7 @@ function HealthScorePanel({
         };
 
   return (
-    <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-[#F7FAFD] p-4 ring-1 ring-[#3A7BD5]/10 sm:p-7">
+    <div className="mt-10 rounded-2xl bg-[#F7FAFD] p-4 ring-1 ring-[#3A7BD5]/10 sm:p-7">
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 lg:items-stretch">
         <div className="flex min-w-0 flex-col">
           <div className="flex h-full min-h-[14rem] flex-col justify-between rounded-2xl bg-white p-5 text-center ring-1 ring-[#3A7BD5]/10 sm:min-h-0 sm:p-8">
@@ -4558,7 +4532,7 @@ function mapExampleTestimonial(
 }
 
 function assessmentResultsHref(locale: Locale, planId: string) {
-  return `/${locale}/assessment/results?plan=${encodeURIComponent(planId)}`;
+  return nutritionRefinePath(locale, planId);
 }
 
 function ExampleExitPanel({
@@ -4587,7 +4561,7 @@ function ExampleExitPanel({
   const testimonial = mapExampleTestimonial(dbTestimonial, locale);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="space-y-6">
       <section className="overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
         <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="p-8 text-center sm:p-10 lg:text-left">
@@ -4724,107 +4698,22 @@ function ExampleExitPanel({
 function ProcessingPanel({
   error,
   onRetry,
-  queueLabel,
   retryLabel,
-  status,
-  statusLabels,
-  stepLabels,
   subtitle,
   title
 }: ProcessingPanelProps) {
   return (
-    <section className="mx-auto max-w-3xl rounded-lg bg-white p-6 ring-1 ring-foreground/10 sm:p-8">
-      <div className="mx-auto flex size-12 items-center justify-center rounded-md bg-[#3A7BD5]/10">
-        <BeakerIcon
-          aria-hidden={true}
-          className="size-6 text-[#3A7BD5]"
-        />
-      </div>
-      <h1 className="mt-6 text-center text-3xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-4xl">
-        <HighlightedBrandText text={title} />
-      </h1>
-      <p className="mx-auto mt-4 max-w-xl text-center text-base leading-7 text-muted-foreground">
-        {subtitle}
-      </p>
-      <p className="mt-6 rounded-md bg-background px-4 py-3 text-center text-sm font-semibold text-[#20343A]">
-        <HighlightedBrandText text={queueLabel} />
-      </p>
-
-      <div className="mt-8 flow-root">
-        <ul role="list" className="-mb-8">
-          {status.steps.map((step, index) => {
-            const complete = step.state === "complete";
-            const active = step.state === "active";
-            const failed = step.state === "failed";
-            const StepIcon = complete
-              ? CheckIcon
-              : active
-                ? ArrowPathIcon
-                : failed
-                  ? ExclamationTriangleIcon
-                  : ClockIcon;
-
-            return (
-              <li key={step.id}>
-                <div className="relative pb-8">
-                  {index !== status.steps.length - 1 ? (
-                    <span
-                      aria-hidden={true}
-                      className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-foreground/10"
-                    />
-                  ) : null}
-                  <div className="relative flex gap-3">
-                    <span
-                      className={cx(
-                        "flex size-8 items-center justify-center rounded-full ring-8 ring-white",
-                        complete
-                          ? "bg-[#1FA77A]"
-                          : active
-                            ? "bg-[#3A7BD5]"
-                            : failed
-                              ? "bg-red-500"
-                              : "bg-foreground/20"
-                      )}
-                    >
-                      <StepIcon
-                        aria-hidden={true}
-                        className={cx(
-                          "size-5 text-white",
-                          active && "animate-spin"
-                        )}
-                      />
-                    </span>
-                    <div className="flex min-w-0 flex-1 justify-between gap-4 pt-1">
-                      <p
-                        className={cx(
-                          "text-sm font-medium",
-                          complete || active
-                            ? "text-[#20343A]"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        {stepLabels[step.id] ?? step.id}
-                      </p>
-                      <p className="whitespace-nowrap text-right text-sm text-muted-foreground">
-                        {complete
-                          ? statusLabels.complete
-                          : active
-                            ? statusLabels.active
-                            : failed
-                              ? statusLabels.failed
-                              : statusLabels.pending}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+    <section className="w-full">
+      <div className="rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
+        <h1 className="text-xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-2xl">
+          <HighlightedBrandText text={title} />
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {subtitle}
+        </p>
 
       {error ? (
-        <div className="mt-6 text-center">
+        <div className="mt-5">
           <p className="text-sm font-medium text-red-600">{error}</p>
           <button
             type="button"
@@ -4835,6 +4724,7 @@ function ProcessingPanel({
           </button>
         </div>
       ) : null}
+      </div>
     </section>
   );
 }

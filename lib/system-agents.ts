@@ -22,6 +22,7 @@ export const AGENT_CAPABILITIES = {
   humanReview: "human_review",
   lineSend: "line_send",
   nutritionPlanChat: "nutrition_plan_chat",
+  nutritionPlanRefinement: "nutrition_plan_refinement",
   nutritionReportGeneration: "nutrition_report_generation",
   reassessmentEmailSend: "reassessment_email_send",
   safetyReview: "safety_review",
@@ -178,6 +179,7 @@ export const SYSTEM_AGENTS: Readonly<Record<SystemAgentKey, SystemAgentDefinitio
   nutritionPlanAdvisor: {
     capabilities: [
       AGENT_CAPABILITIES.nutritionPlanChat,
+      AGENT_CAPABILITIES.nutritionPlanRefinement,
       AGENT_CAPABILITIES.nutritionReportGeneration
     ],
     id: "b955a43d-2506-4f31-8955-ec7dd599a5f5",
@@ -230,6 +232,7 @@ export const WORK_TASK_AGENT_KEYS: Readonly<Record<string, SystemAgentKey>> = {
   generate_supplement_guidance: "formulationWorker",
   generate_nutrition_report: "nutritionPlanAdvisor",
   nutrition_plan_chat_reply: "nutritionPlanAdvisor",
+  refine_nutrition_plan: "nutritionPlanAdvisor",
   content_status_change: "contentPublisher",
   send_example_email: "emailDispatcher",
   send_reassessment_email: "emailDispatcher",
@@ -260,6 +263,7 @@ export function requiredCapabilitiesForWorkTaskType(taskType: string) {
       AGENT_CAPABILITIES.nutritionReportGeneration
     ],
     nutrition_plan_chat_reply: [AGENT_CAPABILITIES.nutritionPlanChat],
+    refine_nutrition_plan: [AGENT_CAPABILITIES.nutritionPlanRefinement],
     content_status_change: [AGENT_CAPABILITIES.contentPublish],
     send_example_email: [AGENT_CAPABILITIES.freeEmailSend],
     send_reassessment_email: [AGENT_CAPABILITIES.reassessmentEmailSend],

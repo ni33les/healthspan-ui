@@ -1,18 +1,18 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   ArrowPathIcon,
   BeakerIcon,
-  CheckCircleIcon,
   ChatBubbleLeftRightIcon,
-  DocumentTextIcon,
   ExclamationTriangleIcon,
   HeartIcon,
   InformationCircleIcon,
   PaperAirplaneIcon,
   SparklesIcon
 } from "@heroicons/react/20/solid";
+import { NutritionProgress } from "@/components/nutrition-progress";
 import type {
   FoodGuidanceItem,
   FormulationIngredient,
@@ -22,8 +22,14 @@ import type {
 } from "@/lib/formulation-types";
 import { foodTagLabel } from "@/lib/food-tags";
 import type { Locale } from "@/lib/i18n";
+import {
+  nutritionHealthScorePath,
+  nutritionPlanPath,
+  nutritionRefinePath
+} from "@/lib/nutrition-paths";
 
 type FormulationResultsProps = Readonly<{
+  initialResult?: FormulationResult | null;
   locale: Locale;
   planId: string;
 }>;
@@ -31,6 +37,7 @@ type FormulationResultsProps = Readonly<{
 type LoadState = "loading" | "ready" | "error";
 
 const formulationHeroBackgroundImage = "/formulation-couple.jpg";
+const MAX_PLAN_CHAT_ROUNDS = 8;
 
 const supplementBenefitRules = [
   {
@@ -90,6 +97,7 @@ type CopyLabels = Record<
   | "connectChatPlanId"
   | "connectChatQrAlt"
   | "connectChatTitle"
+  | "benefits"
   | "constraints"
   | "context"
   | "coveragePrefix"
@@ -116,7 +124,6 @@ type CopyLabels = Record<
   | "finalReportNextSteps"
   | "finalReportSafetyNotes"
   | "finalReportSynergies"
-  | "finalReportTitle"
   | "generated"
   | "goals"
   | "heroSubtitle"
@@ -132,11 +139,17 @@ type CopyLabels = Record<
   | "planChatBody"
   | "planChatEmpty"
   | "planChatEyebrow"
+  | "planChatError"
   | "planChatPlaceholder"
   | "planChatSend"
   | "planChatSending"
+  | "planChatLimit"
+  | "planChatThinking"
   | "planChatTitle"
+  | "planChatWaiting"
   | "dailyDose"
+  | "deliveryHandoffBody"
+  | "deliveryHandoffTitle"
   | "plan"
   | "previewBadge"
   | "previewBody"
@@ -171,8 +184,9 @@ type CopyLabels = Record<
   safetyNotes: string[];
 };
 
-const copy = {
+export const formulationResultsCopy = {
   en: {
+    benefits: "Benefits",
     connectChatBody:
       "Choose your preferred chat app for support tailored to your diet, routine, travel, training, and daily life. Send your plan and the advisor can continue from this recommendation.",
     connectChatButton: "Open chat",
@@ -205,39 +219,47 @@ const copy = {
     foodsHint:
       "Practical foods and ingredients to build into meals, routines, and future concierge conversations.",
     foodServing: "Serving",
-    finalizeError: "We could not start finalization. Please try again.",
-    finalizePlan: "Finalize plan",
-    finalizeReady: "Final plan ready",
-    finalizeWaiting: "Food and supplement guidance must finish before finalization.",
-    finalizingPlan: "Finalizing plan",
+    finalizeError: "We could not deliver the nutrition plan. Please try again.",
+    finalizePlan: "Deliver Nutrition Plan",
+    finalizeReady: "Nutrition plan delivered",
+    finalizeWaiting: "Food and supplement guidance must finish before delivery.",
+    finalizingPlan: "Delivering plan",
     finalReportDailyFocus: "Daily focus",
     finalReportNextSteps: "Next steps",
     finalReportSafetyNotes: "Safety notes",
     finalReportSynergies: "Food + supplement fit",
-    finalReportTitle: "Final recommendation pack",
     generated: "Generated",
     goals: "Goals",
     heroSubtitle:
-      "A concise food and supplement guidance pack based on the completed assessment.",
-    heroTitle: "Your personalised nutritional formulation",
+      "Review the foods and supplements, tell us what to change, then refine the plan around your preferences.",
+    heroTitle: "Let's refine your nutrition guidance",
     loading: "Loading your formulation",
     nutritionProgressBody:
-      "Your plan is being assembled in sections. Food and supplement guidance will appear here as each engine finishes.",
+      "We’re preparing your food and supplement guidance. The refinement tools will appear here as soon as everything is ready.",
     nutritionProgressFoods: "Food guidance",
     nutritionProgressPending: "Preparing",
     nutritionProgressReady: "Ready",
     nutritionProgressSupplements: "Supplement guidance",
-    nutritionProgressTitle: "Preparing your nutrition plan",
+    nutritionProgressTitle: "Preparing your guidance",
     planChatAssistantName: "MattaNutra AI",
     planChatBody:
       "Tell us what you would like to remove, swap, simplify, or adjust. The final plan will use this conversation as context.",
     planChatEmpty: "No refinement notes yet.",
     planChatEyebrow: "Plan refinement",
+    planChatError: "We could not send that message. Please try again.",
     planChatPlaceholder: "Anything you'd like to change?",
     planChatSend: "Send",
     planChatSending: "Sending",
+    planChatLimit:
+      "You have used the 8 refinement rounds for this plan. Press Deliver Nutrition Plan when you are ready.",
+    planChatThinking: "Thinking through your note...",
     planChatTitle: "Anything you'd like to change?",
+    planChatWaiting:
+      "Chat will unlock when your food and supplement guidance is ready.",
     dailyDose: "Dose",
+    deliveryHandoffBody:
+      "We’re tailoring the final plan from your food guidance, supplements, and refinement notes.",
+    deliveryHandoffTitle: "Delivering your nutrition plan",
     plan: "Plan",
     previewBadge: "Free preview",
     previewBody:
@@ -280,6 +302,7 @@ const copy = {
     ]
   },
   th: {
+    benefits: "ประโยชน์",
     connectChatBody:
       "เลือกแอปแชตที่คุณสะดวก เพื่อรับการดูแลต่อเนื่องที่ปรับตามอาหาร กิจวัตร การเดินทาง การฝึก และชีวิตประจำวัน ส่งแผนของคุณแล้ว advisor จะคุยต่อจากคำแนะนำนี้ได้",
     connectChatButton: "เปิดแชต",
@@ -311,40 +334,48 @@ const copy = {
     foodsHint:
       "อาหารและวัตถุดิบที่นำไปใช้กับมื้ออาหาร กิจวัตร และบทสนทนากับ concierge ต่อไปได้",
     foodServing: "ปริมาณ",
-    finalizeError: "ไม่สามารถเริ่มสรุปแผนได้ กรุณาลองอีกครั้ง",
-    finalizePlan: "สรุปแผนสุดท้าย",
-    finalizeReady: "แผนสุดท้ายพร้อมแล้ว",
+    finalizeError: "ไม่สามารถส่งมอบแผนโภชนาการได้ กรุณาลองอีกครั้ง",
+    finalizePlan: "ส่งมอบแผนโภชนาการ",
+    finalizeReady: "ส่งมอบแผนโภชนาการแล้ว",
     finalizeWaiting:
-      "ต้องรอคำแนะนำอาหารและอาหารเสริมให้เสร็จก่อนสรุปแผนสุดท้าย",
-    finalizingPlan: "กำลังสรุปแผนสุดท้าย",
+      "ต้องรอคำแนะนำอาหารและอาหารเสริมให้เสร็จก่อนส่งมอบแผน",
+    finalizingPlan: "กำลังส่งมอบแผน",
     finalReportDailyFocus: "สิ่งที่ควรโฟกัสในแต่ละวัน",
     finalReportNextSteps: "ขั้นตอนถัดไป",
     finalReportSafetyNotes: "หมายเหตุด้านความปลอดภัย",
     finalReportSynergies: "การใช้ร่วมกันของอาหารและอาหารเสริม",
-    finalReportTitle: "แพ็กคำแนะนำสุดท้าย",
     generated: "สร้างเมื่อ",
     goals: "เป้าหมาย",
     heroSubtitle:
-      "บรีฟคำแนะนำอาหารและอาหารเสริมจากคำตอบในแบบประเมินของคุณ",
-    heroTitle: "สูตรโภชนาการเฉพาะบุคคลของคุณ",
+      "ตรวจคำแนะนำอาหารและอาหารเสริม บอกเราว่าต้องการเปลี่ยนอะไร แล้วปรับแผนให้เข้ากับคุณ",
+    heroTitle: "มาปรับคำแนะนำโภชนาการของคุณกัน",
     loading: "กำลังโหลดสูตรของคุณ",
     nutritionProgressBody:
-      "ระบบกำลังประกอบแผนเป็นส่วน ๆ คำแนะนำอาหารและอาหารเสริมจะแสดงในหน้านี้เมื่อแต่ละส่วนเสร็จ",
+      "เรากำลังเตรียมคำแนะนำอาหารและอาหารเสริม เครื่องมือปรับแผนจะแสดงที่นี่เมื่อทุกอย่างพร้อม",
     nutritionProgressFoods: "คำแนะนำอาหาร",
     nutritionProgressPending: "กำลังเตรียม",
     nutritionProgressReady: "พร้อมแล้ว",
     nutritionProgressSupplements: "คำแนะนำอาหารเสริม",
-    nutritionProgressTitle: "กำลังเตรียมแผนโภชนาการของคุณ",
+    nutritionProgressTitle: "กำลังเตรียมคำแนะนำของคุณ",
     planChatAssistantName: "MattaNutra AI",
     planChatBody:
       "บอกเราได้ว่าต้องการเอาอะไรออก เปลี่ยนอะไร ทำให้ง่ายขึ้น หรือปรับให้เข้ากับชีวิตประจำวันอย่างไร แผนสุดท้ายจะใช้บทสนทนานี้เป็นบริบท",
     planChatEmpty: "ยังไม่มีโน้ตสำหรับปรับแผน",
     planChatEyebrow: "ปรับแผน",
+    planChatError: "ไม่สามารถส่งข้อความได้ กรุณาลองอีกครั้ง",
     planChatPlaceholder: "มีอะไรที่อยากเปลี่ยนไหม?",
     planChatSend: "ส่ง",
     planChatSending: "กำลังส่ง",
+    planChatLimit:
+      "คุณใช้ครบ 8 รอบสำหรับการปรับแผนนี้แล้ว กดส่งมอบแผนโภชนาการเมื่อพร้อม",
+    planChatThinking: "กำลังพิจารณาข้อความของคุณ...",
     planChatTitle: "มีอะไรที่อยากเปลี่ยนไหม?",
+    planChatWaiting:
+      "แชตจะใช้งานได้เมื่อคำแนะนำอาหารและอาหารเสริมพร้อมแล้ว",
     dailyDose: "ขนาด",
+    deliveryHandoffBody:
+      "เรากำลังออกแบบแผนสุดท้ายจากคำแนะนำอาหาร อาหารเสริม และบันทึกการปรับแต่งของคุณ",
+    deliveryHandoffTitle: "กำลังส่งมอบแผนโภชนาการของคุณ",
     plan: "แผน",
     previewBadge: "ตัวอย่างฟรี",
     previewBody:
@@ -434,11 +465,15 @@ function pendingReviewCount(result: FormulationResult) {
 }
 
 function planResultsHref(locale: Locale, planId: string) {
-  return `/${locale}/assessment/results?plan=${encodeURIComponent(planId)}`;
+  return nutritionRefinePath(locale, planId);
+}
+
+function planDeliveryHref(locale: Locale, planId: string) {
+  return nutritionPlanPath(locale, planId);
 }
 
 function planPaywallHref(locale: Locale, planId: string) {
-  return `/${locale}/assessment?plan=${encodeURIComponent(planId)}`;
+  return nutritionHealthScorePath(locale, planId);
 }
 
 function resultHasPendingSections(result: FormulationResult) {
@@ -452,12 +487,22 @@ function resultHasPendingSections(result: FormulationResult) {
   );
 }
 
-export function FormulationResults({ locale, planId }: FormulationResultsProps) {
-  const labels = copy[locale];
+export function FormulationResults({
+  initialResult = null,
+  locale,
+  planId
+}: FormulationResultsProps) {
+  const router = useRouter();
+  const labels = formulationResultsCopy[locale];
   const effectivePlanId = planId;
-  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [loadState, setLoadState] = useState<LoadState>(
+    initialResult ? "ready" : "loading"
+  );
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [result, setResult] = useState<FormulationResult | null>(null);
+  const [result, setResult] = useState<FormulationResult | null>(initialResult);
+  const [deliveryHandoffPlanId, setDeliveryHandoffPlanId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -507,26 +552,39 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
     };
   }, [effectivePlanId, locale, refreshNonce]);
 
+  useEffect(() => {
+    if (
+      deliveryHandoffPlanId === effectivePlanId &&
+      result?.nutritionReport
+    ) {
+      router.push(planDeliveryHref(locale, effectivePlanId));
+    }
+  }, [
+    deliveryHandoffPlanId,
+    effectivePlanId,
+    locale,
+    result?.nutritionReport,
+    router
+  ]);
+
   if (loadState === "loading") {
     return (
-      <section className="mx-auto w-full max-w-4xl px-6 py-12 sm:px-8">
-        <div className="rounded-lg bg-white px-6 py-12 text-center ring-1 ring-foreground/10">
-          <ArrowPathIcon
-            aria-hidden={true}
-            className="mx-auto size-8 animate-spin text-[#3A7BD5]"
-          />
-          <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#20343A]">
-            {labels.loading}
-          </h1>
-        </div>
-      </section>
+      <NutritionGuidancePreparingPanel
+        labels={labels}
+        locale={locale}
+      />
     );
   }
 
   if (loadState === "error" || !result) {
     return (
-      <section className="mx-auto w-full max-w-4xl px-6 py-12 sm:px-8">
-        <div className="rounded-lg bg-white px-6 py-12 text-center ring-1 ring-foreground/10">
+      <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+        <NutritionProgress
+          className="mb-8"
+          current="refine"
+          locale={locale}
+        />
+        <div className="rounded-lg bg-white p-6 text-center ring-1 ring-foreground/10 sm:p-8">
           <ExclamationTriangleIcon
             aria-hidden={true}
             className="mx-auto size-10 text-amber-500"
@@ -569,8 +627,32 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
   const lockedFoodCount = Math.max(0, Number(result.lockedFoodCount ?? 0));
   const unlockHref = planPaywallHref(locale, effectiveResultPlanId);
 
+  if (deliveryHandoffPlanId === effectiveResultPlanId) {
+    return (
+      <NutritionPlanPreparingPanel
+        labels={labels}
+        locale={locale}
+      />
+    );
+  }
+
+  if (nutritionPending) {
+    return (
+      <NutritionGuidancePreparingPanel
+        labels={labels}
+        locale={locale}
+      />
+    );
+  }
+
   return (
     <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+      <NutritionProgress
+        className="mb-8"
+        current="refine"
+        locale={locale}
+      />
+
       <div className="relative overflow-hidden rounded-lg bg-[#F3F8FF] p-6 ring-1 ring-[#3A7BD5]/10 sm:p-8 lg:p-10">
         <div
           aria-hidden={true}
@@ -647,19 +729,6 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
         </div>
       </div>
 
-      <SafetyReviewPanel
-        labels={labels}
-        planId={effectiveResultPlanId}
-        result={result}
-      />
-
-      {nutritionPending ? (
-        <NutritionProgressPanel
-          labels={labels}
-          statuses={sectionStatuses}
-        />
-      ) : null}
-
       {isPreview ? (
         <PreviewPaywallPanel
           labels={labels}
@@ -697,6 +766,9 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
           onFinalizationQueued={() => {
             setRefreshNonce((value) => value + 1);
           }}
+          onPlanDeliveryStarted={() =>
+            setDeliveryHandoffPlanId(effectiveResultPlanId)
+          }
           planId={effectiveResultPlanId}
           report={result.nutritionReport ?? null}
           reportStatus={sectionStatuses.report}
@@ -725,75 +797,63 @@ export function FormulationResults({ locale, planId }: FormulationResultsProps) 
   );
 }
 
-type PanelLabels = (typeof copy)["en"];
+type PanelLabels = (typeof formulationResultsCopy)["en"];
 
-function NutritionProgressPanel({
+function NutritionGuidancePreparingPanel({
   labels,
-  statuses
+  locale
 }: Readonly<{
   labels: PanelLabels;
-  statuses: NonNullable<FormulationResult["sectionStatuses"]>;
+  locale: Locale;
 }>) {
-  const sections = [
-    {
-      label: labels.nutritionProgressFoods,
-      status: statuses.foods
-    },
-    {
-      label: labels.nutritionProgressSupplements,
-      status: statuses.supplements
-    }
-  ];
-  const readyCount = sections.filter((section) => section.status === "ready").length;
-  const progress = Math.max(10, Math.round((readyCount / sections.length) * 100));
-
   return (
-    <section className="mt-8 rounded-lg bg-white p-5 ring-1 ring-[#3A7BD5]/15 sm:p-6">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <ArrowPathIcon
-              aria-hidden={true}
-              className="size-5 animate-spin text-[#3A7BD5]"
-            />
-            <h2 className="text-xl font-semibold tracking-normal text-[#20343A]">
-              {labels.nutritionProgressTitle}
-            </h2>
-          </div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            {labels.nutritionProgressBody}
-          </p>
-        </div>
+    <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+      <NutritionProgress
+        className="mb-8"
+        current="refine"
+        locale={locale}
+        pending={true}
+      />
+      <div
+        aria-live="polite"
+        className="rounded-lg bg-white p-6 ring-1 ring-foreground/10 transition-colors sm:p-8"
+      >
+        <h1 className="max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] sm:text-3xl">
+          {labels.nutritionProgressTitle}
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {labels.nutritionProgressBody}
+        </p>
+      </div>
+    </section>
+  );
+}
 
-        <div className="w-full lg:w-72">
-          <div className="h-2 rounded-full bg-[#E5EDF8]">
-            <div
-              className="h-full rounded-full bg-[#3A7BD5] transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {sections.map((section) => {
-              const ready = section.status === "ready";
-
-              return (
-                <span
-                  className={
-                    ready
-                      ? "rounded-full bg-[#ECFDF5] px-2.5 py-1 text-xs font-semibold text-[#126B4F] ring-1 ring-[#A7F3D0]"
-                      : "rounded-full bg-[#F3F8FF] px-2.5 py-1 text-xs font-semibold text-[#2F67B8] ring-1 ring-[#BFDBFE]"
-                  }
-                  key={section.label}
-                >
-                  {section.label}:{" "}
-                  {ready
-                    ? labels.nutritionProgressReady
-                    : labels.nutritionProgressPending}
-                </span>
-              );
-            })}
-          </div>
-        </div>
+function NutritionPlanPreparingPanel({
+  labels,
+  locale
+}: Readonly<{
+  labels: PanelLabels;
+  locale: Locale;
+}>) {
+  return (
+    <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-8 lg:py-14">
+      <NutritionProgress
+        className="mb-8"
+        current="plan"
+        locale={locale}
+        pending={true}
+      />
+      <div
+        aria-live="polite"
+        className="rounded-lg bg-white p-6 ring-1 ring-foreground/10 transition-colors sm:p-8"
+      >
+        <h1 className="max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] sm:text-3xl">
+          {labels.deliveryHandoffTitle}
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {labels.deliveryHandoffBody}
+        </p>
       </div>
     </section>
   );
@@ -885,15 +945,20 @@ function FoodGuidancePanel({
                     {rationale}
                   </p>
                   {tags.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {tags.slice(0, 6).map((tag) => (
-                        <span
-                          className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-xs font-semibold text-[#126B4F] ring-1 ring-[#A7F3D0]"
-                          key={tag}
-                        >
-                          {foodTagLabel(tag)}
-                        </span>
-                      ))}
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {labels.benefits}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {tags.slice(0, 6).map((tag) => (
+                          <span
+                            className="rounded-full bg-[#ECFDF5] px-2 py-0.5 text-xs font-semibold text-[#126B4F] ring-1 ring-[#A7F3D0]"
+                            key={tag}
+                          >
+                            {foodTagLabel(tag)}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -923,178 +988,6 @@ function FoodGuidancePanel({
         ) : null}
       </div>
     </section>
-  );
-}
-
-function SafetyReviewPanel({
-  labels,
-  planId,
-  result
-}: Readonly<{
-  labels: PanelLabels;
-  planId: string;
-  result: FormulationResult;
-}>) {
-  const [address, setAddress] = useState("");
-  const [channelType, setChannelType] = useState("line");
-  const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
-  const summary = result.safetySummary;
-  const foodSummary = result.foodSafetySummary;
-  const pendingReviews = pendingReviewCount(result);
-  const adjustedCount =
-    Math.max(0, Number(summary?.adjustedCount ?? 0)) +
-    Math.max(0, Number(foodSummary?.adjustedCount ?? 0));
-
-  if (!summary && !foodSummary) {
-    return null;
-  }
-
-  if (adjustedCount < 1 && pendingReviews < 1) {
-    return null;
-  }
-
-  const showReviewNotice =
-    Math.max(0, Number(summary?.reviewCount ?? summary?.hiddenCount ?? 0)) > 0;
-  const showFoodReviewNotice =
-    Math.max(
-      0,
-      Number(foodSummary?.reviewCount ?? foodSummary?.hiddenCount ?? 0)
-    ) > 0;
-  const messages = [
-    showReviewNotice ? labels.safetyReviewBody : null,
-    showFoodReviewNotice ? labels.foodSafetyReviewBody : null,
-    adjustedCount > 0 ? labels.doseAdjustedBody : null
-  ].filter((message): message is string => Boolean(message));
-  const addressPlaceholder =
-    channelType === "email"
-      ? labels.safetyCaptureEmailPlaceholder
-      : labels.safetyCaptureChatPlaceholder;
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaveState("saving");
-
-    try {
-      const response = await fetch(
-        `/api/assessment/${encodeURIComponent(planId)}/communication-channel`,
-        {
-          body: JSON.stringify({
-            address,
-            channelType
-          }),
-          cache: "no-store",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          method: "POST"
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Unable to save contact");
-      }
-
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
-  }
-
-  return (
-    <div className="mt-8 rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.78fr)]">
-        <div className="flex gap-3">
-          <ExclamationTriangleIcon
-            aria-hidden={true}
-            className="mt-0.5 size-5 flex-none text-amber-500"
-          />
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#20343A]">
-              {labels.safetyReviewTitle}
-            </p>
-            <div className="mt-2 space-y-2 text-sm leading-6 text-muted-foreground">
-              {messages.map((message) => (
-                <p key={message}>{message}</p>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {showReviewNotice ? (
-          <form
-            className="rounded-lg bg-[#F3F8FF] p-4 ring-1 ring-[#3A7BD5]/10"
-            onSubmit={handleSubmit}
-          >
-            <p className="text-sm font-semibold text-[#20343A]">
-              {labels.safetyCaptureTitle}
-            </p>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              {labels.safetyCaptureBody}
-            </p>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-[9rem_1fr] lg:grid-cols-1">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {labels.safetyCaptureChannel}
-                </span>
-                <select
-                  className="mt-2 block w-full rounded-md border border-foreground/10 bg-white px-3 py-2 text-sm font-medium text-[#20343A] outline-none transition focus:border-[#1FA77A] focus:ring-2 focus:ring-[#1FA77A]/15"
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    setChannelType(event.target.value);
-                    setSaveState("idle");
-                  }}
-                  value={channelType}
-                >
-                  <option value="line">{labels.safetyChannelLine}</option>
-                  <option value="whatsapp">{labels.safetyChannelWhatsapp}</option>
-                  <option value="telegram">{labels.safetyChannelTelegram}</option>
-                  <option value="email">{labels.safetyChannelEmail}</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {labels.safetyCaptureAddress}
-                </span>
-                <input
-                  className="mt-2 block w-full rounded-md border border-foreground/10 bg-white px-3 py-2 text-sm text-[#20343A] outline-none transition placeholder:text-muted-foreground/60 focus:border-[#1FA77A] focus:ring-2 focus:ring-[#1FA77A]/15"
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    setAddress(event.target.value);
-                    setSaveState("idle");
-                  }}
-                  placeholder={addressPlaceholder}
-                  type={channelType === "email" ? "email" : "text"}
-                  value={address}
-                />
-              </label>
-            </div>
-
-            <button
-              className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-[#3A7BD5] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2f67b4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3A7BD5] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!address.trim() || saveState === "saving"}
-              type="submit"
-            >
-              {labels.safetyCaptureSubmit}
-            </button>
-
-            {saveState === "saved" ? (
-              <p className="mt-3 text-sm font-medium text-[#126B4F]">
-                {labels.safetyCaptureSuccess}
-              </p>
-            ) : null}
-            {saveState === "error" ? (
-              <p className="mt-3 text-sm font-medium text-red-700">
-                {labels.safetyCaptureError}
-              </p>
-            ) : null}
-          </form>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -1169,6 +1062,7 @@ function PlanChatPanel({
   labels,
   locale,
   onFinalizationQueued,
+  onPlanDeliveryStarted,
   planId,
   report,
   reportStatus
@@ -1177,10 +1071,12 @@ function PlanChatPanel({
   labels: PanelLabels;
   locale: Locale;
   onFinalizationQueued: () => void;
+  onPlanDeliveryStarted: () => void;
   planId: string;
   report: FormulationResult["nutritionReport"];
   reportStatus?: "failed" | "pending" | "ready";
 }>) {
+  const router = useRouter();
   const [messages, setMessages] = useState<PlanChatMessage[]>([]);
   const [message, setMessage] = useState("");
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">(
@@ -1192,9 +1088,25 @@ function PlanChatPanel({
   const [finalizeState, setFinalizeState] = useState<
     "idle" | "queued" | "submitting" | "error"
   >("idle");
+  const [awaitingReplyMessageId, setAwaitingReplyMessageId] = useState<
+    string | null
+  >(null);
   const lastReadyMessageSignature = useRef("");
   const onPlanUpdatedRef = useRef(onFinalizationQueued);
+  const onPlanDeliveryStartedRef = useRef(onPlanDeliveryStarted);
+  const [pollVersion, setPollVersion] = useState(0);
   const pendingChat = messages.some((item) => item.status === "queued");
+  const userRoundCount = messages.filter((item) => item.role === "user").length;
+  const chatLimitReached = userRoundCount >= MAX_PLAN_CHAT_ROUNDS;
+  const waitingForSubmittedReply = Boolean(
+    awaitingReplyMessageId &&
+      !messages.some(
+        (item) =>
+          item.role === "assistant" &&
+          item.replyToMessageId === awaitingReplyMessageId &&
+          item.status === "ready"
+      )
+  );
   const finalizing =
     reportStatus === "pending" ||
     (finalizeState === "queued" && reportStatus !== "failed");
@@ -1202,12 +1114,19 @@ function PlanChatPanel({
     !canFinalize ||
     pendingChat ||
     finalizeState === "submitting" ||
-    finalizing ||
-    Boolean(report);
+    finalizing;
+  const chatDisabled = !canFinalize || chatLimitReached || sendState === "sending";
 
   useEffect(() => {
     onPlanUpdatedRef.current = onFinalizationQueued;
-  }, [onFinalizationQueued]);
+    onPlanDeliveryStartedRef.current = onPlanDeliveryStarted;
+  }, [onFinalizationQueued, onPlanDeliveryStarted]);
+
+  useEffect(() => {
+    if (canFinalize && !report) {
+      router.prefetch(planDeliveryHref(locale, planId));
+    }
+  }, [canFinalize, locale, planId, report, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1242,6 +1161,14 @@ function PlanChatPanel({
         const hasQueuedMessages = nextMessages.some(
           (item) => item.status === "queued"
         );
+        const hasSubmittedReply = awaitingReplyMessageId
+          ? nextMessages.some(
+              (item) =>
+                item.role === "assistant" &&
+                item.replyToMessageId === awaitingReplyMessageId &&
+                item.status === "ready"
+            )
+          : true;
         const readySignature = nextMessages
           .filter((item) => item.status === "ready")
           .map((item) => item.id)
@@ -1256,7 +1183,11 @@ function PlanChatPanel({
           onPlanUpdatedRef.current();
         }
 
-        if (hasQueuedMessages) {
+        if (awaitingReplyMessageId && hasSubmittedReply) {
+          setAwaitingReplyMessageId(null);
+        }
+
+        if (hasQueuedMessages || !hasSubmittedReply) {
           timer = window.setTimeout(loadMessages, 1500);
         }
       } catch {
@@ -1275,14 +1206,14 @@ function PlanChatPanel({
         window.clearTimeout(timer);
       }
     };
-  }, [planId, sendState]);
+  }, [awaitingReplyMessageId, canFinalize, planId, pollVersion]);
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmed = message.trim();
 
-    if (!trimmed || sendState === "sending") {
+    if (!trimmed || chatDisabled) {
       return;
     }
 
@@ -1306,12 +1237,17 @@ function PlanChatPanel({
       }
 
       const payload = (await response.json()) as {
+        messageId?: string;
         messages?: PlanChatMessage[];
       };
 
+      setAwaitingReplyMessageId(
+        typeof payload.messageId === "string" ? payload.messageId : null
+      );
       setMessages(Array.isArray(payload.messages) ? payload.messages : []);
       setMessage("");
       setSendState("idle");
+      setPollVersion((current) => current + 1);
     } catch {
       setSendState("error");
     }
@@ -1319,6 +1255,13 @@ function PlanChatPanel({
 
   async function handleFinalize() {
     if (finalizeDisabled) {
+      return;
+    }
+
+    const href = planDeliveryHref(locale, planId);
+
+    if (report) {
+      router.push(href);
       return;
     }
 
@@ -1338,6 +1281,7 @@ function PlanChatPanel({
       }
 
       setFinalizeState("queued");
+      onPlanDeliveryStartedRef.current();
       onFinalizationQueued();
     } catch {
       setFinalizeState("error");
@@ -1345,35 +1289,17 @@ function PlanChatPanel({
   }
 
   return (
-    <section className="mt-8 overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
-      <div className="p-5 sm:p-6 lg:p-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="inline-flex w-fit items-center gap-2 rounded-md bg-[#F3F8FF] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
-              <ChatBubbleLeftRightIcon aria-hidden={true} className="size-4" />
-              {labels.planChatEyebrow}
-            </div>
-            <h2 className="mt-4 max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
-              {labels.planChatTitle}
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-              {labels.planChatBody}
-            </p>
-          </div>
-          <div className="flex max-w-full flex-wrap items-center gap-2 text-xs lg:justify-end">
-            <span className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {labels.plan}
-            </span>
-            <a
-              className="max-w-full truncate rounded-md bg-background px-2.5 py-1.5 font-mono text-[11px] font-medium text-[#3A7BD5] ring-1 ring-foreground/10 hover:text-[#2F67B8]"
-              href={planResultsHref(locale, planId)}
-            >
-              {planId}
-            </a>
-          </div>
+    <section className="mt-10">
+      <div className="rounded-lg bg-white p-5 ring-1 ring-foreground/10 sm:p-6">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
+          <ChatBubbleLeftRightIcon aria-hidden={true} className="size-4" />
+          {labels.planChatEyebrow}
         </div>
+        <h2 className="mt-3 max-w-2xl text-2xl font-semibold tracking-normal text-[#20343A] text-balance sm:text-3xl">
+          {labels.planChatTitle}
+        </h2>
 
-        <div className="mt-6 space-y-3 rounded-lg bg-background/60 p-3 ring-1 ring-foreground/10">
+        <div className="mt-5 space-y-3">
           {loadState === "loading" ? (
             <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
               <ArrowPathIcon aria-hidden={true} className="size-4 animate-spin" />
@@ -1388,33 +1314,39 @@ function PlanChatPanel({
               const isAssistant = item.role === "assistant";
 
               return (
-                <div
-                  className={
-                    isAssistant
-                      ? "max-w-[92%] rounded-lg bg-white p-3 text-sm leading-6 text-[#20343A] ring-1 ring-foreground/10"
-                      : "ml-auto max-w-[92%] rounded-lg bg-[#3A7BD5] p-3 text-sm leading-6 text-white"
-                  }
-                  key={item.id}
-                >
-                  {isAssistant ? (
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
-                      {labels.planChatAssistantName}
-                    </p>
-                  ) : null}
-                  <p>{item.body}</p>
-                  {item.status === "queued" ? (
-                    <p className={isAssistant ? "mt-1 text-xs text-muted-foreground" : "mt-1 text-xs text-white/75"}>
-                      {labels.nutritionProgressPending}
-                    </p>
-                  ) : null}
+                <div className={isAssistant ? "flex justify-start" : "flex justify-end"} key={item.id}>
+                  <div
+                    className={
+                      isAssistant
+                        ? "inline-block w-fit max-w-[min(38rem,88%)] break-words rounded-2xl bg-[#F8FAFC] px-3.5 py-2.5 text-sm leading-6 text-[#20343A] ring-1 ring-foreground/10"
+                        : "inline-block w-fit max-w-[min(34rem,88%)] break-words rounded-2xl bg-[#3A7BD5] px-3.5 py-2.5 text-sm leading-6 text-white"
+                    }
+                  >
+                    {isAssistant ? (
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
+                        {labels.planChatAssistantName}
+                      </p>
+                    ) : null}
+                    <p className="whitespace-pre-line">{item.body}</p>
+                    {item.status === "queued" ? (
+                      <p className={isAssistant ? "mt-1 text-xs text-muted-foreground" : "mt-1 text-xs text-white/75"}>
+                        {labels.nutritionProgressPending}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               );
             })
           )}
-          {pendingChat ? (
-            <div className="flex items-center gap-2 rounded-lg bg-white p-3 text-sm text-muted-foreground ring-1 ring-foreground/10">
+          {pendingChat || waitingForSubmittedReply ? (
+            <div className="inline-flex w-fit max-w-[min(38rem,88%)] items-center gap-2 rounded-2xl bg-[#F8FAFC] px-3.5 py-2.5 text-sm text-muted-foreground ring-1 ring-foreground/10">
               <ArrowPathIcon aria-hidden={true} className="size-4 animate-spin text-[#3A7BD5]" />
-              {labels.planChatAssistantName}
+              <span>
+                <span className="font-medium text-[#20343A]">
+                  {labels.planChatAssistantName}
+                </span>{" "}
+                {labels.planChatThinking}
+              </span>
             </div>
           ) : null}
           {loadState === "error" ? (
@@ -1424,13 +1356,13 @@ function PlanChatPanel({
           ) : null}
         </div>
 
-        <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleSend}>
+        <form className="mt-4 space-y-3" onSubmit={handleSend}>
           <label className="sr-only" htmlFor="plan-chat-message">
             {labels.planChatPlaceholder}
           </label>
           <input
-            className="h-11 rounded-md border border-foreground/10 bg-white px-3 text-sm text-[#20343A] outline-none transition placeholder:text-muted-foreground/60 focus:border-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5]/15"
-            disabled={sendState === "sending"}
+            className="block h-11 w-full rounded-md border border-foreground/10 bg-white px-3 text-sm text-[#20343A] outline-none transition placeholder:text-muted-foreground/60 focus:border-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5]/15"
+            disabled={chatDisabled}
             id="plan-chat-message"
             maxLength={1200}
             onChange={(event) => {
@@ -1440,78 +1372,62 @@ function PlanChatPanel({
             placeholder={labels.planChatPlaceholder}
             value={message}
           />
-          <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#3A7BD5] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2f67b4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3A7BD5] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!message.trim() || sendState === "sending"}
-            type="submit"
-          >
-            <PaperAirplaneIcon aria-hidden={true} className="size-4" />
-            {sendState === "sending" ? labels.planChatSending : labels.planChatSend}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#3A7BD5] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2f67b4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3A7BD5] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!message.trim() || chatDisabled}
+              type="submit"
+            >
+              <PaperAirplaneIcon aria-hidden={true} className="size-4" />
+              {sendState === "sending" ? labels.planChatSending : labels.planChatSend}
+            </button>
+            <button
+              className="inline-flex h-11 items-center justify-center rounded-md bg-[#20343A] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#17282d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#20343A] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={finalizeDisabled}
+              onClick={handleFinalize}
+              type="button"
+            >
+              {finalizeState === "submitting" || finalizing
+                ? labels.finalizingPlan
+                : labels.finalizePlan}
+            </button>
+          </div>
         </form>
+        {!canFinalize ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            {labels.planChatWaiting}
+          </p>
+        ) : chatLimitReached ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            {labels.planChatLimit}
+          </p>
+        ) : null}
         {sendState === "error" ? (
+          <p className="mt-2 text-sm font-medium text-red-700">
+            {labels.planChatError}
+          </p>
+        ) : null}
+        {finalizing ? (
+          <p className="mt-2 text-sm font-medium text-[#2F67B8]">
+            {labels.finalizingPlan}
+          </p>
+        ) : report ? (
+          <p className="mt-2 text-sm font-medium text-[#126B4F]">
+            {labels.finalizeReady}
+          </p>
+        ) : null}
+        {finalizeState === "error" || reportStatus === "failed" ? (
           <p className="mt-2 text-sm font-medium text-red-700">
             {labels.finalizeError}
           </p>
         ) : null}
 
-        <div className="mt-6 flex flex-col gap-3 rounded-lg bg-[#F8FAFC] p-4 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-3">
-            {report ? (
-              <CheckCircleIcon aria-hidden={true} className="mt-0.5 size-5 flex-none text-[#126B4F]" />
-            ) : finalizing ? (
-              <ArrowPathIcon aria-hidden={true} className="mt-0.5 size-5 flex-none animate-spin text-[#3A7BD5]" />
-            ) : (
-              <DocumentTextIcon aria-hidden={true} className="mt-0.5 size-5 flex-none text-[#3A7BD5]" />
-            )}
-            <div>
-              <p className="text-sm font-semibold text-[#20343A]">
-                {report
-                  ? labels.finalizeReady
-                  : finalizing
-                    ? labels.finalizingPlan
-                    : labels.finalizePlan}
-              </p>
-              {!canFinalize ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {labels.finalizeWaiting}
-                </p>
-              ) : null}
-              {finalizeState === "error" ? (
-                <p className="mt-1 text-sm font-medium text-red-700">
-                  {labels.finalizeError}
-                </p>
-              ) : null}
-              {reportStatus === "failed" ? (
-                <p className="mt-1 text-sm font-medium text-red-700">
-                  {labels.finalizeError}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          <button
-            className="inline-flex h-10 items-center justify-center rounded-md bg-[#20343A] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#17282d] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#20343A] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={finalizeDisabled}
-            onClick={handleFinalize}
-            type="button"
-          >
-            {report
-              ? labels.finalizeReady
-              : finalizeState === "submitting" || finalizing
-                ? labels.finalizingPlan
-                : labels.finalizePlan}
-          </button>
-        </div>
-
-        {report ? (
-          <FinalReportPanel labels={labels} locale={locale} report={report} />
-        ) : null}
       </div>
     </section>
   );
 }
 
-function FinalReportPanel({
+export function FinalReportPanel({
   labels,
   locale,
   report
@@ -1537,10 +1453,7 @@ function FinalReportPanel({
 
   return (
     <div className="mt-6 rounded-lg border border-[#3A7BD5]/15 bg-[#F3F8FF] p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#2F67B8]">
-        {labels.finalReportTitle}
-      </p>
-      <h3 className="mt-2 text-2xl font-semibold tracking-normal text-[#20343A] text-balance">
+      <h3 className="text-2xl font-semibold tracking-normal text-[#20343A] text-balance">
         {getLocalizedText(report.title, locale)}
       </h3>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">
@@ -1673,15 +1586,20 @@ function FormulaPanel({
                     {rationale}
                   </p>
                   {benefitTags.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {benefitTags.map((tag) => (
-                        <span
-                          className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-semibold text-[#2F67B8] ring-1 ring-[#BFDBFE]"
-                          key={tag}
-                        >
-                          {foodTagLabel(tag)}
-                        </span>
-                      ))}
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {labels.benefits}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {benefitTags.map((tag) => (
+                          <span
+                            className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-xs font-semibold text-[#2F67B8] ring-1 ring-[#BFDBFE]"
+                            key={tag}
+                          >
+                            {foodTagLabel(tag)}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </div>

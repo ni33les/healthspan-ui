@@ -5,6 +5,7 @@ import type {
   FoodGuidanceBlueprint,
   FormulationBlueprint,
   PlanGuidanceAdjustment,
+  PlanFeedbackItem,
   PlanChatMessage
 } from "@/lib/formulation-types";
 import type { HealthScoreResult } from "@/lib/health-score";
@@ -13,11 +14,8 @@ import {
   buildExampleEmailSubject
 } from "@/lib/example-email";
 import { isLocale, type Locale } from "@/lib/i18n";
-import {
-  applyPlanGuidanceAdjustmentsToFoodGuidance,
-  applyPlanGuidanceAdjustmentsToFormulation,
-  loadActivePlanGuidanceAdjustments
-} from "@/lib/plan-guidance-adjustments";
+import { loadActivePlanFeedback } from "@/lib/plan-feedback";
+import { loadActivePlanGuidanceAdjustments } from "@/lib/plan-guidance-adjustments";
 import {
   buildReassessmentEmailHtml,
   buildReassessmentEmailSubject
@@ -35,9 +33,13 @@ export type HealthScoreWorkItem = Readonly<{
 
 export type FormulationWorkItem = Readonly<{
   answers: unknown;
+  chatMessages: PlanChatMessage[];
   locale: Locale;
   plan: AssessmentPlan;
+  planFeedback: PlanFeedbackItem[];
   planId: string;
+  previousFoodGuidance: FoodGuidanceBlueprint | null;
+  previousFormulation: FormulationBlueprint | null;
   requestId?: string;
   taskId: string;
   taskType: "generate_example_supplement_guidance" | "generate_supplement_guidance";
@@ -45,9 +47,13 @@ export type FormulationWorkItem = Readonly<{
 
 export type FoodGuidanceWorkItem = Readonly<{
   answers: unknown;
+  chatMessages: PlanChatMessage[];
   locale: Locale;
   plan: AssessmentPlan;
+  planFeedback: PlanFeedbackItem[];
   planId: string;
+  previousFoodGuidance: FoodGuidanceBlueprint | null;
+  previousFormulation: FormulationBlueprint | null;
   requestId?: string;
   taskId: string;
   taskType: "generate_example_food_guidance" | "generate_food_guidance";
@@ -114,6 +120,7 @@ export type NutritionPlanChatWorkItem = Readonly<{
   locale: Locale;
   messageId: string;
   plan: AssessmentPlan;
+  planFeedback: PlanFeedbackItem[];
   planId: string;
   taskId: string;
   taskType: "nutrition_plan_chat_reply";
@@ -128,9 +135,17 @@ export type NutritionReportWorkItem = Readonly<{
   guidanceAdjustments: PlanGuidanceAdjustment[];
   locale: Locale;
   plan: AssessmentPlan;
+  planFeedback: PlanFeedbackItem[];
   planId: string;
   taskId: string;
   taskType: "generate_nutrition_report";
+}>;
+
+export type NutritionPlanRefinementWorkItem = Readonly<{
+  planId: string;
+  refinementHash: string;
+  taskId: string;
+  taskType: "refine_nutrition_plan";
 }>;
 
 export type TaskWorkItem =
@@ -142,6 +157,7 @@ export type TaskWorkItem =
   | FormulationWorkItem
   | HealthScoreWorkItem
   | NutritionPlanChatWorkItem
+  | NutritionPlanRefinementWorkItem
   | NutritionReportWorkItem
   | ReassessmentEmailWorkItem
   | Readonly<{
@@ -279,18 +295,7 @@ async function buildFormulationWorkItem(task: TaskRecord) {
   if (!sql || !task.planId) {
     throw new Error("Formulation work item is missing a plan");
   }
-
-  const rows = await sql`
-    select answers, locale, selected_plan::text
-    from public.assessments
-    where plan_id = ${task.planId}::uuid
-    limit 1
-  `;
-  const row = rows[0];
-
-  if (!row) {
-    throw new Error("Assessment submission not found");
-  }
+  const context = await loadPlanGenerationContext(sql, task.planId);
 
   if (task.taskType === "generate_supplement_guidance") {
     await sql`
@@ -305,10 +310,14 @@ async function buildFormulationWorkItem(task: TaskRecord) {
   }
 
   return {
-    answers: row.answers,
-    locale: isLocale(row.locale) ? row.locale : "en",
-    plan: normalizeAssessmentPlan(row.selected_plan),
+    answers: context.answers,
+    chatMessages: context.chatMessages,
+    locale: context.locale,
+    plan: context.plan,
+    planFeedback: context.planFeedback,
     planId: task.planId,
+    previousFoodGuidance: context.foodGuidance,
+    previousFormulation: context.formulation,
     requestId: payloadText(task.payload, "requestId") || undefined,
     taskId: task.id,
     taskType: task.taskType as
@@ -323,18 +332,7 @@ async function buildFoodGuidanceWorkItem(task: TaskRecord) {
   if (!sql || !task.planId) {
     throw new Error("Food guidance work item is missing a plan");
   }
-
-  const rows = await sql`
-    select answers, locale, selected_plan::text
-    from public.assessments
-    where plan_id = ${task.planId}::uuid
-    limit 1
-  `;
-  const row = rows[0];
-
-  if (!row) {
-    throw new Error("Assessment submission not found");
-  }
+  const context = await loadPlanGenerationContext(sql, task.planId);
 
   if (task.taskType === "generate_food_guidance") {
     await sql`
@@ -349,10 +347,14 @@ async function buildFoodGuidanceWorkItem(task: TaskRecord) {
   }
 
   return {
-    answers: row.answers,
-    locale: isLocale(row.locale) ? row.locale : "en",
-    plan: normalizeAssessmentPlan(row.selected_plan),
+    answers: context.answers,
+    chatMessages: context.chatMessages,
+    locale: context.locale,
+    plan: context.plan,
+    planFeedback: context.planFeedback,
     planId: task.planId,
+    previousFoodGuidance: context.foodGuidance,
+    previousFormulation: context.formulation,
     requestId: payloadText(task.payload, "requestId") || undefined,
     taskId: task.id,
     taskType: task.taskType as
@@ -536,13 +538,7 @@ function mapChatMessage(row: Record<string, unknown>) {
   } satisfies PlanChatMessage;
 }
 
-async function buildNutritionAdvisorContext(task: TaskRecord) {
-  const sql = getSql();
-
-  if (!sql || !task.planId) {
-    throw new Error("Nutrition advisor work item is missing a plan");
-  }
-
+async function loadPlanGenerationContext(sql: NonNullable<ReturnType<typeof getSql>>, planId: string) {
   const rows = await sql`
     select
       assessments.answers,
@@ -573,7 +569,7 @@ async function buildNutritionAdvisorContext(task: TaskRecord) {
       order by version desc, generated_at desc
       limit 1
     ) food_guidance on true
-    where assessments.plan_id = ${task.planId}::uuid
+    where assessments.plan_id = ${planId}::uuid
     limit 1
   `;
   const row = rows[0];
@@ -585,38 +581,42 @@ async function buildNutritionAdvisorContext(task: TaskRecord) {
   const chatRows = await sql<Array<Record<string, unknown>>>`
     select id::text, role, body, status, created_at
     from public.plan_chat_messages
-    where plan_id = ${task.planId}::uuid
+    where plan_id = ${planId}::uuid
       and status in ('ready', 'queued')
     order by created_at asc
     limit 30
   `;
   const guidanceAdjustments = await loadActivePlanGuidanceAdjustments(
     sql,
-    task.planId
+    planId
   );
-  const formulation = row.formulation
-    ? applyPlanGuidanceAdjustmentsToFormulation(
-        row.formulation as FormulationBlueprint,
-        guidanceAdjustments
-      )
-    : null;
-  const foodGuidance = row.food_guidance
-    ? applyPlanGuidanceAdjustmentsToFoodGuidance(
-        row.food_guidance as FoodGuidanceBlueprint,
-        guidanceAdjustments
-      )
-    : null;
+  const planFeedback = await loadActivePlanFeedback(sql, planId);
 
   return {
     answers: row.answers,
     chatMessages: chatRows.map(mapChatMessage),
-    foodGuidance,
-    formulation,
+    foodGuidance: row.food_guidance
+      ? row.food_guidance as FoodGuidanceBlueprint
+      : null,
+    formulation: row.formulation
+      ? row.formulation as FormulationBlueprint
+      : null,
     guidanceAdjustments,
     locale: isLocale(row.locale) ? row.locale : "en",
     plan: normalizeAssessmentPlan(row.selected_plan),
-    planId: task.planId
+    planFeedback,
+    planId
   };
+}
+
+async function buildNutritionAdvisorContext(task: TaskRecord) {
+  const sql = getSql();
+
+  if (!sql || !task.planId) {
+    throw new Error("Nutrition advisor work item is missing a plan");
+  }
+
+  return loadPlanGenerationContext(sql, task.planId);
 }
 
 async function buildNutritionPlanChatWorkItem(task: TaskRecord) {
@@ -672,6 +672,19 @@ async function buildNutritionReportWorkItem(task: TaskRecord) {
   } satisfies NutritionReportWorkItem;
 }
 
+async function buildNutritionPlanRefinementWorkItem(task: TaskRecord) {
+  if (!task.planId) {
+    throw new Error("Nutrition plan refinement task is missing a plan");
+  }
+
+  return {
+    planId: task.planId,
+    refinementHash: payloadText(task.payload, "refinementHash"),
+    taskId: task.id,
+    taskType: "refine_nutrition_plan"
+  } satisfies NutritionPlanRefinementWorkItem;
+}
+
 export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem> {
   if (task.taskType === "analyze_healthscore") {
     return buildHealthScoreWorkItem(task);
@@ -701,6 +714,10 @@ export async function buildTaskWorkItem(task: TaskRecord): Promise<TaskWorkItem>
 
   if (task.taskType === "nutrition_plan_chat_reply") {
     return buildNutritionPlanChatWorkItem(task);
+  }
+
+  if (task.taskType === "refine_nutrition_plan") {
+    return buildNutritionPlanRefinementWorkItem(task);
   }
 
   if (task.taskType === "generate_nutrition_report") {

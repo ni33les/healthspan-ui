@@ -91,9 +91,13 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
     const analysis = await analyzeFormulationWithGrok({
       answers: workItem.answers,
       audit: async () => undefined,
+      chatMessages: workItem.chatMessages,
       locale: workItem.locale,
       plan: workItem.plan,
+      planFeedback: workItem.planFeedback,
       planId: workItem.planId,
+      previousFoodGuidance: workItem.previousFoodGuidance,
+      previousFormulation: workItem.previousFormulation,
       taskId: workItem.taskId
     });
 
@@ -107,9 +111,13 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
     const analysis = await analyzeFoodGuidanceWithGrok({
       answers: workItem.answers,
       audit: async () => undefined,
+      chatMessages: workItem.chatMessages,
       locale: workItem.locale,
       plan: workItem.plan,
+      planFeedback: workItem.planFeedback,
       planId: workItem.planId,
+      previousFoodGuidance: workItem.previousFoodGuidance,
+      previousFormulation: workItem.previousFormulation,
       taskId: workItem.taskId
     });
 
@@ -181,6 +189,7 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
       guidanceAdjustments: workItem.guidanceAdjustments,
       locale: workItem.locale,
       plan: workItem.plan,
+      planFeedback: workItem.planFeedback,
       planId: workItem.planId,
       taskId: workItem.taskId,
       userMessage: workItem.userMessage
@@ -198,11 +207,20 @@ export async function executeTaskWorkItem(workItem: TaskWorkItem) {
       guidanceAdjustments: workItem.guidanceAdjustments,
       locale: workItem.locale,
       plan: workItem.plan,
+      planFeedback: workItem.planFeedback,
       planId: workItem.planId,
       taskId: workItem.taskId
     });
 
     return { analysis };
+  }
+
+  if (workItem.taskType === "refine_nutrition_plan") {
+    return {
+      accepted: true,
+      planId: workItem.planId,
+      refinementHash: workItem.refinementHash
+    };
   }
 
   if (workItem.taskType === "content_status_change") {

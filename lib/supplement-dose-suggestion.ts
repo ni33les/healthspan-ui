@@ -48,7 +48,7 @@ export type SupplementDoseSuggestion = Readonly<{
 
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_GROK_MODEL = "grok-4.3";
-const DEFAULT_REASONING_EFFORT = "medium";
+const DEFAULT_REASONING_EFFORT = "low";
 const REQUEST_TIMEOUT_MS = 120_000;
 
 function configured(value: string | undefined) {

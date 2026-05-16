@@ -10,11 +10,17 @@ function pageEventForPath(pathname: string) {
     return { eventName: "home_viewed", eventType: "traffic" };
   }
 
-  if (/^\/(en|th)\/assessment$/.test(pathname)) {
+  if (
+    /^\/(en|th)\/assessment$/.test(pathname) ||
+    /^\/(en|th)\/nutrition\/quiz$/.test(pathname)
+  ) {
     return { eventName: "assessment_viewed", eventType: "funnel" };
   }
 
-  if (/^\/(en|th)\/assessment\/results/.test(pathname)) {
+  if (
+    /^\/(en|th)\/assessment\/results/.test(pathname) ||
+    /^\/(en|th)\/nutrition\/refine/.test(pathname)
+  ) {
     return { eventName: "formulation_page_viewed", eventType: "formulation" };
   }
 

@@ -12,7 +12,7 @@ import { validateLeadEmail } from "@/lib/email-validation";
 import { digitalOceanBillingSyncConfiguration } from "@/lib/finance-ledger";
 import { isLocale, type Locale } from "@/lib/i18n";
 import { requiredCapabilitiesForWorkTaskType } from "@/lib/system-agents";
-import { createTask } from "@/lib/task-service";
+import { createTask, type TaskDependencyType } from "@/lib/task-service";
 
 type StepState = "active" | "complete" | "failed" | "pending";
 type WorkTaskType =
@@ -24,6 +24,7 @@ type WorkTaskType =
   | "generate_nutrition_report"
   | "generate_supplement_guidance"
   | "nutrition_plan_chat_reply"
+  | "refine_nutrition_plan"
   | "send_example_email"
   | "send_reassessment_email"
   | "sync_digitalocean_billing";
@@ -40,6 +41,7 @@ const TASK_BUSINESS_VALUES = {
   foodGuidance: 450,
   healthScoreAnalysis: 500,
   nutritionPlanChatReply: 430,
+  nutritionPlanRefinement: 520,
   nutritionReport: 500,
   precision: 450,
   pro: 450,
@@ -135,6 +137,10 @@ async function createWorkTask(input: Readonly<{
   actorType: "ai" | "deterministic";
   businessValue: number;
   description?: string;
+  dependencies?: ReadonlyArray<{
+    taskId: string;
+    type?: TaskDependencyType;
+  }>;
   groupLabel: string;
   id?: string | null;
   idempotencyKey: string;
@@ -173,6 +179,7 @@ async function createWorkTask(input: Readonly<{
     },
     groupLabel: input.groupLabel,
     id: input.id,
+    dependencies: input.dependencies,
     description: input.description,
     idempotencyKey: input.idempotencyKey,
     idempotencyScope: input.idempotencyScope,
@@ -226,6 +233,7 @@ async function latestNutritionTaskGroupId(sql: postgres.Sql, planId: string) {
         'generate_supplement_guidance',
         'generate_food_guidance',
         'nutrition_plan_chat_reply',
+        'refine_nutrition_plan',
         'generate_nutrition_report'
       )
     order by created_at desc
@@ -322,7 +330,7 @@ export async function enqueueHealthScoreAnalysisTask({
     idempotencyScopeKey: `healthscore:${planId}`,
     payload: {},
     planId,
-    reasoningEffort: "low",
+    reasoningEffort: "none",
     source: "assessment",
     taskTitle: "Analyze HealthScore",
     taskType: "analyze_healthscore"
@@ -378,7 +386,7 @@ export async function enqueueNutritionPlanTasks({
     idempotencyScopeKey: `formulation:${planId}`,
     payload: { answers, locale, plan },
     planId,
-    reasoningEffort: "medium",
+    reasoningEffort: "low",
     source: "assessment",
     taskGroupId,
     taskTitle: "Generate supplement plan",
@@ -397,7 +405,7 @@ export async function enqueueNutritionPlanTasks({
     idempotencyScopeKey: `food-guidance:${planId}`,
     payload: { answers, locale, plan },
     planId,
-    reasoningEffort: "medium",
+    reasoningEffort: "low",
     source: "assessment",
     taskGroupId,
     taskTitle: "Generate food plan",
@@ -547,6 +555,226 @@ export async function enqueueNutritionPlanChatReplyTask({
   return taskId;
 }
 
+async function nutritionPlanRevisionContext(sql: postgres.Sql, planId: string) {
+  const rows = await sql<Array<{
+    chat_count: number;
+    chat_updated_at: Date | null;
+    feedback_count: number;
+    feedback_updated_at: Date | null;
+    food_version: number;
+    formulation_version: number;
+  }>>`
+    select
+      (
+        select coalesce(max(version), 0)
+        from public.formulations
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as formulation_version,
+      (
+        select coalesce(max(version), 0)
+        from public.food_guidance
+        where plan_id = ${planId}::uuid
+          and (
+            model_version is null
+            or model_version not like '%:example'
+          )
+      ) as food_version,
+      (
+        select count(*)::int
+        from public.plan_chat_messages
+        where plan_id = ${planId}::uuid
+          and status = 'ready'
+      ) as chat_count,
+      (
+        select max(updated_at)
+        from public.plan_chat_messages
+        where plan_id = ${planId}::uuid
+          and status = 'ready'
+      ) as chat_updated_at,
+      (
+        select count(*)::int
+        from public.plan_feedback
+        where plan_id = ${planId}::uuid
+          and status = 'active'
+      ) as feedback_count,
+      (
+        select max(updated_at)
+        from public.plan_feedback
+        where plan_id = ${planId}::uuid
+          and status = 'active'
+      ) as feedback_updated_at
+  `;
+  const row = rows[0];
+
+  return {
+    chatCount: Number(row?.chat_count ?? 0),
+    chatUpdatedAt: row?.chat_updated_at?.toISOString() ?? null,
+    feedbackCount: Number(row?.feedback_count ?? 0),
+    feedbackUpdatedAt: row?.feedback_updated_at?.toISOString() ?? null,
+    foodVersion: Number(row?.food_version ?? 0),
+    formulationVersion: Number(row?.formulation_version ?? 0)
+  };
+}
+
+async function activeNutritionPlanRefinementTaskId(
+  sql: postgres.Sql,
+  planId: string
+) {
+  const rows = await sql<Array<{ id: string }>>`
+    select id::text
+    from public.tasks
+    where plan_id = ${planId}::uuid
+      and context ->> 'source' = 'plan_refinement'
+      and task_type in (
+        'refine_nutrition_plan',
+        'generate_supplement_guidance',
+        'generate_food_guidance',
+        'generate_nutrition_report'
+      )
+      and status not in ('completed', 'failed', 'cancelled', 'skipped')
+    order by
+      business_value desc,
+      scheduled_for asc,
+      created_at asc
+    limit 1
+  `;
+
+  return rows[0]?.id ?? null;
+}
+
+async function freshNutritionReportTaskId(sql: postgres.Sql, planId: string) {
+  const rows = await sql<Array<{ task_id: string | null }>>`
+    with latest_inputs as (
+      select greatest(
+        coalesce((
+          select max(updated_at)
+          from public.formulations
+          where plan_id = ${planId}::uuid
+            and (
+              model_version is null
+              or model_version not like '%:example'
+            )
+        ), '-infinity'::timestamptz),
+        coalesce((
+          select max(updated_at)
+          from public.food_guidance
+          where plan_id = ${planId}::uuid
+            and (
+              model_version is null
+              or model_version not like '%:example'
+            )
+        ), '-infinity'::timestamptz),
+        coalesce((
+          select max(updated_at)
+          from public.plan_chat_messages
+          where plan_id = ${planId}::uuid
+            and status = 'ready'
+        ), '-infinity'::timestamptz),
+        coalesce((
+          select max(updated_at)
+          from public.plan_feedback
+          where plan_id = ${planId}::uuid
+            and status = 'active'
+        ), '-infinity'::timestamptz)
+      ) as latest_input_at
+    ),
+    latest_report as (
+      select task_id::text, generated_at
+      from public.nutrition_reports
+      where plan_id = ${planId}::uuid
+      order by version desc, generated_at desc
+      limit 1
+    )
+    select latest_report.task_id
+    from latest_report, latest_inputs
+    where latest_report.generated_at >= latest_inputs.latest_input_at
+    limit 1
+  `;
+
+  return rows[0]?.task_id ?? null;
+}
+
+export async function enqueueNutritionPlanRefinementTask({
+  planId,
+  requestedBy = "gui"
+}: Readonly<{
+  planId: string;
+  requestedBy?: string;
+}>) {
+  const sql = getSql();
+
+  if (!sql || !isUuid(planId)) {
+    return {
+      reason: "Plan not found",
+      taskId: null
+    };
+  }
+
+  const outputsReady = await fullNutritionOutputsReady(sql, planId);
+
+  if (!outputsReady.formulationReady || !outputsReady.foodGuidanceReady) {
+    return {
+      reason: "Food and supplement guidance must be ready before refinement.",
+      taskId: null
+    };
+  }
+
+  const activeTaskId = await activeNutritionPlanRefinementTaskId(sql, planId);
+
+  if (activeTaskId) {
+    return {
+      reason: null,
+      taskId: activeTaskId
+    };
+  }
+
+  const reportTaskId = await freshNutritionReportTaskId(sql, planId);
+
+  if (reportTaskId) {
+    return {
+      reason: null,
+      taskId: reportTaskId
+    };
+  }
+
+  const revisionContext = await nutritionPlanRevisionContext(sql, planId);
+  const refinementHash = stableHash(revisionContext);
+  const taskGroupId =
+    (await latestNutritionTaskGroupId(sql, planId)) ??
+    deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
+  const taskId = await createWorkTask({
+    actorType: "deterministic",
+    businessValue: TASK_BUSINESS_VALUES.nutritionPlanRefinement,
+    groupLabel: "Refine nutrition plan",
+    id: deterministicUuid(
+      `mattanutra:task:refine-nutrition-plan:${planId}:${refinementHash}`
+    ),
+    idempotencyKey: `refine-nutrition-plan:${planId}:${refinementHash}`,
+    idempotencyScope: "active",
+    idempotencyScopeKey: `refine-nutrition-plan:${planId}`,
+    payload: {
+      refinementHash,
+      requestedBy,
+      revisionContext
+    },
+    planId,
+    reasoningEffort: "none",
+    source: "plan_refinement",
+    taskGroupId,
+    taskTitle: "Refine nutrition plan",
+    taskType: "refine_nutrition_plan"
+  });
+
+  return {
+    reason: taskId ? null : "Unable to queue plan refinement.",
+    taskId
+  };
+}
+
 export async function enqueueNutritionReportTask({
   planId
 }: Readonly<{
@@ -570,55 +798,9 @@ export async function enqueueNutritionReportTask({
     };
   }
 
-  const rows = await sql<Array<{
-    chat_count: number;
-    chat_updated_at: Date | null;
-    food_version: number;
-    formulation_version: number;
-  }>>`
-    select
-      (
-        select version
-        from public.formulations
-        where plan_id = ${planId}::uuid
-          and (
-            model_version is null
-            or model_version not like '%:example'
-          )
-        order by version desc, generated_at desc
-        limit 1
-      ) as formulation_version,
-      (
-        select version
-        from public.food_guidance
-        where plan_id = ${planId}::uuid
-          and (
-            model_version is null
-            or model_version not like '%:example'
-          )
-        order by version desc, generated_at desc
-        limit 1
-      ) as food_version,
-      (
-        select count(*)::int
-        from public.plan_chat_messages
-        where plan_id = ${planId}::uuid
-          and status = 'ready'
-      ) as chat_count,
-      (
-        select max(updated_at)
-        from public.plan_chat_messages
-        where plan_id = ${planId}::uuid
-          and status = 'ready'
-      ) as chat_updated_at
-  `;
-  const row = rows[0];
-  const revisionHash = stableHash({
-    chatCount: Number(row?.chat_count ?? 0),
-    chatUpdatedAt: row?.chat_updated_at?.toISOString() ?? null,
-    foodVersion: Number(row?.food_version ?? 0),
-    formulationVersion: Number(row?.formulation_version ?? 0)
-  });
+  const revisionHash = stableHash(
+    await nutritionPlanRevisionContext(sql, planId)
+  );
   const taskGroupId =
     (await latestNutritionTaskGroupId(sql, planId)) ??
     deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
@@ -649,6 +831,102 @@ export async function enqueueNutritionReportTask({
   };
 }
 
+export async function enqueueRefinedNutritionPlanTasks({
+  parentTaskId,
+  planId,
+  refinementHash,
+  taskGroupId
+}: Readonly<{
+  parentTaskId: string;
+  planId: string;
+  refinementHash: string;
+  taskGroupId?: string | null;
+}>) {
+  const groupId =
+    taskGroupId ?? deterministicUuid(`mattanutra:task-group:nutrition-plan:${planId}`);
+  const supplementGuidanceTaskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.precision,
+    groupLabel: "Refine nutrition plan",
+    id: deterministicUuid(
+      `mattanutra:task:refine-supplement-guidance:${planId}:${refinementHash}`
+    ),
+    idempotencyKey: `refine-supplement-guidance:${planId}:${refinementHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `nutrition-refinement:${planId}:${refinementHash}`,
+    payload: {
+      parentTaskId,
+      refinementHash
+    },
+    planId,
+    reasoningEffort: "low",
+    source: "plan_refinement",
+    taskGroupId: groupId,
+    taskTitle: "Refine supplement guidance",
+    taskType: "generate_supplement_guidance"
+  });
+  const foodGuidanceTaskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.foodGuidance,
+    groupLabel: "Refine nutrition plan",
+    id: deterministicUuid(
+      `mattanutra:task:refine-food-guidance:${planId}:${refinementHash}`
+    ),
+    idempotencyKey: `refine-food-guidance:${planId}:${refinementHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `nutrition-refinement:${planId}:${refinementHash}`,
+    payload: {
+      parentTaskId,
+      refinementHash
+    },
+    planId,
+    reasoningEffort: "low",
+    source: "plan_refinement",
+    taskGroupId: groupId,
+    taskTitle: "Refine food guidance",
+    taskType: "generate_food_guidance"
+  });
+  const dependencies = [
+    supplementGuidanceTaskId
+      ? { taskId: supplementGuidanceTaskId, type: "successful" as const }
+      : null,
+    foodGuidanceTaskId
+      ? { taskId: foodGuidanceTaskId, type: "successful" as const }
+      : null
+  ].filter((dependency): dependency is {
+    taskId: string;
+    type: "successful";
+  } => Boolean(dependency));
+  const nutritionReportTaskId = await createWorkTask({
+    actorType: "ai",
+    businessValue: TASK_BUSINESS_VALUES.nutritionReport,
+    dependencies,
+    groupLabel: "Refine nutrition plan",
+    id: deterministicUuid(
+      `mattanutra:task:refined-nutrition-report:${planId}:${refinementHash}`
+    ),
+    idempotencyKey: `refined-nutrition-report:${planId}:${refinementHash}`,
+    idempotencyScope: "successful",
+    idempotencyScopeKey: `nutrition-refinement:${planId}:${refinementHash}`,
+    payload: {
+      parentTaskId,
+      refinementHash
+    },
+    planId,
+    reasoningEffort: "medium",
+    source: "plan_refinement",
+    taskGroupId: groupId,
+    taskTitle: "Finalize refined nutrition plan",
+    taskType: "generate_nutrition_report"
+  });
+
+  return {
+    foodGuidanceTaskId,
+    nutritionReportTaskId,
+    supplementGuidanceTaskId
+  };
+}
+
 async function enqueueExampleFormulationTask(
   planId: string,
   requestId: string,
@@ -670,7 +948,7 @@ async function enqueueExampleFormulationTask(
     idempotencyScopeKey: `free-example:${requestId}`,
     payload: { businessValueClass: "free_example", requestId },
     planId,
-    reasoningEffort: "medium",
+    reasoningEffort: "low",
     source: "free_example",
     taskGroupId,
     taskTitle: "Generate free supplement guidance",
@@ -711,7 +989,7 @@ async function enqueueExampleFoodGuidanceTask(
     idempotencyScopeKey: `free-example-food:${requestId}`,
     payload: { businessValueClass: "free_example", requestId },
     planId,
-    reasoningEffort: "medium",
+    reasoningEffort: "low",
     source: "free_example",
     taskGroupId,
     taskTitle: "Generate free food preview",

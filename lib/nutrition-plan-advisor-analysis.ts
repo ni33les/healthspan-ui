@@ -4,8 +4,10 @@ import type {
   FormulationBlueprint,
   NutritionReport,
   PlanGuidanceAdjustment,
+  PlanFeedbackItem,
   PlanChatMessage
 } from "@/lib/formulation-types";
+import { normalizePlanFeedbackItems } from "@/lib/plan-feedback";
 import type { Locale } from "@/lib/i18n";
 
 type AdvisorInput = Readonly<{
@@ -16,6 +18,7 @@ type AdvisorInput = Readonly<{
   guidanceAdjustments?: PlanGuidanceAdjustment[];
   locale: Locale;
   plan: AssessmentPlan;
+  planFeedback?: PlanFeedbackItem[];
   planId: string;
   taskId?: string | null;
   userMessage?: string | null;
@@ -136,6 +139,7 @@ function contextPayload(input: AdvisorInput) {
     guidanceAdjustments: input.guidanceAdjustments ?? [],
     locale: input.locale,
     plan: input.plan,
+    planFeedback: input.planFeedback ?? [],
     planId: input.planId,
     userMessage: input.userMessage
   };
@@ -149,15 +153,18 @@ function chatSystemPrompt(promptVersion: string) {
     "You may acknowledge preferences, dislikes, removals, swaps, routines, budget, travel, and timing.",
     "Do not claim to diagnose, treat, cure, prescribe, or replace clinician advice.",
     "Do not override MattaNutra safety state. If an item is hidden or under review, describe it as under team review.",
-    "When the client asks to remove, avoid, drop, skip, or exclude a food or supplement, return a structured adjustment so the platform can remove it from the visible plan.",
-    "Return JSON only with exactly two keys: reply and adjustments."
+    "When the client gives preferences, dislikes, removals, constraints, budget notes, capsule limits, routines, cuisine preferences, or safety disclosures, return structured feedback so the platform can use it in the next refined plan version.",
+    "Do not say that the current plan has already changed. Say the preference has been noted for refinement unless it is a safety disclosure.",
+    "If the client says to go ahead, regenerate, rebuild, refine, finalize, deliver, or update the plan, do not ask for confirmation. Acknowledge that refinement is starting.",
+    "If the client says there are no more changes, that is it, all good, ready, done, or asks to deliver the plan, do not ask for alternatives or another follow-up.",
+    "Return JSON only with exactly three keys: reply, feedback, and adjustments."
   ].join("\n");
 }
 
 function reportSystemPrompt(promptVersion: string) {
   return [
     `MattaNutra final nutrition report engine ${promptVersion}.`,
-    "You combine completed food guidance, supplement guidance, and the client's chat refinements into a polished final wellness plan.",
+    "You combine completed food guidance, supplement guidance, and the client's chat feedback into a polished final wellness plan.",
     "This is the delivered customer-facing recommendation pack. It is not medical advice, diagnosis, treatment, or a prescription.",
     "Do not include marketplace products, prices, URLs, markdown, or contact data.",
     "Do not turn hidden or under-review items into active recommendations. Mention review status conservatively if relevant.",
@@ -176,14 +183,18 @@ export async function analyzeNutritionPlanChatWithGrok(input: AdvisorInput) {
           {
             context: contextPayload(input),
             instructions: [
-              "Return a JSON object with exactly two fields: reply and adjustments.",
+              "Return a JSON object with exactly three fields: reply, feedback, and adjustments.",
               "Use the client's selected locale when possible.",
               "Keep the reply to 2 to 5 short sentences.",
               "Ask at most one useful follow-up question.",
-              "adjustments must be an array. Use an empty array when no visible plan item should be changed.",
-              "For every removal request, include { action: 'remove', itemType: 'food' | 'supplement', itemId, itemName, reason }.",
+              "Do not ask a follow-up question when the user is clearly asking you to regenerate, rebuild, refine, finalize, deliver, update, or go ahead with the plan.",
+              "Do not ask for more alternatives when the user says there are no more changes, that is it, all good, ready, or done.",
+              "feedback must be an array. Use an empty array when no durable preference or safety disclosure should be stored.",
+              "For durable feedback, include { feedbackType, itemType, itemId, itemName, body, urgency }.",
+              "Use feedbackType removal, dislike, preference, constraint, safety_disclosure, budget, capsule_limit, routine, cuisine, or other.",
+              "adjustments is a legacy array for removals only. Keep it in sync with removal feedback for now.",
               "Use the exact item id and item name from the current foodGuidance or formulation when the requested item matches one.",
-              "For broad avoidances not currently in the visible list, still include itemName and the best itemType if clear."
+              "For broad preferences not currently in the visible list, still return feedback with a clear body."
             ]
           },
           null,
@@ -199,6 +210,7 @@ export async function analyzeNutritionPlanChatWithGrok(input: AdvisorInput) {
   const parsed = parseJsonObject(completion.choices?.[0]?.message?.content);
   const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
   const adjustments = normalizeChatAdjustments(parsed.adjustments);
+  const feedback = normalizePlanFeedbackItems(parsed.feedback);
 
   if (!reply) {
     throw new Error("Nutrition advisor reply was missing");
@@ -210,6 +222,7 @@ export async function analyzeNutritionPlanChatWithGrok(input: AdvisorInput) {
     promptVersion: config.promptVersion,
     reasoningEffort: config.reasoningEffort,
     adjustments,
+    feedback,
     reply,
     responseId: completion.id,
     usage: completion.usage

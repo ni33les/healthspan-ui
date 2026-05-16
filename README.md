@@ -78,6 +78,16 @@ x-admin-claw-token: <ADMIN_CLAW_TOKEN>
 
 Dashboard URL tokens are only for browser dashboard access and are not accepted by machine APIs.
 
+OpenClaw concierge plan APIs:
+
+```txt
+GET /api/openclaw/plans/:planId/context
+POST /api/openclaw/plans/:planId/messages
+POST /api/openclaw/plans/:planId/refine
+```
+
+OpenClaw should use these APIs to read the current plan, store GUI or channel chat turns, submit structured feedback, and trigger the MattaNutra refinement loop. MattaNutra remains the system of record and queues external worker tasks for regenerated food guidance, supplement guidance, and the final report.
+
 Worker endpoints:
 
 ```txt
