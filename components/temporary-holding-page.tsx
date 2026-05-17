@@ -243,8 +243,8 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
         </header>
 
         <section className="pt-16 text-center sm:pt-20 lg:pt-24">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-[clamp(4.5rem,16vw,13rem)] font-semibold leading-none tracking-tight text-[#11195F]">
+          <div className="mx-auto w-full max-w-none">
+            <p className="mx-auto whitespace-nowrap text-center text-[clamp(3rem,14vw,12rem)] font-semibold leading-none tracking-tight text-[#11195F]">
               Matta<span className="text-[#5CBF8D]">Nutra</span>
             </p>
             <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-5 text-sm font-semibold uppercase tracking-[0.08em] text-[#879590] sm:text-base">
