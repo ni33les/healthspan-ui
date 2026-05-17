@@ -63,11 +63,24 @@ export async function POST(request: Request) {
 
   if (identityId && channelId) {
     await sql`
+      update public.communication_identities
+      set
+        metadata = coalesce(metadata, '{}'::jsonb) || ${sql.json({
+          lastCapturedAt: now,
+          locale,
+          source: "prd_holding_page"
+        })}::jsonb,
+        updated_at = now()
+      where id = ${identityId}::uuid
+    `;
+
+    await sql`
       update public.communication_channels
       set
         status = 'active',
         metadata = coalesce(metadata, '{}'::jsonb) || ${sql.json({
           lastCapturedAt: now,
+          locale,
           source: "prd_holding_page"
         })}::jsonb,
         updated_at = now()
@@ -124,6 +137,7 @@ export async function POST(request: Request) {
         'human',
         ${sql.json({
           capturedAt: now,
+          locale,
           source: "prd_holding_page"
         })}::jsonb,
         now(),
