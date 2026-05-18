@@ -13,8 +13,10 @@ type HoldingCopy = Readonly<{
   emailLabel: string;
   emailPlaceholder: string;
   error: string;
+  titleAfterAccent: string;
+  titleBeforeAccent: string;
+  titleHighlight: string;
   success: string;
-  title: string;
 }>;
 
 const copy: Record<Locale, HoldingCopy> = {
@@ -27,8 +29,10 @@ const copy: Record<Locale, HoldingCopy> = {
     emailLabel: "Email address",
     emailPlaceholder: "you@example.com",
     error: "We could not save that email. Please try again.",
+    titleAfterAccent: "right, takes the right amount of time.",
+    titleBeforeAccent: "Getting the",
+    titleHighlight: "right amount",
     success: "Thanks, we received your email. We'll let you know when we're ready.",
-    title: "Getting the right amount right, takes the right amount of time."
   },
   th: {
     body:
@@ -39,8 +43,10 @@ const copy: Record<Locale, HoldingCopy> = {
     emailLabel: "อีเมล",
     emailPlaceholder: "you@example.com",
     error: "บันทึกอีเมลไม่สำเร็จ โปรดลองอีกครั้ง",
+    titleAfterAccent: "ต้องใช้เวลาที่พอดี",
+    titleBeforeAccent: "การหาปริมาณที่",
+    titleHighlight: "ใช่",
     success: "ขอบคุณ เราได้รับอีเมลของคุณแล้ว และจะแจ้งให้ทราบเมื่อพร้อม",
-    title: "การหาปริมาณที่ใช่ ต้องใช้เวลาที่พอดี"
   }
 };
 
@@ -216,14 +222,21 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8 sm:px-8 lg:px-10">
         <header className="flex items-start justify-between">
           <a
-            className="text-left text-lg font-semibold tracking-tight text-[var(--brand-navy)]"
+            className="flex items-center gap-3 text-left text-xl font-semibold tracking-tight text-[var(--brand-navy)] sm:text-[1.35rem]"
             href={`/${locale}`}
           >
-            <span>
-              Matta<span className="text-[var(--brand-green)]">Nutra</span>
-            </span>
-            <span className="mt-1 block text-[0.5rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Knowing The Right Amount
+            <img
+              alt=""
+              className="size-11 shrink-0 object-contain sm:size-12"
+              src="/favicon.svg"
+            />
+            <span className="-translate-y-0.5 leading-tight">
+              <span>
+                Matta<span className="text-[var(--brand-green)]">Nutra</span>
+              </span>
+              <span className="mt-1 block text-[0.5rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Knowing The Right Amount
+              </span>
             </span>
           </a>
           <div className="isolate inline-flex rounded-md shadow-sm">
@@ -246,7 +259,7 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
           <div className="mx-auto w-full max-w-none">
             <img
               alt=""
-              className="mx-auto mb-8 size-28 object-contain sm:size-36 lg:size-44"
+              className="mx-auto mb-9 size-36 object-contain sm:size-48 lg:size-60"
               src="/favicon.svg"
             />
             <p className="mx-auto whitespace-nowrap text-center text-[clamp(3rem,14vw,12rem)] font-semibold leading-none tracking-tight text-[var(--brand-navy)]">
@@ -263,7 +276,11 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
         <section className="py-16 text-center sm:py-20 lg:py-24">
           <div className="mx-auto max-w-3xl">
             <h1 className="font-serif text-5xl font-bold tracking-tight text-balance text-[var(--brand-navy)] sm:text-7xl">
-              {content.title}
+              {content.titleBeforeAccent}{" "}
+              <span className="italic text-[var(--brand-green)]">
+                {content.titleHighlight}
+              </span>{" "}
+              {content.titleAfterAccent}
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-lg font-medium leading-8 text-pretty text-muted-foreground sm:text-xl/8">
               {content.body}
