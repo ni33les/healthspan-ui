@@ -46,25 +46,25 @@ const copy: Record<Locale, HoldingCopy> = {
 
 const features = [
   {
-    accentClass: "text-[#747FE3]",
+    accentClass: "text-[var(--brand-blue)]",
     caption: "From confusion",
     icon: Search,
     title: "Clarity"
   },
   {
-    accentClass: "text-[#5CBF8D]",
+    accentClass: "text-[var(--brand-green)]",
     caption: "You can trust",
     icon: Leaf,
     title: "Guidance"
   },
   {
-    accentClass: "text-[#5CBF8D]",
+    accentClass: "text-[var(--brand-turquoise)]",
     caption: "Just for you",
     icon: User,
     title: "Personalised"
   },
   {
-    accentClass: "text-[#5CBF8D]",
+    accentClass: "text-[var(--brand-green)]",
     caption: "In every choice",
     icon: Heart,
     title: "Confidence"
@@ -148,8 +148,8 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
   const content = copy[locale];
   const localeLinkClass = (targetLocale: Locale) =>
     targetLocale === locale
-      ? "z-10 bg-[#5CBF8D] text-white"
-      : "bg-white text-[#879590] hover:bg-[#FCFEFD] hover:text-[#11195F]";
+      ? "z-10 bg-[var(--brand-green)] text-white"
+      : "bg-white text-muted-foreground hover:bg-[var(--brand-soft-green)] hover:text-[var(--brand-navy)]";
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<"error" | "success" | null>(
@@ -212,29 +212,29 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#FCFEFD] text-[#11195F]">
+    <main className="min-h-screen bg-background text-[var(--brand-navy)]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8 sm:px-8 lg:px-10">
         <header className="flex items-start justify-between">
           <a
-            className="text-left text-lg font-semibold tracking-tight text-[#11195F]"
+            className="text-left text-lg font-semibold tracking-tight text-[var(--brand-navy)]"
             href={`/${locale}`}
           >
             <span>
-              Matta<span className="text-[#5CBF8D]">Nutra</span>
+              Matta<span className="text-[var(--brand-green)]">Nutra</span>
             </span>
-            <span className="mt-1 block text-[0.5rem] font-semibold uppercase tracking-[0.08em] text-[#879590]">
+            <span className="mt-1 block text-[0.5rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               Knowing The Right Amount
             </span>
           </a>
           <div className="isolate inline-flex rounded-md shadow-sm">
             <a
-              className={`relative inline-flex items-center rounded-l-md px-3 py-2 text-sm font-semibold ring-1 ring-inset ring-[#D9F3EC] transition ${localeLinkClass("th")}`}
+              className={`relative inline-flex items-center rounded-l-md px-3 py-2 text-sm font-semibold ring-1 ring-inset ring-[var(--brand-soft-green)] transition ${localeLinkClass("th")}`}
               href="/th"
             >
               TH
             </a>
             <a
-              className={`relative -ml-px inline-flex items-center rounded-r-md px-3 py-2 text-sm font-semibold ring-1 ring-inset ring-[#D9F3EC] transition ${localeLinkClass("en")}`}
+              className={`relative -ml-px inline-flex items-center rounded-r-md px-3 py-2 text-sm font-semibold ring-1 ring-inset ring-[var(--brand-soft-green)] transition ${localeLinkClass("en")}`}
               href="/en"
             >
               EN
@@ -244,29 +244,34 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
 
         <section className="pt-16 text-center sm:pt-20 lg:pt-24">
           <div className="mx-auto w-full max-w-none">
-            <p className="mx-auto whitespace-nowrap text-center text-[clamp(3rem,14vw,12rem)] font-semibold leading-none tracking-tight text-[#11195F]">
-              Matta<span className="text-[#5CBF8D]">Nutra</span>
+            <img
+              alt=""
+              className="mx-auto mb-8 size-28 object-contain sm:size-36 lg:size-44"
+              src="/favicon.svg"
+            />
+            <p className="mx-auto whitespace-nowrap text-center text-[clamp(3rem,14vw,12rem)] font-semibold leading-none tracking-tight text-[var(--brand-navy)]">
+              Matta<span className="text-[var(--brand-green)]">Nutra</span>
             </p>
-            <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-5 text-sm font-semibold uppercase tracking-[0.08em] text-[#879590] sm:text-base">
-              <span className="h-0.5 flex-1 bg-[#D9F3EC]" />
+            <div className="mx-auto mt-4 flex max-w-md items-center justify-center gap-5 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:text-base">
+              <span className="h-0.5 flex-1 bg-[var(--brand-turquoise)]/30" />
               <span>Knowing The Right Amount</span>
-              <span className="h-0.5 flex-1 bg-[#D9F3EC]" />
+              <span className="h-0.5 flex-1 bg-[var(--brand-turquoise)]/30" />
             </div>
           </div>
         </section>
 
         <section className="py-16 text-center sm:py-20 lg:py-24">
           <div className="mx-auto max-w-3xl">
-            <h1 className="font-serif text-5xl font-bold tracking-tight text-balance text-[#11195F] sm:text-7xl">
+            <h1 className="font-serif text-5xl font-bold tracking-tight text-balance text-[var(--brand-navy)] sm:text-7xl">
               {content.title}
             </h1>
-            <p className="mx-auto mt-8 max-w-2xl text-lg font-medium leading-8 text-pretty text-[#879590] sm:text-xl/8">
+            <p className="mx-auto mt-8 max-w-2xl text-lg font-medium leading-8 text-pretty text-muted-foreground sm:text-xl/8">
               {content.body}
             </p>
           </div>
         </section>
 
-        <section className="-mx-6 border-y border-[#D9F3EC] bg-white px-6 py-8 sm:-mx-8 sm:px-8 lg:-mx-10 lg:px-10">
+        <section className="-mx-6 border-y border-[var(--brand-turquoise)]/20 bg-white px-6 py-8 sm:-mx-8 sm:px-8 lg:-mx-10 lg:px-10">
           <div className="grid gap-6 sm:grid-cols-4">
             {features.map((feature) => (
               <div
@@ -284,23 +289,25 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
                   >
                     {feature.title}
                   </h2>
-                  <p className="mt-1 text-sm text-[#879590]">{feature.caption}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {feature.caption}
+                  </p>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="-mx-6 bg-[#FCFEFD] px-6 py-20 sm:-mx-8 sm:px-8 sm:py-28 lg:-mx-10 lg:px-10">
+        <section className="-mx-6 bg-[var(--brand-soft-turquoise)] px-6 py-20 sm:-mx-8 sm:px-8 sm:py-28 lg:-mx-10 lg:px-10">
           <div className="w-full">
-            <h2 className="mx-auto max-w-3xl text-center text-3xl font-bold uppercase tracking-[0.2em] text-[#11195F] sm:text-4xl">
+            <h2 className="mx-auto max-w-3xl text-center text-3xl font-bold uppercase tracking-[0.2em] text-[var(--brand-navy)] sm:text-4xl">
               {content.ctaTitle}
             </h2>
-            <p className="mx-auto mt-5 max-w-lg text-center text-base leading-7 text-[#879590] sm:text-lg">
+            <p className="mx-auto mt-5 max-w-lg text-center text-base leading-7 text-muted-foreground sm:text-lg">
               {content.ctaBody}
             </p>
             <form
-              className="mx-auto mt-10 flex max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-[#D9F3EC] bg-white sm:flex-row"
+              className="mx-auto mt-10 flex max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-[var(--brand-turquoise)]/20 bg-white sm:flex-row"
               onSubmit={onSubmit}
             >
               <label className="sr-only" htmlFor="holding-email">
@@ -308,7 +315,7 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
               </label>
               <input
                 autoComplete="email"
-                className="min-h-14 min-w-0 flex-auto rounded-[2rem] bg-white px-6 text-base text-[#11195F] outline-none placeholder:text-[#AAB6B2] focus:ring-4 focus:ring-[#D9F3EC] sm:rounded-r-none"
+                className="min-h-14 min-w-0 flex-auto rounded-[2rem] bg-white px-6 text-base text-[var(--brand-navy)] outline-none placeholder:text-muted-foreground/70 focus:ring-4 focus:ring-[var(--brand-turquoise)]/20 sm:rounded-r-none"
                 id="holding-email"
                 name="email"
                 onChange={(event) => setEmail(event.target.value)}
@@ -318,7 +325,7 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
                 value={email}
               />
               <button
-                className="min-h-14 flex-none bg-[#202A78] px-8 text-sm font-bold uppercase tracking-[0.16em] text-white transition hover:bg-[#11195F] disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-48"
+                className="min-h-14 flex-none bg-[var(--brand-blue)] px-8 text-sm font-bold uppercase tracking-[0.16em] text-white transition hover:bg-[var(--brand-blue-dark)] disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-48"
                 disabled={submitting}
                 type="submit"
               >
@@ -329,7 +336,9 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
             {message ? (
               <p
                 className={`mt-4 text-center text-sm font-medium ${
-                  messageType === "success" ? "text-[#3FA978]" : "text-red-600"
+                  messageType === "success"
+                    ? "text-[var(--brand-green-dark)]"
+                    : "text-red-600"
                 }`}
               >
                 {message}
@@ -338,15 +347,15 @@ export function TemporaryHoldingPage({ locale }: TemporaryHoldingPageProps) {
           </div>
         </section>
 
-        <footer className="-mx-6 border-t border-[#D9F3EC] bg-white px-6 py-8 sm:-mx-8 sm:px-8 lg:-mx-10 lg:px-10">
+        <footer className="-mx-6 border-t border-[var(--brand-turquoise)]/20 bg-white px-6 py-8 sm:-mx-8 sm:px-8 lg:-mx-10 lg:px-10">
           <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
-            <p className="text-sm text-[#AAB6B2]">
+            <p className="text-sm text-muted-foreground/70">
               &copy; 2026 MattaNutra. All rights reserved.
             </p>
             <div className="flex flex-wrap justify-center gap-x-7 gap-y-2">
               {socialLinks.map((item) => (
                 <a
-                  className="flex size-8 items-center justify-center text-[#11195F] transition hover:text-[#5CBF8D]"
+                  className="flex size-8 items-center justify-center text-[var(--brand-navy)] transition hover:text-[var(--brand-green)]"
                   href={item.href}
                   key={item.name}
                   rel="noreferrer"
